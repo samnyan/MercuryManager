@@ -36,6 +36,7 @@ function getLabel(fieldName: string): string {
     >
       <field-input
         :field="field"
+        :table="schema?.id"
         :field-schema="schemaFieldMap.get(field.name)"
       />
     </n-form-item>

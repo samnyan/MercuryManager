@@ -1,0 +1,38 @@
+{
+  "MusicParameterTable": {
+    "JacketAssetName": "JACKET"
+  },
+  "IconTable": {
+    "IconTextureName": "USERICON"
+  },
+  "UserPlateBackgroundTable": {
+    "UserPlateBacgroundTextureName": "USERPLATE"
+  },
+  "TicketItemTable": {
+    "IconTexturePath": "",
+    "MenuIconTexturePath": ""
+  },
+  "BoostItemTable": {
+    "IconTexturePath": ""
+  },
+  "StoreMenu": {
+    "ItemTexture": "CHANGE"
+  },
+  "TouchEffectTable": {
+    "OptionSettingTexture": "KAZAGURUMA"
+  },
+  "EMoneyBrandTable": {
+    "IconTexturePath": "Emoney"
+  },
+  "NavigateCharacterTable": {
+    "MonitorTextureName": "CHARACTER",
+    "SeeYouNormalTextureName": "CHARACTER",
+    "SeeYouRankInTextureName": "CHARACTER",
+    "SeeYouStageupTextureName": "CHARACTER",
+    "VIPJoinedTextureName": "CHARACTER"
+  },
+  "SugorokuUniqueParameterTable": {
+    "SugorokuSelectCenterImage": "EVENT",
+    "SugorokuCenterImage": "EVENT"
+  }
+}

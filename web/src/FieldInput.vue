@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import TexturePreview from './TexturePreview.vue'
+import textureBindings from './textureBindings.json'
+const imageBindings=textureBindings as Record<string,Record<string,string>>
 import ArrayEditor from './ArrayEditor.vue'
 import { computed, watch } from 'vue'
 import { NCheckbox, NInput, NInputNumber, NSelect } from 'naive-ui'
@@ -10,7 +12,7 @@ import { useReferenceStore } from './referenceStore'
 import type { TableFieldSchema } from './tableSchema'
 import enumsData from './enums.json'
 
-const props = defineProps<{ field: Field; fieldSchema?: TableFieldSchema }>()
+const props = defineProps<{ field: Field; table?: string; fieldSchema?: TableFieldSchema }>()
 
 const project = useProject()
 const refStore = useReferenceStore()
@@ -160,8 +162,9 @@ const isTextarea = computed(() => {
     />
 
     <texture-preview
-      v-if="['JacketAssetName', 'IconTextureName'].includes(field.name)"
+      v-if="table ? imageBindings[table]?.[field.name] !== undefined : field.name === 'JacketAssetName'"
       :field="field.name"
+      :table="table ?? 'MusicParameterTable'"
       :value="field.value"
     />
 
