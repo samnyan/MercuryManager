@@ -72,7 +72,19 @@
       "importHint": "选择游戏 Content 目录；导入为工程副本，不修改游戏文件。",
       "applyBeforeSave": "请先应用或取消编辑表单中的修改，再保存工程。",
       "textureLoading": "正在加载图片…",
-      "textureUnavailable": "图片不存在或无法解析"
+      "textureUnavailable": "图片不存在或无法解析",
+      "createTexture": "新建贴图",
+      "textureBase": "基底资源路径（相对 Content）",
+      "nextStep": "下一步",
+      "previousStep": "上一步",
+      "unsupportedTexture": "基底不支持构建：仅支持单 mip 内联 BGRA 贴图",
+      "imageTooLarge": "图片超过大小限制",
+      "textureSize": "输出尺寸（图片自动缩放）",
+      "outputAssetPath": "输出资源路径（相对 Content）",
+      "textureCreated": "资源草稿已创建并验证",
+      "useTextureBase": "以该素材作为基础构建新素材",
+      "selectResource": "选择一个资源查看预览",
+      "parentDirectory": "上级目录"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -724,7 +736,19 @@
       "importHint": "Select the game Content directory. Import copies data without modifying game files.",
       "applyBeforeSave": "Apply or cancel changes in the editor before saving the project.",
       "textureLoading": "Loading image…",
-      "textureUnavailable": "Image missing or could not be decoded"
+      "textureUnavailable": "Image missing or could not be decoded",
+      "createTexture": "Create texture",
+      "textureBase": "Base asset path (relative to Content)",
+      "nextStep": "Next",
+      "previousStep": "Back",
+      "unsupportedTexture": "Unsupported base: requires a single inline BGRA mip",
+      "imageTooLarge": "Image exceeds size limits",
+      "textureSize": "Output dimensions (image resized automatically)",
+      "outputAssetPath": "Output asset path (relative to Content)",
+      "textureCreated": "Resource draft created and verified",
+      "useTextureBase": "Build a new asset using this base",
+      "selectResource": "Select an asset to preview",
+      "parentDirectory": "Parent directory"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",

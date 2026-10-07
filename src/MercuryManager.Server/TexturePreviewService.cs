@@ -26,7 +26,8 @@ public sealed class TexturePreviewService(MusicWorkspaceStore projects) : IDispo
     {
         var relative=ResolveRelativePath(table,field,value);
         var root=projects.Get(id).ContentRoot ?? throw new InvalidOperationException("Import game tables first.");
-        var path=Path.Combine(root,relative);MusicWorkspaceStore.RejectLinks(path);
+        var draft=Path.Combine(projects.WorkspaceDirectory(id),"Resources",relative);MusicWorkspaceStore.RejectLinks(draft);
+        var path=File.Exists(draft)?draft:Path.Combine(root,relative);MusicWorkspaceStore.RejectLinks(path);
         // Monitor references omit the three-digit expression index; preview its first frame only.
         if(!File.Exists(path)&&table=="NavigateCharacterTable"&&field=="MonitorTextureName"){path=Path.Combine(root,relative[..^7]+"000.uasset");MusicWorkspaceStore.RejectLinks(path);}
         if(!File.Exists(path))throw new FileNotFoundException("Texture not found.");

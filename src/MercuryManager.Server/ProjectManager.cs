@@ -22,7 +22,7 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
         using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var p=Read(id);hash.AppendData(System.Text.Encoding.UTF8.GetBytes(p.Name+"\n"+p.ContentRoot));
         var working=Path.Combine(DirectoryFor(id),"working");
-        if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
+        if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Resources"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
         {hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(working,f)));hash.AppendData(File.ReadAllBytes(f));}
         return Convert.ToHexString(hash.GetHashAndReset());
     }
@@ -33,7 +33,8 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
     public string[] ExportFiles(string id)
     {
         RequireSaved(id);var source=Path.Combine(DirectoryFor(id),"working","Imported");
-        return Directory.GetFiles(source,"*",SearchOption.AllDirectories).Select(f=>Path.GetRelativePath(source,f).Replace(Path.DirectorySeparatorChar,'/')).Order(StringComparer.Ordinal).ToArray();
+        var resources=Path.Combine(DirectoryFor(id),"working","Resources");
+        return Directory.GetFiles(source,"*",SearchOption.AllDirectories).Select(f=>Path.GetRelativePath(source,f).Replace(Path.DirectorySeparatorChar,'/')).Concat(Directory.Exists(resources)?Directory.GetFiles(resources,"*",SearchOption.AllDirectories).Select(f=>Path.GetRelativePath(resources,f).Replace(Path.DirectorySeparatorChar,'/')):[]).Distinct().Order(StringComparer.Ordinal).ToArray();
     }
     public string[] ExportBase(string id,string mode,string? output)
     {

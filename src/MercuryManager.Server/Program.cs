@@ -7,6 +7,7 @@ builder.Services.AddSingleton<MusicWorkspaceStore>();
 builder.Services.AddSingleton<MessageWorkspaceStore>();
 builder.Services.AddSingleton<ProjectManager>();
 builder.Services.AddSingleton<TexturePreviewService>();
+builder.Services.AddSingleton<ResourceService>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
 var app = builder.Build();
 app.UseApiResults();
@@ -33,6 +34,10 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
+app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
+app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
+app.MapGet("/api/projects/{id}/resource-image",(string id,string path,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path)),"image/png"));
+app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });
 app.MapGet("/api/projects", (ProjectManager p)=>p.List());
 app.MapPost("/api/projects", (CreateProject request, ProjectManager p)=>p.Create(request.Name));
@@ -51,9 +56,9 @@ app.MapGet("/api/workspaces/{id}/music/{rowName}", (string id, string rowName, M
 app.MapPost("/api/workspaces/{id}/music/{rowName}", (string id, string rowName, Dictionary<string, System.Text.Json.JsonElement> changes, MusicWorkspaceStore store) => store.AddSong(id, rowName, changes));
 app.MapPatch("/api/workspaces/{id}/music/{rowName}", (string id, string rowName, Dictionary<string, System.Text.Json.JsonElement> changes, MusicWorkspaceStore store) => store.Patch(id, rowName, changes));
 app.MapPost("/api/workspaces/{id}/exports", (string id, MusicWorkspaceStore store) => store.Export(id));
-app.MapGet("/api/workspaces/{id}/changes", (string id, MusicWorkspaceStore store, MessageWorkspaceStore messages) => store.ChangedFiles(id).Concat(messages.Changes(id)).ToArray());
+app.MapGet("/api/workspaces/{id}/changes", (string id, MusicWorkspaceStore store, MessageWorkspaceStore messages, ResourceService resources) => store.ChangedFiles(id).Concat(messages.Changes(id)).Concat(resources.Changes(id)).ToArray());
 app.MapPost("/api/workspaces/{id}/save", (string id, MusicWorkspaceStore store) => store.SaveProject(id));
-app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, MusicWorkspaceStore store, MessageWorkspaceStore messages, ProjectManager projects) =>
+app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, MusicWorkspaceStore store, MessageWorkspaceStore messages, ProjectManager projects, ResourceService resources) =>
 {
     projects.RequireSaved(id);
     var written = projects.ExportBase(id,request.Mode,request.OutputDirectory).ToList();
@@ -61,6 +66,7 @@ app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, Musi
     var json = System.Text.Json.JsonSerializer.SerializeToElement(music);
     foreach (var file in json.GetProperty("writtenFiles").EnumerateArray()) written.Add(file.GetString()!);
     written.AddRange(messages.Write(id, request.Mode, request.OutputDirectory, request.Backup));
+    written.AddRange(resources.Write(id,request.Mode=="overwrite"?store.Get(id).ContentRoot!:request.OutputDirectory!,request.Backup));
     return new { writtenFiles = written.Distinct().ToArray() };
 });
 app.MapGet("/api/workspaces/{id}/tables", (string id, MessageWorkspaceStore store) => store.Tables(id));
