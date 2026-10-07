@@ -8,6 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CUE4Parse" Version="1.2.2.202610" />
+    <PackageReference Include="CUE4Parse-Conversion" Version="1.2.2.202610" />
     <PackageReference Include="UAssetAPI" Version="1.1.0" />
     <EmbeddedResource Include="wwwroot/**/*" LogicalName="Frontend/%(RecursiveDir)%(Filename)%(Extension)" />
     <Content Update="wwwroot/**/*;appsettings*.json" CopyToPublishDirectory="Never" ExcludeFromSingleFile="false" />

@@ -9,14 +9,15 @@ namespace MercuryManager.Server;
 
 public sealed class MessageWorkspaceStore(MusicWorkspaceStore projects)
 {
+    private string SourceRoot(string id) => Directory.Exists(Path.Combine(Root(id),"Imported")) ? Path.Combine(Root(id),"Imported") : projects.Get(id).ContentRoot!;
     private string Root(string id) => projects.WorkspaceDirectory(id);
     public string[] List(string id)
     {
-        var directory = Path.Combine(projects.Get(id).ContentRoot!, "Message");
+        var directory = Path.Combine(SourceRoot(id), "Message");
         if (!Directory.Exists(directory)) return [];
         return Directory.GetFiles(directory, "*.uasset").Select(Path.GetFileNameWithoutExtension).Order().ToArray()!;
     }
-    public string[] Tables(string id) => TableCatalog.Names.Where(name => File.Exists(Path.Combine(projects.Get(id).ContentRoot!, "Table", name + ".uasset"))).ToArray();
+    public string[] Tables(string id) => TableCatalog.Names.Where(name => File.Exists(Path.Combine(SourceRoot(id), "Table", name + ".uasset"))).ToArray();
     private static string Folder(string name) => name.StartsWith("Table__", StringComparison.Ordinal) ? "Table" : "Message";
     private static string AssetName(string name) => name.StartsWith("Table__", StringComparison.Ordinal) ? name[7..] : name;
     private string Base(string id, string name)
@@ -29,7 +30,7 @@ public sealed class MessageWorkspaceStore(MusicWorkspaceStore projects)
         {
             foreach (var ext in new[]{".uasset",".uexp"})
             {
-                var source = Path.Combine(projects.Get(id).ContentRoot!, Folder(name), AssetName(name) + ext);
+                var source = Path.Combine(SourceRoot(id), Folder(name), AssetName(name) + ext);
                 MusicWorkspaceStore.RejectLinks(source);
                 File.Copy(source, Path.ChangeExtension(path,ext), false);
             }

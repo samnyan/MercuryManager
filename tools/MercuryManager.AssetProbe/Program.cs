@@ -13,6 +13,13 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Length >= 1 && args[0] == "extract-schema")
+        {
+            var contentRoot = args.Length > 1 ? args[1] : "/media/Vostro3/Arcade/SDFE_3.07/WindowsNoEditor/Mercury/Content";
+            var webRoot = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "web"));
+            SchemaExtractor.Run(contentRoot, webRoot);
+            return 0;
+        }
         if (args.Length != 2) { Console.Error.WriteLine("Usage: AssetProbe <private-copy.uasset> <new-output-directory>"); return 2; }
         try
         {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {tr} from './i18n'
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { NButton, NInput, NSpace, useMessage } from 'naive-ui'
 import {fieldTitle} from './fieldLabels'
 import SongEditor from './SongEditor.vue'
@@ -40,14 +40,19 @@ async function save() { await run(async () => {
     const id = fields.value.find(f=>f.name==='UniqueID')?.value
     const changes = Object.fromEntries(fields.value.filter(f=>!f.readOnly && f.name!=='UniqueID').map(f=>[f.name,f.value]))
     await api(`/workspaces/${project.id}/music/${id}`, 'POST', changes)
-    await project.refresh(); editor.value=false; message.success(tr('ui.newSongAddedToDraft')); return
+    await project.refresh();await project.status(); editor.value=false; message.success(tr('ui.newSongAddedToDraft')); return
   }
   if (!selected.value) return
   const changes = Object.fromEntries(fields.value.filter(f => !f.readOnly && f.value !== selected.value!.fields.find(old => old.name === f.name)?.value).map(f => [f.name, f.value]))
   if (!Object.keys(changes).length) { message.info(tr('ui.noChanges')); return }
   await api(`/workspaces/${project.id}/music/${selected.value.rowName}`, 'PATCH', changes)
-  await project.refresh(); editor.value = false; message.success(tr('ui.draftSavedToWorkspace'))
+  await project.refresh();await project.status(); editor.value = false; message.success(tr('ui.draftSavedToWorkspace'))
 }) }
+
+onBeforeUnmount(()=>{project.pending=false})
+const originalForm=ref('')
+watch(editor,value=>{if(value)originalForm.value=JSON.stringify(fields.value);else project.pending=false},{flush:'sync'})
+watch(fields,()=>{project.pending=editor.value&&JSON.stringify(fields.value)!==originalForm.value},{deep:true,flush:'sync'})
 </script>
 <template>
 <n-space vertical :size="10">

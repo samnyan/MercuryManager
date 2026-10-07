@@ -1,57 +1,19 @@
 <script setup lang="ts">
 import {tr} from './i18n'
-import { ref, onMounted } from 'vue'
-import { NButton, NAutoComplete, NSpace, NModal, NCard, NRadioGroup, NRadio, NCheckbox, NInput, useMessage } from 'naive-ui'
-import { api } from './project'
-import { useProject } from './project'
-const project = useProject()
-const path = ref('')
-const busy = ref(false)
-const message = useMessage()
-const history = ref<string[]>([])
-onMounted(() => {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem('mercury-content-history') ?? '[]')
-    if (Array.isArray(stored)) history.value = [...new Set(stored.filter((value): value is string => typeof value === 'string' && value.length > 0))].slice(0, 10)
-    path.value = history.value[0] ?? ''
-  } catch { history.value = [] }
-})
-async function open() {
-  busy.value = true
-  try {
-    await project.open(path.value)
-    path.value = project.contentRoot
-    history.value = [path.value, ...history.value.filter(value => value !== path.value)].slice(0, 10)
-    try { localStorage.setItem('mercury-content-history', JSON.stringify(history.value)) }
-    catch { message.warning(tr('ui.projectOpenedButDirectoryHistoryCouldNotBeSaved')) }
-    message.success(tr('ui.contentProjectOpened'))
-  } catch(e) { message.error(e instanceof Error ? e.message : String(e)) }
-  finally { busy.value = false }
-}
-const writeDialog = ref(false)
-const mode = ref('overwrite')
-const backup = ref(true)
-const outputDirectory = ref('')
-const changedFiles = ref<string[]>([])
-async function saveProject() {
-  try { const result = await api<{projectPath:string}>(`/workspaces/${project.id}/save`, 'POST'); message.success(tr('ui.projectSaved') + result.projectPath) }
-  catch(e) { message.error(String(e)) }
-}
-async function showWrite() {
-  try { changedFiles.value = await api<string[]>(`/workspaces/${project.id}/changes`); writeDialog.value = true }
-  catch(e) { message.error(String(e)) }
-}
-async function write() {
-  if (mode.value === 'overwrite' && !confirm(tr('ui.overwriteSourceAssetsCloseTheGameFirst') + (backup.value ? tr('ui.bakBackupsWillBeCreated') : tr('ui.backupsAreDisabled')))) return
-  busy.value = true
-  try {
-    const result = await api<{writtenFiles:string[]}>(`/workspaces/${project.id}/write`, 'POST', {mode:mode.value,backup:backup.value,outputDirectory:outputDirectory.value})
-    await project.refresh()
-    writeDialog.value = false
-    message.success(tr('ui.filesWritten') + result.writtenFiles.length + tr('ui.files'))
-  } catch(e) { message.error(String(e)) }
-  finally { busy.value = false }
-}
-function close() { if (confirm(tr('ui.closeProjectSavedDraftsRemainUnappliedChangesAreDiscarded'))) project.close() }
+import {ref,watch} from 'vue'
+import {NButton,NSpace,NModal,NCard,NInput,NSelect,NRadioGroup,NRadio,NCheckbox,useMessage} from 'naive-ui'
+import {api,useProject} from './project'
+const project=useProject(),message=useMessage(),busy=ref(false),dialog=ref(''),path=ref(''),label=ref(''),selected=ref(''),projects=ref<{id:string;name:string;dirty:boolean}[]>([])
+const mode=ref('overwrite'),backup=ref(true),outputDirectory=ref(''),changedFiles=ref<string[]>([])
+async function run(action:()=>Promise<void>){busy.value=true;try{await action()}catch(e){message.error(String(e))}finally{busy.value=false}}
+async function showOpen(){await run(async()=>{projects.value=await api('/projects');dialog.value='open'})}
+async function accept(){await run(async()=>{if(dialog.value==='new')await project.create(label.value);else if(dialog.value==='open')await project.resume(selected.value);else{if(project.contentRoot&&!confirm(tr('ui.reimportConfirm')))return;await project.importTables(path.value)}dialog.value=''})}
+async function save(){if(project.pending){message.warning(tr('ui.applyBeforeSave'));return}await run(async()=>{await project.save();message.success(tr('ui.projectSaved')+project.name)})}
+async function refreshExportFiles(){changedFiles.value=await api<string[]>(mode.value==='directory'?`/projects/${project.id}/export-files`:`/workspaces/${project.id}/changes`)}
+watch(mode,value=>{if(dialog.value==='export'){if(value==='overwrite')outputDirectory.value=project.contentRoot;run(refreshExportFiles)}})
+watch(outputDirectory,value=>{if(dialog.value==='export')mode.value=value.trim()===project.contentRoot?'overwrite':'directory'})
+async function showExport(){await run(async()=>{await project.status();if(project.dirty||project.pending||!project.saved){message.warning(tr('ui.saveBeforeExport'));return}outputDirectory.value=project.contentRoot;mode.value='overwrite';await refreshExportFiles();dialog.value='export'})}
+async function write(){if(!outputDirectory.value.trim()){message.warning(tr('ui.serverOutputDirectoryRetainRelativeTablePaths'));return}if(outputDirectory.value.trim()===project.contentRoot)mode.value='overwrite';if(mode.value==='overwrite'&&!confirm(tr('ui.overwriteSourceAssetsCloseTheGameFirst')))return;await run(async()=>{const result=await api<{writtenFiles:string[]}>(`/workspaces/${project.id}/write`,'POST',{mode:mode.value,backup:backup.value,outputDirectory:outputDirectory.value});await project.status();await project.refresh();dialog.value='';message.success(tr('ui.filesWritten')+result.writtenFiles.length)})}
+function close(){if((project.dirty||project.pending)&&!confirm(tr('ui.unsavedClose')))return;project.close()}
 </script>
-<template><div style="padding:10px 140px 10px 16px"><n-space align="center"><strong style="font-size:22px">MercuryManager</strong><n-auto-complete v-model:value="path" :options="history" :placeholder="tr('ui.gameContentDirectoryServerPath')" style="width:min(420px,40vw)"/><n-button :loading="busy" @click="open">{{tr('ui.openProject')}}</n-button><n-button :disabled="!project.id" @click="close">{{tr('ui.closeProject')}}</n-button><n-button :disabled="!project.id" @click="saveProject">{{tr('ui.saveProject')}}</n-button><n-button :disabled="!project.id" @click="showWrite">{{tr('ui.writeFiles')}}</n-button></n-space></div><n-modal v-model:show="writeDialog"><n-card :title="tr('ui.writeChangedFiles')" style="width:620px"><n-space vertical><div v-for="file in changedFiles" :key="file">{{ file }}</div><div v-if="!changedFiles.length">{{tr('ui.noChangedFiles')}}</div><n-radio-group v-model:value="mode"><n-radio value="overwrite">{{tr('ui.overwriteSourceFiles')}}</n-radio><n-radio value="directory">{{tr('ui.exportToDirectory')}}</n-radio></n-radio-group><n-checkbox v-if="mode === 'overwrite'" v-model:checked="backup">{{tr('ui.createBakBackupsStopIfBackupExists')}}</n-checkbox><n-input v-else v-model:value="outputDirectory" :placeholder="tr('ui.serverOutputDirectoryRetainRelativeTablePaths')"/><div>{{tr('ui.onlyAppliedDraftChangesAreWrittenApplyChangesFirst')}}</div><n-button :loading="busy" :disabled="!changedFiles.length" type="primary" @click="write">{{tr('ui.confirmWrite')}}</n-button></n-space></n-card></n-modal></template>
+<template><div style="padding:10px 140px 10px 16px"><n-space align="center"><strong>MercuryManager</strong><template v-if="!project.id"><n-button @click="dialog='new'">{{tr('ui.newProject')}}</n-button><n-button @click="showOpen">{{tr('ui.openProject')}}</n-button></template><template v-else><span>{{project.name}}{{project.dirty||project.pending?' *':''}}</span><n-button :loading="busy" @click="save">{{tr('ui.saveProject')}}</n-button><n-button :disabled="busy" @click="close">{{tr('ui.closeProject')}}</n-button><n-button :disabled="busy" @click="path=project.contentRoot;dialog='import'">{{tr('ui.importGameTables')}}</n-button><n-button :disabled="busy||!project.contentRoot" @click="showExport">{{tr('ui.exportGameTables')}}</n-button></template></n-space></div><n-modal :show="!!dialog" :mask-closable="!busy" @update:show="v=>{if(!v&&!busy)dialog=''}"><n-card style="width:min(640px,95vw)" :title="tr('ui.'+({new:'newProject',open:'openProject',import:'importGameTables',export:'exportGameTables'}[dialog]??'openProject'))" :closable="!busy" @close="dialog=''"><n-space vertical><n-input v-if="dialog==='new'" v-model:value="label" :placeholder="tr('ui.projectName')" :disabled="busy"/><n-select v-if="dialog==='open'" v-model:value="selected" :options="projects.map(p=>({label:p.name+(p.dirty?' *':''),value:p.id}))"/><template v-if="dialog==='import'"><n-input v-model:value="path" :placeholder="tr('ui.gameContentDirectoryServerPath')" :disabled="busy"/><span>{{tr('ui.importHint')}}</span></template><template v-if="dialog==='export'"><n-input v-model:value="outputDirectory" :disabled="busy" :placeholder="tr('ui.serverOutputDirectoryRetainRelativeTablePaths')"/><n-input type="textarea" :value="changedFiles.length?changedFiles.join('\n'):tr('ui.noChangedFiles')" readonly :rows="10" style="font-family:monospace"/><n-radio-group v-model:value="mode"><n-radio value="overwrite">{{tr('ui.overwriteSourceFiles')}}</n-radio><n-radio value="directory">{{tr('ui.exportToDirectory')}}</n-radio></n-radio-group><n-checkbox v-if="mode==='overwrite'" v-model:checked="backup">{{tr('ui.createBakBackupsStopIfBackupExists')}}</n-checkbox></template><n-button type="primary" :loading="busy" :disabled="busy" @click="dialog==='export'?write():accept()">{{tr(dialog==='export'?'ui.confirmWrite':'ui.confirm')}}</n-button></n-space></n-card></n-modal></template>

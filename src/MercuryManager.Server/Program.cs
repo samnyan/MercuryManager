@@ -5,6 +5,7 @@ var startup = StartupOptions.FromConfiguration(builder.Configuration);
 builder.WebHost.UseUrls(startup.ListenUrl);
 builder.Services.AddSingleton<MusicWorkspaceStore>();
 builder.Services.AddSingleton<MessageWorkspaceStore>();
+builder.Services.AddSingleton<ProjectManager>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
 var app = builder.Build();
 app.UseApiResults();
@@ -31,6 +32,12 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });
+app.MapGet("/api/projects", (ProjectManager p)=>p.List());
+app.MapPost("/api/projects", (CreateProject request, ProjectManager p)=>p.Create(request.Name));
+app.MapGet("/api/projects/{id}/export-files", (string id,ProjectManager p)=>p.ExportFiles(id));
+app.MapGet("/api/projects/{id}", (string id,ProjectManager p)=>p.Status(id));
+app.MapPost("/api/projects/{id}/import", (string id,OpenWorkspace request,ProjectManager p)=>p.Import(id,request.ServerPath));
+app.MapPost("/api/projects/{id}/save", (string id,ProjectManager p)=>p.Save(id));
 app.MapPost("/api/workspaces", (OpenWorkspace request, MusicWorkspaceStore store) => store.Open(request.ServerPath));
 app.MapGet("/api/workspaces/{id}", (string id, MusicWorkspaceStore store) => store.Get(id));
 app.MapGet("/api/workspaces/{id}/music", (string id, MusicWorkspaceStore store) => store.ReadRows(id));
@@ -44,14 +51,15 @@ app.MapPatch("/api/workspaces/{id}/music/{rowName}", (string id, string rowName,
 app.MapPost("/api/workspaces/{id}/exports", (string id, MusicWorkspaceStore store) => store.Export(id));
 app.MapGet("/api/workspaces/{id}/changes", (string id, MusicWorkspaceStore store, MessageWorkspaceStore messages) => store.ChangedFiles(id).Concat(messages.Changes(id)).ToArray());
 app.MapPost("/api/workspaces/{id}/save", (string id, MusicWorkspaceStore store) => store.SaveProject(id));
-app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, MusicWorkspaceStore store, MessageWorkspaceStore messages) =>
+app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, MusicWorkspaceStore store, MessageWorkspaceStore messages, ProjectManager projects) =>
 {
-    var written = new List<string>();
+    projects.RequireSaved(id);
+    var written = projects.ExportBase(id,request.Mode,request.OutputDirectory).ToList();
     var music = store.WriteFiles(id, request.Mode, request.OutputDirectory, request.Backup);
     var json = System.Text.Json.JsonSerializer.SerializeToElement(music);
     foreach (var file in json.GetProperty("writtenFiles").EnumerateArray()) written.Add(file.GetString()!);
     written.AddRange(messages.Write(id, request.Mode, request.OutputDirectory, request.Backup));
-    return new { writtenFiles = written };
+    return new { writtenFiles = written.Distinct().ToArray() };
 });
 app.MapGet("/api/workspaces/{id}/tables", (string id, MessageWorkspaceStore store) => store.Tables(id));
 app.MapGet("/api/workspaces/{id}/messages", (string id, MessageWorkspaceStore store) => store.List(id));
@@ -81,6 +89,7 @@ if (startup.LaunchBrowser)
 }
 app.Run();
 
+public sealed record CreateProject(string Name);
 public sealed record OpenWorkspace(string ServerPath);
 public sealed record MessageEdit(string RowName, Dictionary<string,System.Text.Json.JsonElement> Fields);
 public sealed record WriteRequest(string Mode, string? OutputDirectory, bool Backup = true);

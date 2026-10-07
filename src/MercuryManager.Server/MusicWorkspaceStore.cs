@@ -18,10 +18,11 @@ public sealed class MusicWorkspaceStore
     public MusicWorkspaceStore(IConfiguration configuration)
     {
         root = Path.GetFullPath(configuration["workspace-root"] ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MercuryManager", "workspaces"));
+            AppContext.BaseDirectory, "workspace"));
         Directory.CreateDirectory(root);
     }
 
+    public string ProjectRoot => root;
     public Workspace Open(string path)
     {
         path = Path.GetFullPath(path);
@@ -313,7 +314,7 @@ public sealed class MusicWorkspaceStore
     private string DirectoryFor(string id)
     {
         if (!Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("Invalid workspace ID.");
-        return Path.Combine(root, id);
+        return File.Exists(Path.Combine(root,id,"project-info.json")) ? Path.Combine(root,id,"working") : Path.Combine(root,id);
     }
 
     private static MusicField Field(PropertyData p)
