@@ -286,6 +286,14 @@
           "SkiaSharp.NativeAssets.macOS": "2.88.9"
         }
       },
+      "SkiaSharp.NativeAssets.Linux.NoDependencies": {
+        "type": "Transitive",
+        "resolved": "2.88.9",
+        "contentHash": "ZA9syMvIuoqxPhyFTgde/bNV6VMdeYT9gRdNQT5O+ZjPK+a/nVkKRrqBbn7EVA7XQiW+xIycyT4gW/sea9eh+w==",
+        "dependencies": {
+          "SkiaSharp": "2.88.9"
+        }
+      },
       "SkiaSharp.NativeAssets.macOS": {
         "type": "Transitive",
         "resolved": "2.88.9",
@@ -383,6 +391,7 @@
         "dependencies": {
           "CUE4Parse": "[1.2.2.202610, )",
           "CUE4Parse-Conversion": "[1.2.2.202610, )",
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[2.88.9, )",
           "UAssetAPI": "[1.1.0, )"
         }
       }

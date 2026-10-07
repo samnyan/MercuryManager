@@ -70,7 +70,9 @@
       "unsavedClose": "工程有未保存修改，仍要关闭吗？修改暂存于工作区。",
       "reimportConfirm": "重新导入会替换当前数据和草稿，确认继续？",
       "importHint": "选择游戏 Content 目录；导入为工程副本，不修改游戏文件。",
-      "applyBeforeSave": "请先应用或取消编辑表单中的修改，再保存工程。"
+      "applyBeforeSave": "请先应用或取消编辑表单中的修改，再保存工程。",
+      "textureLoading": "正在加载图片…",
+      "textureUnavailable": "图片不存在或无法解析"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -720,7 +722,9 @@
       "unsavedClose": "Unsaved changes remain in the working copy. Close anyway?",
       "reimportConfirm": "Reimport replaces current data and drafts. Continue?",
       "importHint": "Select the game Content directory. Import copies data without modifying game files.",
-      "applyBeforeSave": "Apply or cancel changes in the editor before saving the project."
+      "applyBeforeSave": "Apply or cancel changes in the editor before saving the project.",
+      "textureLoading": "Loading image…",
+      "textureUnavailable": "Image missing or could not be decoded"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",

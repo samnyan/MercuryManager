@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TexturePreview from './TexturePreview.vue'
 import { computed, watch } from 'vue'
 import { NCheckbox, NInput, NInputNumber } from 'naive-ui'
 import type { Field } from './project'
@@ -72,6 +73,7 @@ const isTextarea = computed(() => {
       @update:value="field.value = $event"
     />
 
+    <texture-preview v-if="['JacketAssetName','IconTextureName'].includes(field.name)" :field="field.name" :value="field.value"/>
     <div v-if="targetMessage" class="ref-preview-container">
       <div v-if="!field.value || !String(field.value).trim()" class="ref-status-box ref-status-empty">
         <span class="ref-badge">{{ targetMessage }}</span>

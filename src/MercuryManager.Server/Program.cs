@@ -6,6 +6,7 @@ builder.WebHost.UseUrls(startup.ListenUrl);
 builder.Services.AddSingleton<MusicWorkspaceStore>();
 builder.Services.AddSingleton<MessageWorkspaceStore>();
 builder.Services.AddSingleton<ProjectManager>();
+builder.Services.AddSingleton<TexturePreviewService>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
 var app = builder.Build();
 app.UseApiResults();
@@ -31,6 +32,7 @@ app.Use(async (context, next) =>
     }
     await next(context);
 });
+app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });
 app.MapGet("/api/projects", (ProjectManager p)=>p.List());
 app.MapPost("/api/projects", (CreateProject request, ProjectManager p)=>p.Create(request.Name));
