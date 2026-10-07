@@ -84,7 +84,12 @@
       "textureCreated": "资源草稿已创建并验证",
       "useTextureBase": "以该素材作为基础构建新素材",
       "selectResource": "选择一个资源查看预览",
-      "parentDirectory": "上级目录"
+      "parentDirectory": "上级目录",
+      "textureMode": "贴图",
+      "genericMode": "通用",
+      "viewerName": "名称",
+      "viewerType": "类型",
+      "viewerValue": "值"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -748,7 +753,12 @@
       "textureCreated": "Resource draft created and verified",
       "useTextureBase": "Build a new asset using this base",
       "selectResource": "Select an asset to preview",
-      "parentDirectory": "Parent directory"
+      "parentDirectory": "Parent directory",
+      "textureMode": "Texture",
+      "genericMode": "Generic",
+      "viewerName": "Name",
+      "viewerType": "Type",
+      "viewerValue": "Value"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",

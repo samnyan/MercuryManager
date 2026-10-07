@@ -1,21 +1,113 @@
 <script setup lang="ts">
-import {tr,i18n,setLanguage,englishName} from './i18n'
-import { ref,computed,h,watch } from 'vue'
-import { NConfigProvider, NMessageProvider, NLayout, NLayoutHeader, NLayoutSider, NLayoutContent, NMenu, NTabs,NTab,NInput,NSelect,zhCN,enUS } from 'naive-ui'
+import { ref } from 'vue'
+import {
+  NConfigProvider,
+  NMessageProvider,
+  NLayout,
+  NLayoutHeader,
+  NLayoutSider,
+  NLayoutContent,
+  NDrawer,
+  NDrawerContent,
+  zhCN,
+  enUS
+} from 'naive-ui'
 import { useRouter } from 'vue-router'
-import {useProject} from './project'
-import ProjectToolbar from './ProjectToolbar.vue'
-import ResourceTree from './ResourceTree.vue'
-import {tableCatalog} from './tableCatalog'
-const groupKeys:Record<string,string>={"\u6b4c\u66f2\u4e0e\u89e3\u9501": "songsAndUnlocks", "\u6210\u957f\u4e0e\u6536\u96c6": "progressionAndCollection", "\u7cfb\u7edf\u4e0e\u754c\u9762": "systemAndInterface", "\u9009\u66f2\u4e0e\u89c6\u89c9": "selectionAndVisuals", "\u97f3\u6548\u4e0e\u97f3\u91cf": "soundAndVolume", "\u6d3b\u52a8\u4e0e\u6311\u6218": "eventsAndChallenges", "\u6e38\u73a9\u4e0e\u5224\u5b9a": "gameplayAndJudgments"}
-const router = useRouter(),project=useProject()
-const mode=ref('Table'),navSearch=ref('')
-watch(()=>router.currentRoute.value.path,path=>{mode.value=path.startsWith('/resource')?'Resource':path.startsWith('/message')?'Message':'Table'},{immediate:true})
-const names=["AttackSEMessage", "BingoMissionConditionMessage", "BingoMissionMessage", "BoostItemMessage", "Chara01Message", "Chara02Message", "Chara03Message", "Chara04Message", "Chara54Message", "Chara55Message", "Chara56Message", "Chara57Message", "Chara58Message", "Chara59Message", "Chara60Message", "Chara61Message", "CharaMessageCommon", "ErrorMessage", "EventMessage", "GradeMessage", "IconMessage", "MultiPlayMessage", "MusicLicenseMessage", "MusicSearchMessage", "MusicSelectOptionMenuMessage", "MyRoomMessage", "NavigateCharacterMessage", "NGWordMessage", "ResultMessage", "ShopMessage", "StageUpMessage", "SugorokuMessage", "SystemMessage", "TestModeMessage", "TicketMessage", "TouchEffectMessage", "TouchPanelSymbolColorMessage", "UserPlateBackgroundMessage", "WelcomeMessage"]
-const messageLabels:Record<string,string>={"AttackSEMessage": "打击音效", "BingoMissionConditionMessage": "宾果任务条件", "BingoMissionMessage": "宾果任务", "BoostItemMessage": "增益道具", "Chara01Message": "角色 01", "Chara02Message": "角色 02", "Chara03Message": "角色 03", "Chara04Message": "角色 04", "Chara54Message": "角色 54", "Chara55Message": "角色 55", "Chara56Message": "角色 56", "Chara57Message": "角色 57", "Chara58Message": "角色 58", "Chara59Message": "角色 59", "Chara60Message": "角色 60", "Chara61Message": "角色 61", "CharaMessageCommon": "角色通用", "ErrorMessage": "错误信息", "EventMessage": "活动", "GradeMessage": "等级", "IconMessage": "图标", "MultiPlayMessage": "多人游玩", "MusicLicenseMessage": "歌曲版权", "MusicSearchMessage": "歌曲搜索", "MusicSelectOptionMenuMessage": "选曲设置菜单", "MyRoomMessage": "个人房间", "NavigateCharacterMessage": "导航角色", "NGWordMessage": "禁用词", "ResultMessage": "成绩结果", "ShopMessage": "商店", "StageUpMessage": "段位挑战", "SugorokuMessage": "GATE", "SystemMessage": "系统", "TestModeMessage": "测试模式", "TicketMessage": "票券", "TouchEffectMessage": "触摸特效", "TouchPanelSymbolColorMessage": "触摸符号颜色", "UserPlateBackgroundMessage": "玩家名牌背景", "WelcomeMessage": "欢迎信息"}
-function navLabel(chinese:string,english:string){return ()=>h('div',{class:'nav-label'},[h('div',chinese),h('small',english)])}
-const options=computed(()=>mode.value==='Table'?[...new Set(tableCatalog.map(t=>t.group))].map(group=>({key:group,label:tr('ui.'+groupKeys[group]),children:tableCatalog.filter(t=>t.group===group&&`${t.title} ${t.name}`.toLowerCase().includes(navSearch.value.toLowerCase())).map(({name,title})=>({label:navLabel(tr('tables.'+name),name),key:'/table/'+name}))})).filter(g=>g.children.length):names.filter(name=>`${messageLabels[name]} ${name}`.toLowerCase().includes(navSearch.value.toLowerCase())).map(name=>({label:navLabel(tr('messages.'+name),name),key:'/message/'+encodeURIComponent(name)})))
-function toggle(value:string){mode.value=value;router.push(value==='Resource'?'/resource':value==='Table'?'/table/MusicParameterTable':names.length?'/message/'+encodeURIComponent(names[0]!):'/message')}
+import { i18n } from './i18n'
+import { useProject } from './project'
+import { useResponsive } from './composables/useResponsive'
+import AppHeader from './components/layout/AppHeader.vue'
+import AppSidebar from './components/layout/AppSidebar.vue'
+
+const router = useRouter()
+const project = useProject()
+const { isMobile } = useResponsive()
+
+const drawerVisible = ref(false)
 </script>
-<template><n-config-provider :locale="i18n.global.locale.value==='zh'?zhCN:enUS"><n-message-provider><n-layout style="height:100vh"><n-layout-header bordered><project-toolbar /><n-select :value="i18n.global.locale.value" :options="[{label:'中文',value:'zh'},{label:'English',value:'en'}]" @update:value="setLanguage" style="width:110px;position:absolute;right:12px;top:12px"/></n-layout-header><n-layout has-sider style="height:calc(100vh - 54px)"><n-layout-sider bordered :width="245" content-style="height:100%;display:flex;flex-direction:column;overflow:hidden"><div style="padding:16px"><n-tabs :value="mode" @update:value="toggle" type="line" size="small"><n-tab name="Table">Table</n-tab><n-tab name="Message">Message</n-tab><n-tab name="Resource">Resource</n-tab></n-tabs><n-input v-if="mode!=='Resource'" v-model:value="navSearch" :placeholder="tr('ui.searchTables')" clearable size="small" style="margin-top:10px"/></div><div style="flex:1;min-height:0;overflow:auto"><resource-tree v-if="mode==='Resource'"/><n-menu v-else :options="options" :value="router.currentRoute.value.path" @update:value="router.push" /></div></n-layout-sider><n-layout-content content-style="padding:12px 16px"><router-view :key="project.id + project.revision + router.currentRoute.value.fullPath" /></n-layout-content></n-layout></n-layout></n-message-provider></n-config-provider></template>
-<style>body{margin:0;font-family:system-ui,sans-serif}*{box-sizing:border-box}.page-title{font-size:18px;line-height:24px;margin:0 0 8px;font-weight:600}.nav-label{line-height:20px;padding:5px 0}.nav-label small{display:block;color:#888;font-size:11px}.n-menu .n-menu-item{height:54px}</style>
+
+<template>
+  <n-config-provider :locale="i18n.global.locale.value === 'zh' ? zhCN : enUS">
+    <n-message-provider>
+      <div class="app-container">
+        <!-- 顶部自适应导航栏 -->
+        <app-header
+          :is-mobile="isMobile"
+          @toggle-drawer="drawerVisible = !drawerVisible"
+        />
+
+        <!-- 主内容区域 -->
+        <n-layout has-sider class="app-body">
+          <!-- 桌面端侧边栏 -->
+          <n-layout-sider
+            v-if="!isMobile"
+            bordered
+            :width="250"
+            class="desktop-sider"
+          >
+            <app-sidebar />
+          </n-layout-sider>
+
+          <!-- 主视图区 -->
+          <n-layout-content class="app-content">
+            <router-view
+              :key="project.id + project.revision + router.currentRoute.value.fullPath"
+            />
+          </n-layout-content>
+        </n-layout>
+
+        <!-- 移动端侧边抽屉 -->
+        <n-drawer
+          v-model:show="drawerVisible"
+          placement="left"
+          :width="280"
+          :trap-focus="false"
+          :block-scroll="false"
+        >
+          <n-drawer-content body-content-style="padding: 0; height: 100%; display: flex; flex-direction: column;">
+            <app-sidebar @navigate="drawerVisible = false" />
+          </n-drawer-content>
+        </n-drawer>
+      </div>
+    </n-message-provider>
+  </n-config-provider>
+</template>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: #333;
+}
+* {
+  box-sizing: border-box;
+}
+.app-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-body {
+  flex: 1;
+  height: calc(100vh - 52px);
+}
+.desktop-sider {
+  height: 100%;
+}
+.app-content {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+@media (max-width: 768px) {
+  .app-content {
+    padding: 8px 10px;
+  }
+}
+.page-title {
+  font-size: 17px;
+  line-height: 24px;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+</style>
