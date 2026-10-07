@@ -12,6 +12,8 @@ export interface TableFieldSchema {
   nameEn: string
   type: SchemaFieldType
   rawType?: string
+  enumName?: string
+  itemType?: 'string' | 'number' | 'boolean' | 'object'
   isId?: boolean
   readOnly?: boolean
   messageLink?: MessageLinkConfig | null

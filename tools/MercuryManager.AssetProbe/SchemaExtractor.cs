@@ -17,7 +17,7 @@ public static class SchemaExtractor
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static void Run(string contentRoot, string webRoot)
+    public static void Run(string contentRoot, string webRoot, string ue4ssDump = "/home/chieri/git/Mercury_reverse/ue4ss_dump")
     {
         var tableDir = Path.Combine(contentRoot, "Table");
         var msgDir = Path.Combine(contentRoot, "Message");
@@ -32,7 +32,11 @@ public static class SchemaExtractor
         var zhFields = localesJson.GetProperty("zh").GetProperty("fields");
         var enFields = localesJson.GetProperty("en").GetProperty("fields");
 
-        // 1. 读取所有 Message 表的 RowName 集合
+        // 1. 读取 CXXHeaderDump 中的 struct 定义和 enum 映射
+        var cppStructs = LoadCppStructs(ue4ssDump);
+        Console.WriteLine($"Loaded {cppStructs.Count} C++ struct definitions from ue4ss_dump.");
+
+        // 2. 读取所有 Message 表的 RowName 集合
         Console.WriteLine("Reading Message tables...");
         var messageRows = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in Directory.GetFiles(msgDir, "*.uasset").OrderBy(f => f))
@@ -55,7 +59,7 @@ public static class SchemaExtractor
         }
         Console.WriteLine($"Loaded {messageRows.Count} message tables with row keys.");
 
-        // 2. 读取并处理所有 Table
+        // 3. 读取并处理所有 Table
         var tableSchemas = new List<object>();
 
         foreach (var item in catalogJson.EnumerateArray())
@@ -78,6 +82,15 @@ public static class SchemaExtractor
                 var asset = new UAsset(tableFile, EngineVersion.VER_UE4_19);
                 var dt = asset.Exports.OfType<DataTableExport>().FirstOrDefault();
                 if (dt == null || dt.Table.Data.Count == 0) continue;
+
+                // 寻找 C++ 结构体类型
+                var rowStructProp = dt.Data.OfType<ObjectPropertyData>().FirstOrDefault(p => p.Name.ToString() == "RowStruct");
+                var rowStructName = rowStructProp?.ToImport(asset)?.ObjectName?.ToString();
+                Dictionary<string, string>? cppFields = null;
+                if (rowStructName != null) cppStructs.TryGetValue(rowStructName, out cppFields);
+                if (cppFields == null) cppStructs.TryGetValue("F" + tableName + "Data", out cppFields);
+                if (cppFields == null) cppStructs.TryGetValue("F" + tableName, out cppFields);
+                if (cppFields == null) cppStructs.TryGetValue("F" + tableName + "TableData", out cppFields);
 
                 var firstRow = dt.Table.Data[0];
                 var fields = new List<object>();
@@ -107,6 +120,32 @@ public static class SchemaExtractor
                     var fieldCn = zhFields.TryGetProperty(propName, out var zf) ? zf.GetString()! : EnglishName(propName);
                     var fieldEn = enFields.TryGetProperty(propName, out var ef) ? ef.GetString()! : EnglishName(propName);
 
+                    string? enumName = null;
+                    string? itemType = null;
+
+                    // 获取 C++ 声明类型
+                    string? cppType = null;
+                    cppFields?.TryGetValue(propName, out cppType);
+
+                    // 处理 Enum
+                    if (prop is EnumPropertyData ep)
+                    {
+                        schemaType = "enum";
+                        enumName = ep.EnumType.ToString();
+                    }
+                    else if (cppType != null && cppType.StartsWith("E") && !cppType.StartsWith("ECondition"))
+                    {
+                        schemaType = "enum";
+                        enumName = cppType.Split(' ').Last();
+                    }
+
+                    // 处理 Array
+                    if (prop is ArrayPropertyData ap)
+                    {
+                        schemaType = "array";
+                        itemType = ResolveArrayItemType(ap, cppType);
+                    }
+
                     // 分析 messageLink
                     object? messageLink = null;
                     var linkedMessage = ResolveMessageLink(tableName, propName, dt, messageRows);
@@ -118,19 +157,24 @@ public static class SchemaExtractor
                     bool fluid = Regex.IsMatch(propName, "Name|Message|Path|Text|Directory|Description", RegexOptions.IgnoreCase);
                     int minWidth = fluid ? 180 : (schemaType == "boolean" ? 100 : (schemaType == "int64" ? 150 : 120));
 
-                    fields.Add(new
+                    var fieldDict = new Dictionary<string, object?>
                     {
-                        key = propName,
-                        nameCn = fieldCn,
-                        nameEn = fieldEn,
-                        type = schemaType,
-                        rawType = rawType,
-                        isId = false,
-                        readOnly = false,
-                        messageLink = messageLink,
-                        tableMinWidth = minWidth,
-                        tableWidthFluid = fluid
-                    });
+                        ["key"] = propName,
+                        ["nameCn"] = fieldCn,
+                        ["nameEn"] = fieldEn,
+                        ["type"] = schemaType,
+                        ["rawType"] = rawType,
+                        ["isId"] = false,
+                        ["readOnly"] = false,
+                        ["messageLink"] = messageLink,
+                        ["tableMinWidth"] = minWidth,
+                        ["tableWidthFluid"] = fluid
+                    };
+
+                    if (enumName != null) fieldDict["enumName"] = enumName;
+                    if (itemType != null) fieldDict["itemType"] = itemType;
+
+                    fields.Add(fieldDict);
                 }
 
                 tableSchemas.Add(new
@@ -151,6 +195,74 @@ public static class SchemaExtractor
         var outputPath = Path.Combine(webRoot, "src", "tableSchemas.json");
         File.WriteAllText(outputPath, JsonSerializer.Serialize(tableSchemas, JsonOptions));
         Console.WriteLine($"Successfully generated schema for {tableSchemas.Count} tables to {outputPath}");
+    }
+
+    private static Dictionary<string, Dictionary<string, string>> LoadCppStructs(string dumpDir)
+    {
+        var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        var hppPath = Path.Combine(dumpDir, "CXXHeaderDump", "Mercury.hpp");
+        if (!File.Exists(hppPath)) return result;
+
+        var content = File.ReadAllText(hppPath);
+        var structMatches = Regex.Matches(content, @"struct (F\w+)\s*:\s*public\s+FTableRowBase\s*\{([^}]+)\};", RegexOptions.Singleline);
+        foreach (Match m in structMatches)
+        {
+            var structName = m.Groups[1].Value;
+            var body = m.Groups[2].Value;
+            var fieldDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var lines = body.Split('\n');
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.Trim();
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//")) continue;
+                if (line.Contains("//")) line = line.Substring(0, line.IndexOf("//")).Trim();
+                line = line.TrimEnd(';');
+                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    var fName = parts[^1];
+                    var fType = string.Join(' ', parts[..^1]);
+                    fieldDict[fName] = fType;
+                }
+            }
+            result[structName] = fieldDict;
+        }
+
+        return result;
+    }
+
+    private static string ResolveArrayItemType(ArrayPropertyData ap, string? cppType)
+    {
+        var arrayType = ap.ArrayType.ToString();
+        if (arrayType.Contains("Struct")) return "object";
+
+        if (cppType != null)
+        {
+            var match = Regex.Match(cppType, @"TArray<(.+)>");
+            if (match.Success)
+            {
+                var inner = match.Groups[1].Value.Trim();
+                if (inner is "int32" or "int16" or "int8" or "uint32" or "float" or "double") return "number";
+                if (inner is "bool") return "boolean";
+                if (inner is "FString" or "FName" or "FText") return "string";
+                return "object";
+            }
+        }
+
+        if (arrayType.Contains("Int") || arrayType.Contains("Float") || arrayType.Contains("Byte")) return "number";
+        if (arrayType.Contains("Bool")) return "boolean";
+        if (arrayType.Contains("Str") || arrayType.Contains("Name") || arrayType.Contains("Text")) return "string";
+
+        if (ap.Value.Length > 0)
+        {
+            var first = ap.Value[0];
+            if (first is IntPropertyData or UInt32PropertyData or FloatPropertyData or BytePropertyData or Int16PropertyData or Int8PropertyData) return "number";
+            if (first is BoolPropertyData) return "boolean";
+            if (first is StrPropertyData) return "string";
+        }
+
+        return "object";
     }
 
     private static string MapType(string rawType) => rawType switch

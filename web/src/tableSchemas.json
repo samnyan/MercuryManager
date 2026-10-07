@@ -8709,7 +8709,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "ItemId",
@@ -8789,7 +8790,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "enumName": "EConditionGenre"
       },
       {
         "key": "ConditionType",
@@ -8801,7 +8803,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "enumName": "EMissionConditionType"
       },
       {
         "key": "Value1",
@@ -8917,7 +8920,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "MissionNumList",
@@ -8929,7 +8933,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       }
     ]
   },
@@ -9009,7 +9014,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "string"
       },
       {
         "key": "UnlockConditionArray",
@@ -9021,7 +9027,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "string"
       }
     ]
   },
@@ -9129,7 +9136,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "SeeYouCondition",
@@ -9141,7 +9149,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "enumName": "ESeeYouConditionType"
       },
       {
         "key": "EventMusicTag",
@@ -9153,7 +9162,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "enumName": "EMusicTagForUnlock"
       },
       {
         "key": "RankInEndPlayCardInfoList",
@@ -9165,7 +9175,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "object"
       },
       {
         "key": "RandomEndPlayCardInfoList",
@@ -9177,7 +9188,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "object"
       },
       {
         "key": "ValidCultures",
@@ -9201,7 +9213,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "TitleCallVoiceMessages",
@@ -9213,7 +9226,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 180,
-        "tableWidthFluid": true
+        "tableWidthFluid": true,
+        "itemType": "string"
       }
     ]
   },
@@ -9307,7 +9321,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "DifficultyArray",
@@ -9319,7 +9334,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "string"
       },
       {
         "key": "bSecretMusicFlgArray",
@@ -9331,7 +9347,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "boolean"
       },
       {
         "key": "ConditionJudge",
@@ -9427,7 +9444,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "RewardInfernoMusicIdArray",
@@ -9439,7 +9457,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "WaccaPointCost",
@@ -9531,7 +9550,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "GetItemVariety",
@@ -9543,7 +9563,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "string"
       },
       {
         "key": "GetItemValue",
@@ -9555,7 +9576,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "TaskMusic01",
@@ -9567,7 +9589,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "TaskGenre01",
@@ -9591,7 +9614,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "TaskGenre02",
@@ -9615,7 +9639,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "number"
       },
       {
         "key": "TaskGenre03",
@@ -9767,7 +9792,8 @@
         "readOnly": false,
         "messageLink": null,
         "tableMinWidth": 120,
-        "tableWidthFluid": false
+        "tableWidthFluid": false,
+        "itemType": "string"
       }
     ]
   }
