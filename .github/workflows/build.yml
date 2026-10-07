@@ -1,0 +1,80 @@
+name: Build portable packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Self-contained / ${{ matrix.rid }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            extension: tar.gz
+          - rid: win-x64
+            extension: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          run_install: false
+
+      - name: Set up Node.js and pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ matrix.rid }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ matrix.rid }}-
+            nuget-${{ runner.os }}-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      # Cross-publish both RIDs on Linux using the same tested build entry point.
+      # The default is self-contained + single file; do not pass --framework-dependent.
+      - name: Build, test and package
+        run: python scripts/publish.py --rid ${{ matrix.rid }}
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MercuryManager-${{ matrix.rid }}-single
+          path: dist/MercuryManager-${{ matrix.rid }}-single.${{ matrix.extension }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

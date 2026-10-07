@@ -1,0 +1,517 @@
+[
+  {
+    "name": "MusicParameterTable",
+    "title": "歌曲参数表",
+    "group": "歌曲与解锁"
+  },
+  {
+    "name": "UnlockMusicTable",
+    "title": "歌曲解锁",
+    "group": "歌曲与解锁"
+  },
+  {
+    "name": "UnlockInfernoTable",
+    "title": "Inferno 解锁",
+    "group": "歌曲与解锁"
+  },
+  {
+    "name": "LaunchDateTable",
+    "title": "运营日期",
+    "group": "歌曲与解锁"
+  },
+  {
+    "name": "GradeTable",
+    "title": "称号等级",
+    "group": "成长与收集"
+  },
+  {
+    "name": "GradePartsTable",
+    "title": "称号部件",
+    "group": "成长与收集"
+  },
+  {
+    "name": "IconTable",
+    "title": "玩家图标",
+    "group": "成长与收集"
+  },
+  {
+    "name": "TrophyTable",
+    "title": "奖杯称号",
+    "group": "成长与收集"
+  },
+  {
+    "name": "UserPlateBackgroundTable",
+    "title": "玩家名牌背景",
+    "group": "成长与收集"
+  },
+  {
+    "name": "NavigateCharacterTable",
+    "title": "导航角色",
+    "group": "成长与收集"
+  },
+  {
+    "name": "TouchEffectTable",
+    "title": "触摸特效",
+    "group": "成长与收集"
+  },
+  {
+    "name": "TouchPanelSymbolColorTable",
+    "title": "触摸符号颜色",
+    "group": "成长与收集"
+  },
+  {
+    "name": "TicketItemTable",
+    "title": "票券道具",
+    "group": "成长与收集"
+  },
+  {
+    "name": "BoostItemTable",
+    "title": "增益道具",
+    "group": "成长与收集"
+  },
+  {
+    "name": "SkillTable",
+    "title": "技能",
+    "group": "成长与收集"
+  },
+  {
+    "name": "SESetTable",
+    "title": "音效套装",
+    "group": "成长与收集"
+  },
+  {
+    "name": "WaccaPointTable",
+    "title": "WACCA 点数",
+    "group": "成长与收集"
+  },
+  {
+    "name": "LevelUpTable",
+    "title": "玩家升级",
+    "group": "成长与收集"
+  },
+  {
+    "name": "LevelUpWaccaPointTable",
+    "title": "升级点数",
+    "group": "成长与收集"
+  },
+  {
+    "name": "UserRateStepTable",
+    "title": "评级阶段",
+    "group": "成长与收集"
+  },
+  {
+    "name": "UserRateTargetTable",
+    "title": "评级目标",
+    "group": "成长与收集"
+  },
+  {
+    "name": "UserRateCoefficientTable",
+    "title": "评级系数",
+    "group": "成长与收集"
+  },
+  {
+    "name": "StoreMenu",
+    "title": "商店菜单",
+    "group": "成长与收集"
+  },
+  {
+    "name": "AnnounceTable",
+    "title": "公告",
+    "group": "系统与界面"
+  },
+  {
+    "name": "BackMovieSettingTable",
+    "title": "背景视频设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "BarLineTable",
+    "title": "小节线",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "BGMVolumeTable",
+    "title": "背景音乐音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "BingoAllClearResultTable",
+    "title": "宾果全清奖励",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "BingoMissionSkipSettingTable",
+    "title": "宾果任务跳过",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "BonusEffectSettingTable",
+    "title": "奖励特效设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "BonusEffectVolumeTable",
+    "title": "奖励特效音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "CenterInfoTable",
+    "title": "中央信息",
+    "group": "系统与界面"
+  },
+  {
+    "name": "ChainNoteVolumeTable",
+    "title": "连锁音符音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "CharacterVoiceTable",
+    "title": "角色语音",
+    "group": "音效与音量"
+  },
+  {
+    "name": "ClearRateTable",
+    "title": "通关率",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "ColorTable",
+    "title": "颜色",
+    "group": "系统与界面"
+  },
+  {
+    "name": "ConditionTable",
+    "title": "解锁条件",
+    "group": "系统与界面"
+  },
+  {
+    "name": "CoopNormaTable",
+    "title": "协力通关标准",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "CoopTable",
+    "title": "协力参数",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "CountrySettingTable",
+    "title": "国家区域设置",
+    "group": "系统与界面"
+  },
+  {
+    "name": "DemoMusicTable",
+    "title": "演示歌曲",
+    "group": "歌曲与解锁"
+  },
+  {
+    "name": "EMoneyBrandTable",
+    "title": "电子支付品牌",
+    "group": "系统与界面"
+  },
+  {
+    "name": "ErrorTable",
+    "title": "错误定义",
+    "group": "系统与界面"
+  },
+  {
+    "name": "GameScoreTable",
+    "title": "游玩计分",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "GateSkipSettingTable",
+    "title": "闸门跳过设置",
+    "group": "系统与界面"
+  },
+  {
+    "name": "GiveupSettingTable",
+    "title": "放弃设置",
+    "group": "系统与界面"
+  },
+  {
+    "name": "GuideLineIntervalTable",
+    "title": "引导线间隔",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "GuideLineMaskTable",
+    "title": "引导线遮罩",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "GuideVolumeTable",
+    "title": "引导音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "HoldNoteVolumeTable",
+    "title": "长按音符音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "JudgeInfoDetailPositionTable",
+    "title": "判定详情位置",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "JudgeInfoPositionTable",
+    "title": "判定信息位置",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "JudgeLineSettingTable",
+    "title": "判定线设置",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "JudgeParameterTable",
+    "title": "判定参数",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "KeyBeamEffectTable",
+    "title": "按键光束特效",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "LimitationTimeTable",
+    "title": "时间限制",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "LoginRandomMessageTable",
+    "title": "登录随机消息",
+    "group": "系统与界面"
+  },
+  {
+    "name": "MessageTagTable",
+    "title": "消息标签",
+    "group": "系统与界面"
+  },
+  {
+    "name": "MirrorSettingTable",
+    "title": "镜像设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MultiPlayPointTable",
+    "title": "多人游玩点数",
+    "group": "成长与收集"
+  },
+  {
+    "name": "MultiRankInfoTable",
+    "title": "多人排名信息",
+    "group": "成长与收集"
+  },
+  {
+    "name": "MusicSelectOptionBeginner",
+    "title": "新手选曲设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionDesignSetting",
+    "title": "选曲样式设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionDisplayInfoSetting",
+    "title": "选曲显示信息",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionGameSetting",
+    "title": "选曲游玩设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionNoteColorTable",
+    "title": "选曲音符配色",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionSoundSetting",
+    "title": "选曲音效设置",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MusicSelectOptionTop",
+    "title": "选曲设置菜单",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "MyRoomTopMenu",
+    "title": "个人房间菜单",
+    "group": "系统与界面"
+  },
+  {
+    "name": "NaviPanelTable",
+    "title": "导航面板",
+    "group": "系统与界面"
+  },
+  {
+    "name": "NormaTable",
+    "title": "通关标准",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "NoteDesignTable",
+    "title": "音符样式",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "NotesColorTable",
+    "title": "音符配色",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "PlayerLevelInfoTable",
+    "title": "玩家等级信息",
+    "group": "成长与收集"
+  },
+  {
+    "name": "RateInfoTable",
+    "title": "评级信息",
+    "group": "成长与收集"
+  },
+  {
+    "name": "RhythmGameAppearanceTable",
+    "title": "节奏游戏外观",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "RhythmGamePosTable",
+    "title": "节奏游戏位置",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "RhythmGameRuleTable",
+    "title": "节奏游戏规则",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "ScoreInfoTable",
+    "title": "分数信息",
+    "group": "系统与界面"
+  },
+  {
+    "name": "SeeYouRandomMessageTable",
+    "title": "结束随机消息",
+    "group": "系统与界面"
+  },
+  {
+    "name": "SlideBonusTimingTable",
+    "title": "滑动奖励时机",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "SlideNoteColorSupportTable",
+    "title": "滑动配色辅助",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "SlideNoteVolumeTable",
+    "title": "滑动音符音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "SnapNoteColorSupportTable",
+    "title": "滑动终点配色辅助",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "SnapNoteVolumeTable",
+    "title": "滑动终点音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "SNoteEffectTable",
+    "title": "S 音符特效",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "SNoteVolumeTable",
+    "title": "S 音符音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "StageupIconTable",
+    "title": "段位图标",
+    "group": "成长与收集"
+  },
+  {
+    "name": "SugorokuUniqueParameterTable",
+    "title": "双六独立参数",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "TapBonusTimingTable",
+    "title": "点击奖励时机",
+    "group": "游玩与判定"
+  },
+  {
+    "name": "TotalResultRandomItemTable",
+    "title": "总成绩随机道具",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "TouchEffectShootTable",
+    "title": "触摸发射特效",
+    "group": "选曲与视觉"
+  },
+  {
+    "name": "TouchNoteVolumeTable",
+    "title": "触摸音符音量",
+    "group": "音效与音量"
+  },
+  {
+    "name": "VolumeStepListTable",
+    "title": "音量阶梯",
+    "group": "音效与音量"
+  },
+  {
+    "name": "WidgetTranslucencyTable",
+    "title": "界面透明度",
+    "group": "系统与界面"
+  },
+  {
+    "name": "BingoLineResultTable",
+    "title": "宾果连线奖励",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "BingoMissionConditionTable",
+    "title": "宾果任务条件",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "BingoMissionSheetTable",
+    "title": "宾果任务卡",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "BossStageTable",
+    "title": "Boss 关卡",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "EventTable",
+    "title": "活动",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "StageUpTable",
+    "title": "段位挑战",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "SugorokuStageParameterTable",
+    "title": "双六关卡参数",
+    "group": "活动与挑战"
+  },
+  {
+    "name": "TotalResultItemJudgementTable",
+    "title": "总成绩道具判定",
+    "group": "活动与挑战"
+  }
+]
