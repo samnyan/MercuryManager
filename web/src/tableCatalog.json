@@ -441,7 +441,7 @@
   },
   {
     "name": "SugorokuUniqueParameterTable",
-    "title": "双六独立参数",
+    "title": "GATE独立参数",
     "group": "活动与挑战"
   },
   {
@@ -506,7 +506,7 @@
   },
   {
     "name": "SugorokuStageParameterTable",
-    "title": "双六关卡参数",
+    "title": "GATE关卡参数",
     "group": "活动与挑战"
   },
   {

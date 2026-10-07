@@ -1,7 +1,8 @@
 using MercuryManager.Server;
 
-var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(builder.Configuration["listen-url"] ?? "http://127.0.0.1:5087");
+var builder = WebApplication.CreateBuilder(StartupOptions.NormalizeArguments(args));
+var startup = StartupOptions.FromConfiguration(builder.Configuration);
+builder.WebHost.UseUrls(startup.ListenUrl);
 builder.Services.AddSingleton<MusicWorkspaceStore>();
 builder.Services.AddSingleton<MessageWorkspaceStore>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
@@ -9,7 +10,7 @@ var app = builder.Build();
 app.UseApiResults();
 app.Use(async (context, next) =>
 {
-    var expectedHost = $"{context.Connection.LocalIpAddress}:{context.Connection.LocalPort}";
+    var expectedHost = new HostString(context.Connection.LocalIpAddress!.ToString(), context.Connection.LocalPort).Value;
     if (!accessPolicy.Allows(context.Connection.RemoteIpAddress))
     {
         context.Response.StatusCode = 403;
@@ -59,6 +60,25 @@ app.MapPost("/api/workspaces/{id}/messages/{name}/rows", (string id, string name
 app.MapPatch("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store) => {store.Edit(id,name,request.RowName,request.Fields,false);return Results.Ok();});
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapEmbeddedFrontend();
+if (startup.LaunchBrowser)
+{
+    app.Lifetime.ApplicationStarted.Register(() =>
+    {
+        try
+        {
+            var url = StartupOptions.BrowserUrl(app.Urls.First());
+            var start = OperatingSystem.IsWindows()
+                ? new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }
+                : new System.Diagnostics.ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open") { UseShellExecute = false };
+            if (!OperatingSystem.IsWindows()) start.ArgumentList.Add(url);
+            using var process = System.Diagnostics.Process.Start(start);
+        }
+        catch (Exception exception)
+        {
+            app.Logger.LogWarning(exception, "Could not open the browser. Open {Url} manually.", startup.ListenUrl);
+        }
+    });
+}
 app.Run();
 
 public sealed record OpenWorkspace(string ServerPath);
