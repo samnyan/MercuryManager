@@ -5,6 +5,7 @@ import { NImage, NButton, NSpace, NTabs, NTab, NSpin } from 'naive-ui'
 import { api, useProject } from './project'
 import { tr } from './i18n'
 import TextureCreateDialog from './components/resource/TextureCreateDialog.vue'
+import AudioResourceViewer from './components/resource/AudioResourceViewer.vue'
 import GenericResourceViewer from './components/resource/GenericResourceViewer.vue'
 
 const route = useRoute()
@@ -21,6 +22,7 @@ const mode = ref('generic')
 const data = ref<unknown>()
 const isTexture = ref(false)
 const busy = ref(false)
+const isAudio = ref(false)
 
 let controller: AbortController | undefined
 let generation = 0
@@ -41,6 +43,7 @@ watch(
     supported.value = false
     data.value = undefined
     isTexture.value = false
+    isAudio.value = false
     mode.value = 'generic'
     path.value = String(route.query.path ?? '')
     if (!path.value || !project.id) return
@@ -50,11 +53,14 @@ watch(
     controller = current
 
     try {
+      if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';return}
       const result = await api<{ isTexture: boolean; data: unknown }>(
         `/projects/${project.id}/resource-data?` + new URLSearchParams({ path: path.value })
       )
       if (request !== generation) return
       data.value = result.data
+      isAudio.value = (result.data as any)?.Exports?.some((e:any)=>['SoundAtomCueSheet','SoundAtomCue'].includes(e.Class)) ?? false
+      if(isAudio.value)mode.value='awb'
       isTexture.value = result.isTexture
       if (!isTexture.value) return
       mode.value = 'texture'
@@ -96,15 +102,17 @@ onBeforeUnmount(() => {
       {{ path || tr('ui.selectResource') }}
     </h2>
 
-    <n-tabs v-if="data" v-model:value="mode" type="line" class="resource-tabs">
+    <n-tabs v-if="data || isAudio" v-model:value="mode" type="line" class="resource-tabs">
       <n-tab name="texture" :disabled="!isTexture">
         {{ tr('ui.textureMode') }}
       </n-tab>
-      <n-tab name="generic">
+      <n-tab name="awb" :disabled="!isAudio">AWB</n-tab>
+      <n-tab name="generic" :disabled="!data">
         {{ tr('ui.genericMode') }}
       </n-tab>
     </n-tabs>
 
+    <audio-resource-viewer v-if="isAudio && !busy && mode === 'awb'" :path="path" />
     <n-spin :show="busy">
       <div v-if="error" class="error-banner">{{ error }}</div>
 

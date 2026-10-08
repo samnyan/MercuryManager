@@ -34,6 +34,7 @@ function type(value: unknown): string {
     : typeof value
 }
 
+function fieldLabel(name:string){return ['Parser','Tables'].includes(name)?`[${name}]`:name}
 function summary(value: unknown): string {
   return value !== null && typeof value === 'object' ? type(value) : String(value ?? 'null')
 }
@@ -42,7 +43,7 @@ function children(value: unknown, path: string): TreeOption[] {
   if (value === null || typeof value !== 'object') return []
   return Object.entries(value).map(([key, item]) => ({
     key: path + '/' + encodeURIComponent(key),
-    label: Array.isArray(value) && item && typeof item === 'object' && (item.Name || item.ObjectName) ? `${key} (${item.Name || item.ObjectName})` : key,
+    label: Array.isArray(value) && item && typeof item === 'object' && (item.Name || item.ObjectName) ? `${key} (${item.Name || item.ObjectName})` : fieldLabel(key),
     value: item,
     isLeaf: path === '' && ['NameMap','Imports'].includes(key) || item === null || typeof item !== 'object'
   }))
@@ -73,7 +74,10 @@ watch(
 )
 
 const importMode = computed(() => segments.value.length===1 && segments.value[0]==='Imports')
+const acbTableMode = computed(()=>segments.value.length===5 && segments.value[2]==='CustomSerialization' && segments.value[3]==='Tables' && Array.isArray(selected.value))
+const acbKeys = computed(()=>acbTableMode.value ? [...new Set((selected.value as Record<string,unknown>[]).flatMap(r=>Object.keys(r)))] : [])
 const rows = computed(() => {
+  if(acbTableMode.value)return (selected.value as Record<string,unknown>[]).map((item,index)=>({...item,name:String(index),item})).filter(item=>JSON.stringify(item).toLowerCase().includes(search.value.toLowerCase()))
   if(importMode.value && Array.isArray(selected.value))return selected.value.map((item,index)=>({...item,name:String(index),item})).filter(item=>JSON.stringify(item).toLowerCase().includes(search.value.toLowerCase()))
   const value = selected.value
   const entries =
@@ -83,14 +87,14 @@ const rows = computed(() => {
     .map(([name, item]) => ({
       name,
       type: name==='[RawData]' && rawMode.value ? '—' : type(item),
-      value: summary(item),
+      value: name==='[Reference]' && item && typeof item==='object' ? `${(item as any).ObjectName} · ${(item as any).ContentFile || (item as any).Package || (item as any).Scope || ''}` : summary(item),
       item
     }))
     .filter(r => `${r.name} ${r.type} ${r.value}`.toLowerCase().includes(search.value.toLowerCase()))
 })
 
-const columns = computed(() => importMode.value ? ['Index','ObjectName','ClassPackage','ClassName','OuterIndex','OuterName','Optional'].map(key=>({title:key,key,width:key==='ObjectName'||key==='ClassPackage'?250:160,render:(row:Record<string,unknown>)=>String(row[key]??'')})) : [
-  { title: tr('ui.viewerName'), key: 'name', width: 230, render:(row:{name:string})=>row.name==='[RawData]'&&rawMode.value?h('i',row.name):row.name },
+const columns = computed(() => acbTableMode.value ? [{title:'Index',key:'name',width:80},...acbKeys.value.map(key=>({title:key,key,width:200,render:(r:Record<string,unknown>)=>h('span',{style:'white-space:pre-wrap;overflow-wrap:anywhere'},typeof r[key]==='object'?JSON.stringify(r[key]):String(r[key]??''))}))] : importMode.value ? ['Index','ObjectName','ClassPackage','ClassName','OuterIndex','OuterName','Optional'].map(key=>({title:key,key,width:key==='ObjectName'||key==='ClassPackage'?250:160,render:(row:Record<string,unknown>)=>String(row[key]??'')})) : [
+  { title: tr('ui.viewerName'), key: 'name', width: 230, render:(row:{name:string})=>/^\[.*\]$/.test(fieldLabel(row.name))?h('i',fieldLabel(row.name)):row.name },
   { title: tr('ui.viewerType'), key: 'type', width: 150 },
   {
     title: tr('ui.viewerValue'),

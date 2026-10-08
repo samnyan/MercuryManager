@@ -4,7 +4,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     public string DraftRoot(string id)=>Path.Combine(assets.WorkspaceDirectory(id),"Resources");
     public static string Validate(string relative)
     {
-        if(!relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
+        if(!(relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.EndsWith(".awb",StringComparison.Ordinal))||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
         return relative;
     }
     public string Resolve(string id,string path)
@@ -20,7 +20,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         if(directory.Length>0)Validate(directory+"/folder.uasset");
         var roots=new[]{assets.Get(id).ContentRoot!,DraftRoot(id)};var items=new Dictionary<string,bool>(StringComparer.Ordinal);
         foreach(var root in roots){var dir=Path.Combine(root,directory);MusicWorkspaceStore.RejectLinks(dir);if(!Directory.Exists(dir))continue;
-        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');items[relative]=folder;}}}
+        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)||entry.EndsWith(".awb",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');items[relative]=folder;}}}
         return items.OrderByDescending(x=>x.Value).ThenBy(x=>x.Key,StringComparer.Ordinal).Select(x=>(object)new{path=x.Key,name=Path.GetFileName(x.Key),directory=x.Value}).ToArray();
     }
     public object Info(string id,string path)
@@ -30,7 +30,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     }
     public object Build(string id,string template,string target,byte[] image)
     {
-        lock(assets){Validate(target);if(!target.StartsWith("UI/Textures/",StringComparison.Ordinal))throw new ArgumentException("Output must be under UI/Textures/.");if(image.Length>16*1024*1024)throw new ArgumentException("Upload too large.");
+        lock(assets){Validate(target);if(!target.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Texture output must be uasset.");if(!target.StartsWith("UI/Textures/",StringComparison.Ordinal))throw new ArgumentException("Output must be under UI/Textures/.");if(image.Length>16*1024*1024)throw new ArgumentException("Upload too large.");
         var source=Resolve(id,template);var root=DraftRoot(id);var dest=Path.Combine(root,target);MusicWorkspaceStore.RejectLinks(dest);
         if(new[]{".uasset",".uexp",".ubulk"}.Any(ext=>File.Exists(Path.ChangeExtension(dest,ext))||File.Exists(Path.ChangeExtension(Path.Combine(assets.Get(id).ContentRoot!,target),ext))))throw new IOException("Target already exists; choose a new resource path.");
         var staging=Path.Combine(assets.WorkspaceDirectory(id),"texture-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(staging);

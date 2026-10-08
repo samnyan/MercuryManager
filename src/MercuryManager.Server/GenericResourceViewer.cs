@@ -71,6 +71,16 @@ public static class GenericResourceViewer
                     if(node["CustomSerialization"] is JObject raw)raw["TextureParseError"]=ex.Message;
             }
         }
+        if(asset.Exports.Any(e=>e.GetExportClassType().ToString()=="SoundAtomCueSheet"))
+        {
+            try
+            {
+                var parsed=JObject.Parse(System.Text.Json.JsonSerializer.Serialize(CriAudio.DescribeSheet(path)));
+                foreach(var node in ((JArray)data["Exports"]!).OfType<JObject>().Where(n=>n["Class"]?.ToString()=="SoundAtomCueSheet"))node["CustomSerialization"]=parsed.DeepClone();
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {foreach(var node in ((JArray)data["Exports"]!).OfType<JObject>().Where(n=>n["Class"]?.ToString()=="SoundAtomCueSheet"))if(node["CustomSerialization"] is JObject raw)raw["CueSheetParseError"]=ex.Message;}
+        }
         return new{isTexture=described.GetProperty("isTexture").GetBoolean(),data=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(data.ToString(Newtonsoft.Json.Formatting.None))};
     }
     public static byte[] ReadRaw(string path,int exportIndex)
@@ -82,6 +92,40 @@ public static class GenericResourceViewer
         if(exportIndex<0||exportIndex>=asset.Exports.Count)throw new InvalidDataException("Invalid export index.");
         return asset.Exports[exportIndex].Extras??Array.Empty<byte>();
     }
+    private static JObject ResolveReference(int index,UAsset asset)
+    {
+        var result=new JObject{["Index"]=index,["ObjectName"]=ReferenceName(new FPackageIndex(index),asset)};
+        if(index==0){result["Status"]="Null reference";return result;}
+        var seen=new HashSet<int>();var chain=new JArray();string? package=null;int current=index;
+        while(current!=0&&seen.Add(current))
+        {
+            if(current<0&&-(long)current<=asset.Imports.Count)
+            {
+                var import=asset.Imports[-current-1];var name=import.ObjectName.ToString();
+                chain.Add(new JObject{["Index"]=current,["Name"]=name});
+                if(import.ClassName.ToString()=="Package")package=name;
+                if(current==index)result["Class"]=import.ClassName.ToString();
+                current=import.OuterIndex.Index;
+            }
+            else if(current>0&&current<=asset.Exports.Count)
+            {var export=asset.Exports[current-1];chain.Add(new JObject{["Index"]=current,["Name"]=export.ObjectName.ToString()});current=export.OuterIndex.Index;}
+            else{result["Status"]="Unresolved index";break;}
+        }
+        result["OuterChain"]=chain;
+        if(package is not null){result["Package"]=package;if(package.StartsWith("/Game/",StringComparison.Ordinal))result["ContentFile"]=package[6..]+".uasset";}
+        else if(index>0)result["Scope"]="Current asset export";
+        return result;
+    }
+    private static void AnnotateReferences(JToken token,UAsset asset)
+    {
+        if(token is JObject obj)
+        {
+            foreach(var property in obj.Properties().ToArray())AnnotateReferences(property.Value,asset);
+            if(obj["$type"]?.ToString().Contains("ObjectPropertyData",StringComparison.Ordinal)==true&&obj["Value"]?.Type==JTokenType.Integer)
+                obj["[Reference]"]=ResolveReference(obj["Value"]!.Value<int>(),asset);
+        }
+        else if(token is JArray array)foreach(var child in array)AnnotateReferences(child,asset);
+    }
     public static object Describe(UAsset asset)
     {
         var exports=new JArray();int budget=4*1024*1024;
@@ -89,7 +133,7 @@ public static class GenericResourceViewer
         foreach(var export in asset.Exports)
         {
             var node=new JObject{["Name"]=export.ObjectName.ToString(),["Class"]=export.GetExportClassType().ToString(),["Parser"]=export.GetType().Name,["SerialOffset"]=export.SerialOffset.ToString(),["SerialSize"]=export.SerialSize.ToString(),["Flags"]=export.ObjectFlags.ToString()};
-            if(export is NormalExport normal){var props=new JObject();foreach(var p in normal.Data)props[p.Name+"["+p.ArrayIndex+"]"]=Serialize(p);node["Properties"]=props;}
+            if(export is NormalExport normal){var props=new JObject();foreach(var p in normal.Data){var value=Serialize(p);AnnotateReferences(value,asset);props[p.Name+"["+p.ArrayIndex+"]"]=value;}node["Properties"]=props;}
             if(export is PropertyExport property && property.Property is not null)node["UProperty"]=Fields(property.Property,asset);
             // Surface parsed fields of specialized serializers, not just tagged UObject properties.
             var specialized=new JObject();
