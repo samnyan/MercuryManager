@@ -37,7 +37,7 @@ public static class ApiResultMiddleware
             }
             finally { context.Response.Body = original; }
             if (context.RequestAborted.IsCancellationRequested) return;
-            if(failure is null && context.Response.StatusCode<400 && context.Response.ContentType=="image/png")
+            if(failure is null && context.Response.StatusCode<400 && context.Response.ContentType is "image/png" or "application/octet-stream")
             {buffer.Position=0;await buffer.CopyToAsync(original);return;}
             var statusCode = context.Response.StatusCode;
             object? data = null;

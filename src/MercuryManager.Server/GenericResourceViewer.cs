@@ -33,7 +33,54 @@ public static class GenericResourceViewer
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
         var companion=Path.ChangeExtension(path,".uexp");if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export exceeds viewer limits.");
         var asset=new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
-        return Describe(asset);
+        var described=System.Text.Json.JsonSerializer.SerializeToElement(Describe(asset));
+        var data=JObject.Parse(described.GetProperty("data").GetRawText());
+        if(described.GetProperty("isTexture").GetBoolean())
+        {
+            try
+            {
+                var texture=TextureAuthoring.Read(path,out var provider);
+                using(provider)
+                {
+                    var platform=texture.PlatformData;
+                    var node=((JArray)data["Exports"]!).OfType<JObject>().Single(n=>n["Name"]?.ToString()==texture.Name);
+                    node["CustomSerialization"]=new JObject
+                    {
+                        ["Parser"]="CUE4Parse Texture2D",["SizeX"]=platform.SizeX,["SizeY"]=platform.SizeY,
+                        ["PixelFormat"]=platform.PixelFormat,["PackedData"]=platform.PackedData,
+                        ["FirstMipToSerialize"]=platform.FirstMipToSerialize,
+                        ["Mips"]=new JArray(platform.Mips.Select((m,index)=>new JObject
+                        {
+                            ["Name"]=$"Mip {index} ({m.SizeX} × {m.SizeY})",
+                            ["SizeX"]=m.SizeX,["SizeY"]=m.SizeY,["SizeZ"]=m.SizeZ,
+                            ["BulkData"]=m.BulkData is null?JValue.CreateNull():new JObject
+                            {
+                                ["Flags"]=m.BulkData.Header.BulkDataFlags.ToString(),
+                                ["ElementCount"]=m.BulkData.Header.ElementCount,
+                                ["SizeOnDisk"]=m.BulkData.Header.SizeOnDisk,
+                                ["OffsetInFile"]=m.BulkData.Header.OffsetInFile.ToString()
+                            }
+                        })),
+                        ["RawBytes"]=asset.Exports.First(e=>e.ObjectName.ToString()==texture.Name).Extras?.Length??0
+                    };
+                }
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                foreach(var node in ((JArray)data["Exports"]!).OfType<JObject>().Where(n=>n["Class"]?.ToString()=="Texture2D"))
+                    if(node["CustomSerialization"] is JObject raw)raw["TextureParseError"]=ex.Message;
+            }
+        }
+        return new{isTexture=described.GetProperty("isTexture").GetBoolean(),data=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(data.ToString(Newtonsoft.Json.Formatting.None))};
+    }
+    public static byte[] ReadRaw(string path,int exportIndex)
+    {
+        if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
+        var companion=Path.ChangeExtension(path,".uexp");
+        if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export exceeds viewer limits.");
+        var asset=new UAsset(path,EngineVersion.VER_UE4_19);
+        if(exportIndex<0||exportIndex>=asset.Exports.Count)throw new InvalidDataException("Invalid export index.");
+        return asset.Exports[exportIndex].Extras??Array.Empty<byte>();
     }
     public static object Describe(UAsset asset)
     {

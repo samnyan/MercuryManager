@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { NImage, NButton, NSpace, NTabs, NTab, NSpin } from 'naive-ui'
 import { api, useProject } from './project'
@@ -16,6 +16,7 @@ const textureError = ref('')
 const supported = ref(false)
 const show = ref(false)
 const path = ref('')
+const rawUrl = computed(()=>'/api/projects/'+project.id+'/resource-raw?'+new URLSearchParams({path:path.value}))
 const mode = ref('generic')
 const data = ref<unknown>()
 const isTexture = ref(false)
@@ -110,6 +111,9 @@ onBeforeUnmount(() => {
       <generic-resource-viewer
         v-if="data && mode === 'generic'"
         :data="data"
+        :preview-src="src"
+        :preview-error="textureError"
+        :raw-url="rawUrl"
       />
 
       <div v-if="mode === 'texture'" class="texture-pane">

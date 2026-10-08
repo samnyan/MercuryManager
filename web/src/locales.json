@@ -3,6 +3,8 @@
     "ui": {
       "addRow": "新增行",
       "searchFieldsRowKey": "搜索字段 / 行键",
+      "rawPreview": "预览图片",
+      "rawDownload": "保存原始数据",
       "rowKey": "行键",
       "applyToDraft": "应用到草稿",
       "tableDraftUpdated": "数据表草稿已更新",
@@ -673,6 +675,8 @@
     "ui": {
       "addRow": "Add row",
       "searchFieldsRowKey": "Search fields / row key",
+      "rawPreview": "Preview image",
+      "rawDownload": "Save raw data",
       "rowKey": "Row key",
       "applyToDraft": "Apply to draft",
       "tableDraftUpdated": "Table draft updated",

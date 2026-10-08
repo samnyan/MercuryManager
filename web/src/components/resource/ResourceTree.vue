@@ -55,6 +55,7 @@ function select(keys: (string | number)[], options: (TreeOption | null)[]) {
   <n-tree
     :data="nodes"
     :on-load="load"
+    expand-on-click
     block-line
     @update:selected-keys="select"
   />

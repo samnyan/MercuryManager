@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, h } from 'vue'
-import { NTree, NDataTable, NInput, NBreadcrumb, NBreadcrumbItem, type TreeOption } from 'naive-ui'
+import { NTree, NDataTable, NInput, NBreadcrumb, NBreadcrumbItem, NModal, NImage, type TreeOption } from 'naive-ui'
 import { tr } from '../../i18n'
 
-const props = defineProps<{ data: unknown }>()
+const props = defineProps<{ data: unknown; rawUrl?: string; previewSrc?: string; previewError?: string }>()
+const previewOpen = ref(false)
+const rawMode = computed(() => segments.value.length===3 && segments.value[0]==='Exports' && segments.value[2]==='CustomSerialization')
+const rawDownload = computed(() => props.rawUrl ? props.rawUrl+'&exportIndex='+encodeURIComponent(segments.value[1] ?? '') : '')
 const selected = ref<unknown>()
 const search = ref('')
 const segments = ref<string[]>([])
@@ -75,10 +78,11 @@ const rows = computed(() => {
   const value = selected.value
   const entries =
     value !== null && typeof value === 'object' ? Object.entries(value) : [['Value', value]]
+  if(rawMode.value && props.rawUrl)entries.push(['[RawData]', null])
   return entries
     .map(([name, item]) => ({
       name,
-      type: type(item),
+      type: name==='[RawData]' && rawMode.value ? '—' : type(item),
       value: summary(item),
       item
     }))
@@ -86,13 +90,17 @@ const rows = computed(() => {
 })
 
 const columns = computed(() => importMode.value ? ['Index','ObjectName','ClassPackage','ClassName','OuterIndex','OuterName','Optional'].map(key=>({title:key,key,width:key==='ObjectName'||key==='ClassPackage'?250:160,render:(row:Record<string,unknown>)=>String(row[key]??'')})) : [
-  { title: tr('ui.viewerName'), key: 'name', width: 230 },
+  { title: tr('ui.viewerName'), key: 'name', width: 230, render:(row:{name:string})=>row.name==='[RawData]'&&rawMode.value?h('i',row.name):row.name },
   { title: tr('ui.viewerType'), key: 'type', width: 150 },
   {
     title: tr('ui.viewerValue'),
     key: 'value',
     render: (row: {name:string;item:unknown;value:string}) =>
-      row.item !== null && typeof row.item === 'object'
+      row.name==='[RawData]' && rawMode.value
+        ? h('div',{style:'display:flex;gap:12px'},[
+            props.previewSrc || props.previewError ? h('button',{class:'object-link',onClick:()=>previewOpen.value=true},tr('ui.rawPreview')) : null,
+            h('a',{class:'object-link',href:rawDownload.value,download:''},tr('ui.rawDownload'))])
+        : row.item !== null && typeof row.item === 'object'
         ? h('button', {class:'object-link',onClick:()=>openRow(row)},row.value)
         : h('span', { style: 'white-space:pre-wrap;overflow-wrap:anywhere' }, row.value)
   }
@@ -100,6 +108,10 @@ const columns = computed(() => importMode.value ? ['Index','ObjectName','ClassPa
 </script>
 
 <template>
+  <n-modal v-model:show="previewOpen" preset="card" :title="tr('ui.rawPreview')" style="width:min(90vw,1000px)">
+    <div v-if="previewSrc" class="raw-preview"><n-image :src="previewSrc" :img-props="{style: 'max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;display:block'}" /></div>
+    <div v-else>{{previewError}}</div>
+  </n-modal>
   <div class="generic-viewer">
     <div class="generic-tree">
       <n-tree
@@ -133,6 +145,8 @@ const columns = computed(() => importMode.value ? ['Index','ObjectName','ClassPa
 </template>
 
 <style scoped>
+.raw-preview {display:flex;justify-content:center;align-items:center;max-width:100%;max-height:70vh;overflow:hidden}
+.raw-preview :deep(.n-image) {max-width:100%;min-width:0}
 :deep(.object-link) {color:#2080f0;text-decoration:underline;cursor:pointer;background:none;border:0;padding:0;font:inherit;text-align:left}
 .generic-viewer {
   display: flex;

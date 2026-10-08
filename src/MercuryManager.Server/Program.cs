@@ -42,6 +42,7 @@ app.Use(async (context, next) =>
 app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path)));
+app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
 app.MapGet("/api/projects/{id}/resource-image",(string id,string path,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path)),"image/png"));
 app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
