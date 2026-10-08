@@ -16,14 +16,16 @@ const player=ref<HTMLAudioElement>(),upload=ref<HTMLInputElement>(),busy=ref(fal
 let replacing:{waveId:number;bank:string;path:string;projectId:string}|undefined
 const adding=ref(false),newName=ref(''),newId=ref<number|null>(null),templateId=ref<number|null>(null),newBank=ref(''),speakerFile=ref<File>(),headphoneFile=ref<File>()
 const templates=computed(()=>cues.value.filter(c=>c.tracks.length===2&&!c.error).map(c=>({label:`${c.cueId} · ${c.name}`,value:c.cueId})))
-const banks=computed(()=>[...new Set(cues.value.flatMap(c=>c.tracks.map(t=>t.bank)))].map(b=>({label:b,value:b})))
-function openAdd(){newName.value='';newId.value=null;templateId.value=templates.value[0]?.value??null;newBank.value=banks.value[0]?.value??'';speakerFile.value=undefined;headphoneFile.value=undefined;adding.value=true}
-type Action={operation:string;bank:string;cueId?:number;waveId?:number;templateId?:number;name?:string;uploadId?:string;speakerId?:string;headphoneId?:string;extensions?:LoopEdit[]}
+const bankNames=ref<string[]>([])
+const banks=computed(()=>[...new Set([...bankNames.value,...cues.value.flatMap(c=>c.tracks.map(t=>t.bank)),...pending.value.map(a=>a.targetBank||a.bank)])].map(b=>({label:b,value:b})))
+function openAdd(){newName.value='';newId.value=null;templateId.value=templates.value[0]?.value??null;newBank.value=banks.value[0]?.value??'';speakerFile.value=undefined;headphoneFile.value=undefined;createBank.value=0;newBankName.value='';adding.value=true}
+type Action={operation:string;bank:string;cueId?:number;waveId?:number;templateId?:number;name?:string;uploadId?:string;speakerId?:string;headphoneId?:string;extensions?:LoopEdit[];targetBank?:string;createBank?:boolean}
 const pending=ref<Action[]>([]),batchMode=ref(false),selectedCues=ref<Cue[]>([]),applyDialog=ref(false),progress=ref(0),stage=ref(''),applying=ref(false)
 type LoopEdit={waveformIndex:number;loopStart:number;loopEnd:number;loopFlag:number}
 type Extension=LoopEdit & {extensionIndex:number|null;fields:Record<string,string>;samples:number;sampleRate:number}
+const targetBank=ref(''),createBank=ref(0),newBankName=ref('')
 const replaceDialog=ref(false),replacement=ref<Action>(),extensionRows=ref<Extension[]>([]),editLoops=ref(0)
-function queueReplace(){if(!replacement.value)return;pending.value.push({...replacement.value,extensions:editLoops.value?extensionRows.value.filter(r=>r.extensionIndex!==null).map(r=>({waveformIndex:r.waveformIndex,loopStart:r.loopStart,loopEnd:r.loopEnd,loopFlag:r.loopFlag})):undefined});replaceDialog.value=false}
+function queueReplace(){if(!replacement.value)return;pending.value.push({...replacement.value,targetBank:createBank.value?newBankName.value:targetBank.value,createBank:!!createBank.value,extensions:editLoops.value?extensionRows.value.map(r=>({waveformIndex:r.waveformIndex,loopStart:r.loopStart,loopEnd:r.loopEnd,loopFlag:r.loopFlag})):undefined});replaceDialog.value=false}
 let events:EventSource|undefined
 const queueKey=()=>`mercury-audio-queue:${project.id}:${props.path}`
 let queueStorageKey=''
@@ -31,17 +33,17 @@ watch(()=>[project.id,props.path],()=>{queueStorageKey=queueKey();try{pending.va
 watch(pending,()=>{if(queueStorageKey)try{localStorage.setItem(queueStorageKey,JSON.stringify(pending.value))}catch{}},{deep:true,flush:'sync'})
 const stageText=computed(()=>{const [key,detail]=stage.value.split(':');return key?`${tr('ui.audioStage'+key)}${detail?' · '+detail:''}`:''})
 async function uploadAudio(file:File){if(file.size>128*1024*1024)throw new Error(tr('ui.audioUploadLimit'));const r=await fetch(`/api/projects/${project.id}/audio-upload`,{method:'POST',headers:{'X-Mercury-Local':'1','Content-Type':'application/octet-stream'},body:file});const j=await r.json();if(!r.ok||j.code!==0)throw new Error(j.message);return j.data.uploadId as string}
-async function addCue(){if(!speakerFile.value||!headphoneFile.value||newId.value===null||templateId.value===null)return;busy.value=true;try{const speakerId=await uploadAudio(speakerFile.value),headphoneId=await uploadAudio(headphoneFile.value);pending.value.push({operation:'add',bank:newBank.value,cueId:newId.value,templateId:templateId.value,name:newName.value,speakerId,headphoneId});adding.value=false}catch(e){error.value=String(e)}finally{busy.value=false}}
+async function addCue(){if(!speakerFile.value||!headphoneFile.value||newId.value===null||templateId.value===null)return;busy.value=true;try{const speakerId=await uploadAudio(speakerFile.value),headphoneId=await uploadAudio(headphoneFile.value);pending.value.push({operation:'add',bank:newBank.value,cueId:newId.value,templateId:templateId.value,name:newName.value,speakerId,headphoneId,targetBank:createBank.value?newBankName.value:newBank.value,createBank:!!createBank.value});adding.value=false}catch(e){error.value=String(e)}finally{busy.value=false}}
 function deleteCue(){for(const c of selectedCues.value){if(!c.tracks.length||pending.value.some(a=>a.operation==='delete'&&a.cueId===c.cueId))continue;pending.value.push({operation:'delete',bank:c.tracks[0]!.bank,cueId:c.cueId,name:c.name})}}
 async function apply(){if(busy.value||!pending.value.length)return;progress.value=0;stage.value='queued';applying.value=true;busy.value=true;error.value='';try{const result=await api<{jobId:string}>(`/projects/${project.id}/audio-apply?`+new URLSearchParams({path:props.path}),'POST',{actions:pending.value});events=new EventSource(`/api/projects/${project.id}/audio-events?jobId=${result.jobId}`);events.onmessage=async e=>{const p=JSON.parse(e.data);progress.value=p.percent;stage.value=p.stage;if(p.done){events?.close();busy.value=false;applying.value=false;if(p.error)error.value=p.error;else{pending.value=[];await project.status();project.revision++;await load()}}};events.onerror=()=>{stage.value='reconnect'}}catch(e){error.value=String(e);busy.value=false;applying.value=false}}
 function selectionChanged(e:any){selectedCues.value=[...new Map<number,Cue>(e.api.getSelectedRows().map((r:AudioRow)=>[r.cue.cueId,r.cue] as [number,Cue])).values()]}
 
 let generation=0
 function stop(){player.value?.pause();src.value='';player.value?.removeAttribute('src');player.value?.load()}
-async function load(){const g=++generation;stop();selectedCues.value=[];cues.value=[];error.value='';try{const result=await api<Cue[]>(`/projects/${project.id}/resource-cues?`+new URLSearchParams({path:props.path}));if(g===generation)cues.value=result}catch(e){if(g===generation)error.value=String(e)}}
+async function load(){const g=++generation;stop();selectedCues.value=[];cues.value=[];bankNames.value=[];error.value='';try{const names=await api<string[]>(`/projects/${project.id}/audio-banks?`+new URLSearchParams({path:props.path}));if(g===generation)bankNames.value=names;const result=await api<Cue[]>(`/projects/${project.id}/resource-cues?`+new URLSearchParams({path:props.path}));if(g===generation)cues.value=result}catch(e){if(g===generation)error.value=String(e)}}
 watch(()=>[props.path,project.id],load,{immediate:true})
 function chooseReplace(row:AudioRow){if(busy.value||!row.track||!props.path.endsWith('.uasset'))return;replacing={waveId:row.track.waveId,bank:row.track.bank,path:props.path,projectId:project.id};upload.value?.click()}
-async function replaceFile(event:Event){const input=event.target as HTMLInputElement,file=input.files?.[0],target=replacing;input.value='';if(!file||!target||target.projectId!==project.id||target.path!==props.path)return;busy.value=true;try{const uploadId=await uploadAudio(file);replacement.value={operation:'replace',bank:target.bank,waveId:target.waveId,uploadId,name:file.name};extensionRows.value=await api<Extension[]>(`/projects/${target.projectId}/audio-extension?`+new URLSearchParams({path:target.path,bank:target.bank,waveId:String(target.waveId)}));editLoops.value=0;replaceDialog.value=true}catch(e){error.value=String(e)}finally{busy.value=false}}
+async function replaceFile(event:Event){const input=event.target as HTMLInputElement,file=input.files?.[0],target=replacing;input.value='';if(!file||!target||target.projectId!==project.id||target.path!==props.path)return;busy.value=true;try{const uploadId=await uploadAudio(file);replacement.value={operation:'replace',bank:target.bank,waveId:target.waveId,uploadId,name:file.name};extensionRows.value=await api<Extension[]>(`/projects/${target.projectId}/audio-extension?`+new URLSearchParams({path:target.path,bank:target.bank,waveId:String(target.waveId)}));extensionRows.value=extensionRows.value.map(r=>({...r,loopStart:r.loopStart??0,loopEnd:r.loopEnd??r.samples}));editLoops.value=0;targetBank.value=target.bank;createBank.value=0;newBankName.value='';replaceDialog.value=true}catch(e){error.value=String(e)}finally{busy.value=false}}
 async function play(row:AudioRow){stop();error.value='';selected.value=`${row.cue.name} · Wave ${row.waveId}`;src.value=`/api/projects/${project.id}/resource-audio?`+new URLSearchParams({path:props.path,index:String(row.cue.index),part:String(row.part)});await nextTick();try{await player.value?.play()}catch(e){error.value=String(e)}}
 const rows=computed<AudioRow[]>(()=>cues.value.flatMap<AudioRow>(c=>c.waveIds.length?c.waveIds.map((waveId,part)=>({key:`${c.index}:${part}`,cue:c,waveId,part,track:c.tracks[part]})):[{key:`${c.index}:empty`,cue:c,waveId:null,part:0}]))
 const spanCue=(p:SpanRowsParams<AudioRow>)=>p.nodeA?.data?.cue.index===p.nodeB?.data?.cue.index
@@ -65,11 +67,15 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <div class="audio-player"><span>{{selected}}</span><audio ref="player" :src="src || undefined" controls preload="none" @error="error=tr('ui.audioFailed')" /></div></div>
 <n-modal v-model:show="replaceDialog"><n-card :title="tr('ui.audioReplace')" style="width:min(680px,95vw)" :bordered="false">
 <p>{{replacement?.name}} · {{replacement?.bank}} · Wave {{replacement?.waveId}}</p>
+<n-form-item :label="tr('ui.audioTargetBank')"><n-select v-model:value="targetBank" :options="banks" :disabled="!!createBank" /></n-form-item>
+<n-form-item :label="tr('ui.audioCreateBank')"><n-select v-model:value="createBank" :options="[{label:tr('ui.audioExistingBank'),value:0},{label:tr('ui.audioCreateBank'),value:1}]" /></n-form-item>
+<n-form-item v-if="createBank" :label="tr('ui.audioBankName')"><n-input v-model:value="newBankName" placeholder="V4_01.awb" /></n-form-item>
+<p>{{tr('ui.audioSharedWarning')}}</p>
 <n-form-item :label="tr('ui.audioExtensionMode')"><n-select v-model:value="editLoops" :options="[{label:tr('ui.audioKeepExtension'),value:0},{label:tr('ui.audioEditExtension'),value:1}]" /></n-form-item>
 <p>{{tr('ui.audioLoopWarning')}}</p>
 <div v-for="r in extensionRows" :key="r.waveformIndex">
 <p>Waveform {{r.waveformIndex}} · Extension {{r.extensionIndex ?? '—'}} · {{r.sampleRate}} Hz · {{r.samples}} samples</p>
-<template v-if="r.extensionIndex!==null">
+<template>
 <n-form-item label="LoopFlag"><n-input-number v-model:value="r.loopFlag" :disabled="!editLoops" :min="0" :max="2" :precision="0" /></n-form-item>
 <n-form-item label="LoopStart (samples)"><n-input-number v-model:value="r.loopStart" :disabled="!editLoops" :min="0" :precision="0" /></n-form-item>
 <n-form-item label="LoopEnd (samples)"><n-input-number v-model:value="r.loopEnd" :disabled="!editLoops" :min="0" :precision="0" /></n-form-item>
@@ -80,11 +86,13 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <n-modal v-model:show="adding"><n-card :title="tr('ui.audioAddCue')" style="width:min(600px,95vw)" :bordered="false"><div class="audio-add-form">
 <n-form-item label="CueName"><n-input v-model:value="newName" /></n-form-item><n-form-item label="Cue ID"><n-input-number v-model:value="newId" :min="0" :precision="0" /></n-form-item>
 <n-form-item :label="tr('ui.audioTemplateCue')"><n-select v-model:value="templateId" :options="templates" /></n-form-item><n-form-item label="Bank"><n-select v-model:value="newBank" :options="banks" /></n-form-item>
+<n-form-item :label="tr('ui.audioCreateBank')"><n-select v-model:value="createBank" :options="[{label:tr('ui.audioExistingBank'),value:0},{label:tr('ui.audioCreateBank'),value:1}]" /></n-form-item>
+<n-form-item v-if="createBank" :label="tr('ui.audioBankName')"><n-input v-model:value="newBankName" placeholder="V4_01.awb" /></n-form-item>
 <n-form-item label="BGM_SPEAKER"><input type="file" accept=".wav,.hca" @change="speakerFile=($event.target as HTMLInputElement).files?.[0]" /></n-form-item>
 <n-form-item label="BGM_HEADPHONE"><input type="file" accept=".wav,.hca" @change="headphoneFile=($event.target as HTMLInputElement).files?.[0]" /></n-form-item>
 <div v-if="error" role="alert">{{error}}</div><n-button :loading="busy" :disabled="!speakerFile || !headphoneFile || !newName || newId===null" @click="addCue">{{tr('ui.audioQueue')}}</n-button></div></n-card></n-modal>
 <n-modal v-model:show="applyDialog" :mask-closable="!busy" :close-on-esc="!busy"><n-card :title="tr('ui.audioApply')" style="width:min(700px,95vw)" :bordered="false">
-<ul class="audio-pending-list"><li v-for="(a,i) in pending" :key="i">{{tr('ui.audioOp'+a.operation)}} · {{a.bank}} · {{a.name || (a.operation==='replace'?a.waveId:a.cueId)}} <n-button v-if="!busy" size="tiny" @click="pending.splice(i,1)">×</n-button></li></ul>
+<ul class="audio-pending-list"><li v-for="(a,i) in pending" :key="i">{{tr('ui.audioOp'+a.operation)}} · {{a.bank}}{{a.targetBank && a.targetBank!==a.bank ? ' → '+a.targetBank : ''}} · {{a.name || (a.operation==='replace'?a.waveId:a.cueId)}} <n-button v-if="!busy" size="tiny" @click="pending.splice(i,1)">×</n-button></li></ul>
 <n-progress v-if="applying || progress>0" type="line" :percentage="progress" /><p>{{stageText}}</p><div v-if="error" role="alert">{{error}}</div>
 <n-button type="primary" :loading="busy" :disabled="busy || !pending.length" @click="apply">{{tr('ui.confirm')}}</n-button></n-card></n-modal>
 <div v-if="error" role="alert" style="color:#d03050">{{error}}</div>

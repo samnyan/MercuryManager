@@ -7,7 +7,7 @@ using UAssetAPI.UnrealTypes;
 namespace MercuryManager.Server;
 public static class CriAudioEditor
 {
-    public static void Replace(string sheet,string bank,ushort waveId,string hca,string outputDirectory,WaveformLoopEdit[]? extensions=null)
+    public static void Replace(string sheet,string bank,ushort waveId,string hca,string outputDirectory,WaveformLoopEdit[]? extensions=null,string? targetBank=null)
     {
         if(Path.GetFullPath(outputDirectory)==Path.GetDirectoryName(Path.GetFullPath(sheet)))throw new InvalidOperationException("Use an isolated staging directory.");
         var top=CriUtf.Read(CueSheetWriter.Extract(new UAsset(sheet,EngineVersion.VER_UE4_19)));
@@ -35,8 +35,18 @@ public static class CriAudioEditor
             int ci=checked((int)cueNames.Number(cue.Index,"CueIndex"));if(cueTable.Number(ci,"CueId")!=cue.CueId)throw new InvalidDataException("Cue name reference mismatch.");cueTable.SetNumber(ci,"Length",duration);
         }
         top.SetBlob(0,"CueTable",cueTable.Write());
+        if(extensions is {Length:>0}&&!extensions.Select(e=>e.WaveformIndex).ToHashSet().SetEquals(affected.Select(x=>x.i)))throw new InvalidDataException("Explicit loop edits must include every waveform sharing this HCA.");
         WaveformExtensions.Apply(top,waveform,affected.Select(x=>x.i).ToHashSet(),extensions,samples);
         if((extensions is null||extensions.Length==0)&&extensionBefore is not null&&!extensionBefore.SequenceEqual(top.Blob(0,"WaveformExtensionDataTable")))throw new InvalidDataException("Waveform extension changed during replacement.");
+        if(targetBank is not null&&Path.GetFullPath(targetBank)!=Path.GetFullPath(bank))
+        {
+            var batchTarget=CriCueEditor.Batch??throw new InvalidOperationException("Bank redirection requires batch staging.");
+            int targetPort=AudioBanks.Port(top,targetBank);if(targetPort<0)throw new InvalidDataException("Target bank is not registered.");
+            using var targetReader=new AwbReader(File.OpenRead(targetBank));if(targetReader.Subkey!=awb.Subkey)throw new InvalidDataException("Target bank subkey differs; encrypted HCA redirection is unsupported.");
+            var targetEntries=batchTarget.Entries(targetBank,targetReader);var used=targetEntries.Select(e=>(int)e.Id).ToHashSet();int free=Enumerable.Range(0,65535).FirstOrDefault(i=>!used.Contains(i),-1);if(free<0)throw new InvalidDataException("Target bank is full.");
+            foreach(var x in affected){waveform.SetNumber(x.i,"StreamAwbPortNo",targetPort);waveform.SetNumber(x.i,"StreamAwbId",free);}
+            top.SetBlob(0,"WaveformTable",waveform.Write());batchTarget.Update(targetBank,targetEntries.Append(new AwbWriter.Entry((ushort)free,new FileInfo(hca).Length,()=>File.OpenRead(hca))).ToArray(),top,sheet,outputDirectory);return;
+        }
         if(CriCueEditor.Batch is {} batch){top.SetBlob(0,"WaveformTable",waveform.Write());var entries=batch.Entries(bank,awb).Select(w=>w.Id==waveId?new AwbWriter.Entry(waveId,new FileInfo(hca).Length,()=>File.OpenRead(hca)):w).ToArray();batch.Update(bank,entries,top,sheet,outputDirectory);return;}
         Directory.CreateDirectory(outputDirectory);var bankOutput=Path.Combine(outputDirectory,Path.GetFileName(bank));
         var header=new byte[16];using(var f=File.OpenRead(bank))f.ReadExactly(header);ushort alignment=BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(12));

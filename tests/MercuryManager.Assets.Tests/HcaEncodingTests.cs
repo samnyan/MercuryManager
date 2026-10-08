@@ -29,5 +29,15 @@ public class HcaEncodingTests
     }
     [Fact]public void RejectsNonfiniteFloatSamples()=>Assert.Throws<InvalidDataException>(()=>HcaEncoding.Encode(FloatWav(invalid:true)));
     [Fact]public void RejectsTruncatedFloatChunk()=>Assert.Throws<InvalidDataException>(()=>HcaEncoding.Encode(FloatWav()[..^1]));
+    [Theory][InlineData(0,4800)][InlineData(123,3456)]
+    public void EncodesLoopChunkWithExactSamplePoints(int start,int end)
+    {
+        var bytes=HcaEncoding.Encode(Wav(),[new(0,start,end,2)]);
+        using var stream=new MemoryStream(bytes);var info=new HcaDecoder(stream,0,0).HcaInfo;
+        Assert.True(info.LoopEnabled);
+        var encoded=new VGAudio.Containers.Hca.HcaReader().ReadFormat(bytes);
+        Assert.Equal(start,encoded.LoopStart);Assert.Equal(end,encoded.LoopEnd);Assert.Equal(4800,info.SampleCount);Assert.Equal(start,info.LoopStartSample);Assert.Equal(end,info.LoopEndSample);
+    }
+    [Fact]public void RejectsConflictingSharedLoops()=>Assert.Throws<InvalidDataException>(()=>HcaEncoding.Encode(Wav(),[new(0,0,4800,2),new(1,100,4800,2)]));
     [Fact]public void RejectsInvalidWav()=>Assert.ThrowsAny<Exception>(()=>HcaEncoding.Encode([1,2,3]));
 }

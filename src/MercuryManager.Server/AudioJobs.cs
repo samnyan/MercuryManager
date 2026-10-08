@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 namespace MercuryManager.Server;
-public sealed record AudioAction(string Operation,string Bank,int CueId=0,ushort WaveId=0,int TemplateId=88,string? Name=null,string? UploadId=null,string? SpeakerId=null,string? HeadphoneId=null,WaveformLoopEdit[]? Extensions=null);
+public sealed record AudioAction(string Operation,string Bank,int CueId=0,ushort WaveId=0,int TemplateId=88,string? Name=null,string? UploadId=null,string? SpeakerId=null,string? HeadphoneId=null,WaveformLoopEdit[]? Extensions=null,string? TargetBank=null,bool CreateBank=false);
 public sealed record AudioApplyRequest(AudioAction[] Actions);
 public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resources,ILogger<AudioJobs> logger)
 {
@@ -22,6 +22,9 @@ public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resourc
         {
             if(action is null || action.Operation is not ("add" or "delete" or "replace"))throw new ArgumentException("Unknown action.");
             if(string.IsNullOrWhiteSpace(action.Bank)||action.Bank!=Path.GetFileName(action.Bank)||action.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");
+            AudioBanks.ValidateName(action.Bank);
+            if(action.TargetBank is not null)AudioBanks.ValidateName(action.TargetBank);
+            if(action.CreateBank&&action.Operation=="delete")throw new ArgumentException("Delete cannot create a bank.");
             if(action.Operation=="add" && (action.CueId<0||string.IsNullOrWhiteSpace(action.Name)))throw new ArgumentException("Cue name and nonnegative ID required.");
             var tokens=action.Operation switch {"add"=>new[]{action.SpeakerId,action.HeadphoneId},"replace"=>new[]{action.UploadId},_=>Array.Empty<string?>()};
             foreach(var upload in tokens)
@@ -44,8 +47,21 @@ public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resourc
     {
         lock(assets){string relative=path;var source=CriAudio.Target(resources.Resolve(id,path),p=>{relative=p;return resources.Resolve(id,p);}).Path;var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-batch-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         using var batch=new AudioBatchContext();var encoded=new Dictionary<string,string>();
-        string Input(string? token){if(token==null||!Guid.TryParseExact(token,"N",out _))throw new ArgumentException("Invalid upload reference.");if(encoded.TryGetValue(token,out var cached))return cached;string f=Path.Combine(UploadRoot(id),token);MusicWorkspaceStore.RejectLinks(f);var bytes=File.ReadAllBytes(f);if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("RIFF"u8))bytes=HcaEncoding.Encode(bytes);string output=Path.Combine(stage,token+".hca");File.WriteAllBytes(output,bytes);return encoded[token]=output;}
-        try{CriCueEditor.Batch=batch;string current=source;for(int i=0;i<actions.Length;i++){var a=actions[i];if(a.Bank!=Path.GetFileName(a.Bank)||a.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");string bank=resources.Resolve(id,((Path.GetDirectoryName(relative)??"")+"/"+a.Bank).TrimStart('/'));report(5+i*35/actions.Length,"transcode:"+(i+1));string output=Path.Combine(stage,"step-"+i);try{switch(a.Operation){case "add":CriCueEditor.Add(current,bank,a.TemplateId,a.CueId,a.Name??"",Input(a.SpeakerId),Input(a.HeadphoneId),output);break;case "delete":CriCueEditor.Delete(current,bank,a.CueId,output);break;case "replace":CriAudioEditor.Replace(current,bank,a.WaveId,Input(a.UploadId),output,a.Extensions);break;default:throw new ArgumentException("Unknown action.");}}catch(Exception ex){throw new InvalidDataException($"Action {i+1}/{actions.Length}: {a.Operation}, bank {a.Bank}, Cue {a.CueId}, Wave {a.WaveId}: {ex.Message}",ex);}current=Path.Combine(output,Path.GetFileName(source));}
+        string Input(string? token,WaveformLoopEdit[]? loops=null){if(token==null||!Guid.TryParseExact(token,"N",out _))throw new ArgumentException("Invalid upload reference.");string cacheKey=token+JsonSerializer.Serialize(loops);if(encoded.TryGetValue(cacheKey,out var cached))return cached;string f=Path.Combine(UploadRoot(id),token);MusicWorkspaceStore.RejectLinks(f);var bytes=File.ReadAllBytes(f);if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("RIFF"u8))bytes=HcaEncoding.Encode(bytes,loops);else if(loops is {Length:>0})throw new InvalidDataException("Explicit loop encoding requires WAV input; HCA uploads retain their encoded loops.");string output=Path.Combine(stage,Guid.NewGuid().ToString("N")+".hca");File.WriteAllBytes(output,bytes);return encoded[cacheKey]=output;}
+        var createdBanks=new Dictionary<string,string>();string? currentSheet=null;
+        string ResolveBank(string name)=>createdBanks.TryGetValue(name,out var staged)?staged:resources.Resolve(id,((Path.GetDirectoryName(relative)??"")+"/"+name).TrimStart('/'));
+        string PrepareBank(string sheet,string name,bool create,string donor)
+        {
+            var top=CriUtf.Read(CueSheetWriter.Extract(new UAssetAPI.UAsset(sheet,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19)));
+            if(AudioBanks.Port(top,name)>=0)return ResolveBank(name);
+            if(!create)throw new InvalidDataException("Target bank missing; enable Create bank explicitly.");
+            string rel=((Path.GetDirectoryName(relative)??"")+"/"+name).TrimStart('/');
+            try{resources.Resolve(id,rel);throw new InvalidDataException("Unregistered bank file already exists; refusing to overwrite.");}catch(FileNotFoundException){}
+            var folder=Path.Combine(stage,"banks");Directory.CreateDirectory(folder);var dest=Path.Combine(folder,name);AudioBanks.Create(donor,dest);
+            using(var f=File.OpenRead(dest))AudioBanks.Register(top,name,System.Security.Cryptography.MD5.HashData(f),AudioBanks.Header(dest,0));
+            var registered=Path.Combine(stage,"registered-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(registered);CueSheetWriter.Embed(sheet,top.Write(),Path.Combine(registered,Path.GetFileName(sheet)));currentSheet=Path.Combine(registered,Path.GetFileName(sheet));createdBanks.Add(name,dest);return dest;
+        }
+        try{CriCueEditor.Batch=batch;string current=source;for(int i=0;i<actions.Length;i++){var a=actions[i];if(a.Bank!=Path.GetFileName(a.Bank)||a.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");string bank=ResolveBank(a.Bank);report(5+i*35/actions.Length,"transcode:"+(i+1));string output=Path.Combine(stage,"step-"+i);try{currentSheet=null;string? targetBank=null;if(a.Operation is "add" or "replace"){targetBank=PrepareBank(current,a.TargetBank??a.Bank,a.CreateBank,bank);if(currentSheet is not null)current=currentSheet;}switch(a.Operation){case "add":CriCueEditor.Add(current,targetBank!,a.TemplateId,a.CueId,a.Name??"",Input(a.SpeakerId),Input(a.HeadphoneId),output);break;case "delete":CriCueEditor.Delete(current,bank,a.CueId,output);break;case "replace":CriAudioEditor.Replace(current,bank,a.WaveId,Input(a.UploadId,a.Extensions),output,a.Extensions,targetBank);break;default:throw new ArgumentException("Unknown action.");}}catch(Exception ex){throw new InvalidDataException($"Action {i+1}/{actions.Length}: {a.Operation}, bank {a.Bank}, Cue {a.CueId}, Wave {a.WaveId}: {ex.Message}",ex);}current=Path.Combine(output,Path.GetFileName(source));}
         CriCueEditor.Batch=null;string final=Path.Combine(stage,"final");Directory.CreateDirectory(final);batch.Finish(current,final,report);report(95,"publish");FileTransaction.Copy(Directory.GetFiles(final).Select(f=>(Source:f,Destination:Path.Combine(resources.DraftRoot(id),Path.GetDirectoryName(relative)??"",Path.GetFileName(f)))).ToArray(),false);
         }finally{CriCueEditor.Batch=null;Directory.Delete(stage,true);}}
     }

@@ -47,13 +47,19 @@ public static class HcaEncoding
         }
         return output.ToArray();
     }
-    public static byte[] Encode(byte[] wav)
+    public static byte[] Encode(byte[] wav,WaveformLoopEdit[]? loops=null)
     {
         if(wav.Length>128*1024*1024)throw new InvalidDataException("WAV upload limit: 128 MiB.");
         var format=new WaveReader().ReadFormat(NormalizeWav(wav));
         if(format.ChannelCount is <1 or >2||format.SampleRate is <8000 or >96000||format.SampleCount<=0||format.SampleCount>format.SampleRate*600)throw new InvalidDataException("WAV must be mono/stereo, 8–96 kHz and no longer than 10 minutes.");
-        var hca=new HcaWriter().GetFile(format,new HcaConfiguration());
+        var settings=loops?.Select(e=>(Enabled:e.LoopFlag!=0,e.LoopStart,e.LoopEnd)).Distinct().ToArray();
+        if(settings is {Length:>1})throw new InvalidDataException("Shared HCA requires identical loop settings on all waveforms.");
+        if(settings is {Length:1}&&(settings[0].LoopStart<0||settings[0].LoopEnd<=settings[0].LoopStart||settings[0].LoopEnd>format.SampleCount))throw new InvalidDataException("Loop points outside new audio.");
+        // Encode the entire stream first: the encoder's looping path trims the tail.
+        if(settings is not null)format=format.WithLoop(false);
+        var hca=new HcaWriter().GetFile(format,new HcaConfiguration {TrimFile=false});
+        if(settings is {Length:1}&&settings[0].Enabled)hca=HcaLoopChunk.Add(hca,settings[0].LoopStart,settings[0].LoopEnd);
         using var input=new MemoryStream(hca);using var pcm=new HcaWaveStream(input,0,0);var buffer=new byte[32768];long read=0;int n;while((n=pcm.Read(buffer,0,buffer.Length))>0)read+=n;
-        if(read!=pcm.Length||pcm.WaveFormat.SampleRate!=format.SampleRate||read/pcm.WaveFormat.BlockAlign!=format.SampleCount)throw new InvalidDataException("HCA encoding validation failed.");return hca;
+        if(read!=pcm.Length||pcm.WaveFormat.SampleRate!=format.SampleRate||read/pcm.WaveFormat.BlockAlign!=format.SampleCount)throw new InvalidDataException($"HCA encoding validation failed: PCM {read}/{pcm.Length}, samples {read/pcm.WaveFormat.BlockAlign}/{format.SampleCount}, VGAudio {new HcaReader().ReadFormat(hca).SampleCount}.");return hca;
     }
 }

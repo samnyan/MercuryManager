@@ -21,17 +21,19 @@ public static class WaveformExtensions
     {
         if(edits is null||edits.Length==0)return;
         if(edits.Select(e=>e.WaveformIndex).Distinct().Count()!=edits.Length)throw new InvalidDataException("Duplicate waveform edit.");
-        var extension=CriUtf.Read(top.Blob(0,"WaveformExtensionDataTable"));
+        var blob=top.Blob(0,"WaveformExtensionDataTable");var extension=blob.Length>0?CriUtf.Read(blob):null;
         foreach(var edit in edits)
         {
             if(!affected.Contains(edit.WaveformIndex))throw new InvalidDataException("Extension edit does not belong to replaced wave.");
             int index=checked((int)waves.Number(edit.WaveformIndex,"ExtensionData"));
-            if(index<0||index>=extension.Rows.Count)throw new InvalidDataException("This waveform has no editable extension.");
+            if(edit.LoopFlag is <0 or >2)throw new InvalidDataException("LoopFlag must be 0–2.");
+            if(index==65535){waves.SetNumber(edit.WaveformIndex,"LoopFlag",edit.LoopFlag==0?0:1);continue;}
+            if(extension is null||index<0||index>=extension.Rows.Count)throw new InvalidDataException("This waveform has no editable extension.");
             if(edit.LoopFlag is <0 or >2||edit.LoopStart<0||edit.LoopEnd<=edit.LoopStart||edit.LoopEnd>samples)throw new InvalidDataException("Loop points must satisfy 0 <= start < end <= new sample count; LoopFlag must be 0–2.");
             // Clone to avoid changing another waveform sharing the original record.
             int cloned=extension.CloneRow(index);extension.SetNumber(cloned,"LoopStart",edit.LoopStart);extension.SetNumber(cloned,"LoopEnd",edit.LoopEnd);
             waves.SetNumber(edit.WaveformIndex,"ExtensionData",cloned);waves.SetNumber(edit.WaveformIndex,"LoopFlag",edit.LoopFlag);
         }
-        top.SetBlob(0,"WaveformExtensionDataTable",extension.Write());
+        if(extension is not null)top.SetBlob(0,"WaveformExtensionDataTable",extension.Write());
     }
 }
