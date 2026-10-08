@@ -87,6 +87,7 @@
       "parentDirectory": "上级目录",
       "textureMode": "贴图",
       "genericMode": "通用",
+      "viewerEmpty": "(空)",
       "viewerName": "名称",
       "viewerType": "类型",
       "viewerValue": "值"
@@ -756,6 +757,7 @@
       "parentDirectory": "Parent directory",
       "textureMode": "Texture",
       "genericMode": "Generic",
+      "viewerEmpty": "(Empty)",
       "viewerName": "Name",
       "viewerType": "Type",
       "viewerValue": "Value"

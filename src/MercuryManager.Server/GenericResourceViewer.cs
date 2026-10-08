@@ -1,10 +1,33 @@
 using Newtonsoft.Json.Linq;
 using UAssetAPI;
 using UAssetAPI.ExportTypes;
+using UAssetAPI.UnrealTypes;
+using System.Reflection;
 namespace MercuryManager.Server;
 
 public static class GenericResourceViewer
 {
+    private static string ReferenceName(FPackageIndex index,UAsset asset)
+    {
+        if(index.Index==0)return "None";
+        if(index.Index<0 && -(long)index.Index<=asset.Imports.Count)return asset.Imports[-index.Index-1].ObjectName.ToString();
+        if(index.Index>0 && index.Index<=asset.Exports.Count)return asset.Exports[index.Index-1].ObjectName.ToString();
+        return "Unresolved";
+    }
+    private static JToken FieldValue(object? value,UAsset asset)
+    {
+        if(value is null)return JValue.CreateNull();
+        if(value is FPackageIndex index)return new JValue($"{index.Index} / {ReferenceName(index,asset)}");
+        if(value is FName or FString || value.GetType().IsEnum)return new JValue(value.ToString());
+        if(value is byte[] bytes)return new JObject{["Bytes"]=bytes.Length,["HexPreview"]=Convert.ToHexString(bytes.AsSpan(0,Math.Min(bytes.Length,128)))};
+        var json=asset.SerializeJsonObject(value);
+        if(json.Length>1024*1024)return new JValue("Parsed field exceeds display limit");
+        return JToken.Parse(json);
+    }
+    private static JObject Fields(object value,UAsset asset)
+    {
+        var result=new JObject();foreach(var field in value.GetType().GetFields(BindingFlags.Public|BindingFlags.Instance))result[field.Name]=FieldValue(field.GetValue(value),asset);return result;
+    }
     public static object Read(string path)
     {
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
@@ -20,12 +43,19 @@ public static class GenericResourceViewer
         {
             var node=new JObject{["Name"]=export.ObjectName.ToString(),["Class"]=export.GetExportClassType().ToString(),["Parser"]=export.GetType().Name,["SerialOffset"]=export.SerialOffset.ToString(),["SerialSize"]=export.SerialSize.ToString(),["Flags"]=export.ObjectFlags.ToString()};
             if(export is NormalExport normal){var props=new JObject();foreach(var p in normal.Data)props[p.Name+"["+p.ArrayIndex+"]"]=Serialize(p);node["Properties"]=props;}
+            if(export is PropertyExport property && property.Property is not null)node["UProperty"]=Fields(property.Property,asset);
+            // Surface parsed fields of specialized serializers, not just tagged UObject properties.
+            var specialized=new JObject();
+            for(var type=export.GetType();type!=null&&type!=typeof(NormalExport)&&type!=typeof(Export);type=type.BaseType)
+                foreach(var field in type.GetFields(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly))
+                    if(field.Name is not "Property" and not "Table")specialized[field.Name]=FieldValue(field.GetValue(export),asset);
+            if(specialized.Count>0)node["ParsedData"]=specialized;
             if(export is DataTableExport table)node["Rows"]=Serialize(table.Table.Data);
             if(export is RawExport raw)node["RawData"]=new JObject{["Status"]="Unparsed export",["Bytes"]=raw.Data.Length,["HexPreview"]=Convert.ToHexString(raw.Data.AsSpan(0,Math.Min(128,raw.Data.Length)))};
             if(export.Extras is {Length:>0} extras)node["CustomSerialization"]=new JObject{["Status"]="Opaque bytes (not parsed by this viewer)",["Bytes"]=extras.Length,["HexPreview"]=Convert.ToHexString(extras.AsSpan(0,Math.Min(128,extras.Length)))};
             exports.Add(node);
         }
-        var data=new JObject{["Header"]=new JObject{["EngineProfile"]="UE4.19",["Note"]="Read-only; parser profile is not proof of original engine version.",["Exports"]=asset.Exports.Count,["Imports"]=asset.Imports.Count},["NameMap"]=new JArray(asset.GetNameMapIndexList().Select(n=>n.ToString())),["Imports"]=Serialize(asset.Imports),["Exports"]=exports};
+        var data=new JObject{["Header"]=new JObject{["EngineProfile"]="UE4.19",["Note"]="Read-only; parser profile is not proof of original engine version.",["Exports"]=asset.Exports.Count,["Imports"]=asset.Imports.Count},["NameMap"]=new JArray(asset.GetNameMapIndexList().Select(n=>n.ToString())),["Imports"]=new JArray(asset.Imports.Select((i,index)=>new JObject{["Index"]=-(index+1),["ObjectName"]=i.ObjectName.ToString(),["ClassPackage"]=i.ClassPackage.ToString(),["ClassName"]=i.ClassName.ToString(),["OuterIndex"]=i.OuterIndex.Index,["OuterName"]=ReferenceName(i.OuterIndex,asset),["Optional"]=i.bImportOptional})),["Exports"]=exports};
         // Convert Newtonsoft tokens to System.Text.Json values for the standard API envelope.
         return new{isTexture=asset.Exports.Any(e=>e.GetExportClassType().ToString()=="Texture2D"),data=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(data.ToString(Newtonsoft.Json.Formatting.None))};
     }
