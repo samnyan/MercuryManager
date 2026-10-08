@@ -19,6 +19,15 @@ public class LocalAccessPolicyTests
         Assert.False(policy.Allows(IPAddress.Parse("203.0.113.11")));
         Assert.False(policy.Allows(null));
     }
+    [Fact] public void Cidr_subnet_accepts_all_addresses_in_range()
+    {
+        var policy=Policy("100.64.0.0/10, 192.168.2.0/24");
+        Assert.True(policy.Allows(IPAddress.Parse("100.106.185.5")));
+        Assert.True(policy.Allows(IPAddress.Parse("100.64.0.1")));
+        Assert.True(policy.Allows(IPAddress.Parse("192.168.2.32")));
+        Assert.True(policy.Allows(IPAddress.Parse("::ffff:100.106.185.5")));
+        Assert.False(policy.Allows(IPAddress.Parse("10.0.0.1")));
+    }
     [Fact] public void Invalid_configuration_is_rejected()=>Assert.Throws<ArgumentException>(()=>Policy("not-an-ip"));
     [Fact] public void Catalog_is_unique_and_contains_only_safe_asset_names()
     {

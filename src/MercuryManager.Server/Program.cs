@@ -1,3 +1,4 @@
+using System.Net;
 using MercuryManager.Server;
 
 var builder = WebApplication.CreateBuilder(StartupOptions.NormalizeArguments(args));
@@ -13,20 +14,25 @@ var app = builder.Build();
 app.UseApiResults();
 app.Use(async (context, next) =>
 {
-    var expectedHost = new HostString(context.Connection.LocalIpAddress!.ToString(), context.Connection.LocalPort).Value;
     if (!accessPolicy.Allows(context.Connection.RemoteIpAddress))
     {
         context.Response.StatusCode = 403;
         return;
     }
-    var origin = context.Request.Headers.Origin.ToString();
-    if (context.Request.Host.Value != expectedHost ||
-        (origin.Length > 0 && origin != $"http://{expectedHost}"))
+    var localIp = context.Connection.LocalIpAddress;
+    var isAnyLocal = localIp is null || IPAddress.Any.Equals(localIp) || IPAddress.IPv6Any.Equals(localIp);
+    if (!isAnyLocal)
     {
-        context.Response.StatusCode = 403;
-        return;
+        var expectedHost = new HostString(localIp!.ToString(), context.Connection.LocalPort).Value;
+        var origin = context.Request.Headers.Origin.ToString();
+        if (context.Request.Host.Value != expectedHost ||
+            (origin.Length > 0 && origin != $"http://{expectedHost}"))
+        {
+            context.Response.StatusCode = 403;
+            return;
+        }
     }
-    if (context.Request.Method != "GET" && context.Request.Headers["X-Mercury-Local"] != "1")
+    if (context.Request.Method != "GET" && context.Request.Method != "HEAD" && context.Request.Headers["X-Mercury-Local"] != "1")
     {
         context.Response.StatusCode = 403;
         return;

@@ -29,8 +29,9 @@ public sealed record StartupOptions(string ListenUrl, bool LaunchBrowser)
 
         var host = configuration["host"] ?? "127.0.0.1";
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) host = "127.0.0.1";
+        if (host is "*" or "+") host = "0.0.0.0";
         if (!IPAddress.TryParse(host, out var address))
-            throw new ArgumentException("--host requires an IP address or localhost.");
+            throw new ArgumentException("--host requires an IP address, localhost, or 0.0.0.0/*.");
         var portText = configuration["port"] ?? "5087";
         if (!int.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535)
             throw new ArgumentException("--port requires a number between 1 and 65535.");
