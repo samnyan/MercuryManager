@@ -41,6 +41,16 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
             finally{Directory.Delete(stage,true);}
         }
     }
+    public object ReplaceAudio(string id,string path,string bank,ushort waveId,byte[] hca)
+    {
+        lock(assets){if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Open the paired CueSheet uasset.");if(hca.Length==0||hca.Length>32*1024*1024)throw new ArgumentException("HCA upload limit: 32 MiB.");
+        var sheetPath=path;var resolved=CriAudio.Target(Resolve(id,path),p=>{sheetPath=p;return Resolve(id,p);});var sheet=resolved.Path;if(bank!=Path.GetFileName(bank)||bank.Contains('\\')||!bank.EndsWith(".awb",StringComparison.Ordinal))throw new ArgumentException("Invalid bank.");
+        var bankPath=(Path.GetDirectoryName(sheetPath)?.Replace('\\','/')+"/"+bank).TrimStart('/');var originalBank=Resolve(id,bankPath);
+        var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+        try{var input=Path.Combine(stage,"input.hca");File.WriteAllBytes(input,hca);var result=Path.Combine(stage,"output");CriAudioEditor.Replace(sheet,originalBank,waveId,input,result);
+        var files=Directory.GetFiles(result).Select(f=>(Source:f,Destination:Path.Combine(DraftRoot(id),Path.GetDirectoryName(sheetPath)??"",Path.GetFileName(f)))).ToArray();FileTransaction.Copy(files,false);return new{path,waveId,verified=true};}
+        finally{Directory.Delete(stage,true);}}
+    }
     public object Info(string id,string path)
     {
         var source=Resolve(id,path);var a=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
@@ -62,11 +72,9 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         var root=DraftRoot(id);if(!Directory.Exists(root))return [];var written=new List<string>();
         lock(assets){
         var files=Directory.GetFiles(root,"*",SearchOption.AllDirectories).Select(source=>(Source:source,Destination:Path.Combine(output,Path.GetRelativePath(root,source)))).ToArray();
-        var previous=new Dictionary<string,byte[]?>();var backups=new List<string>();
-        foreach(var file in files){MusicWorkspaceStore.RejectLinks(file.Source);MusicWorkspaceStore.RejectLinks(file.Destination);MusicWorkspaceStore.RejectLinks(file.Destination+"_bak");MusicWorkspaceStore.RejectLinks(file.Destination+".mercury-tmp");if(File.Exists(file.Destination+".mercury-tmp")||(backup&&File.Exists(file.Destination)&&File.Exists(file.Destination+"_bak")))throw new IOException("Output staging or backup already exists.");previous[file.Destination]=File.Exists(file.Destination)?File.ReadAllBytes(file.Destination):null;}
-        try{foreach(var file in files){Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);if(backup&&previous[file.Destination]!=null){File.Copy(file.Destination,file.Destination+"_bak",false);backups.Add(file.Destination+"_bak");}File.Copy(file.Source,file.Destination+".mercury-tmp",false);File.Move(file.Destination+".mercury-tmp",file.Destination,true);if(!File.ReadAllBytes(file.Source).SequenceEqual(File.ReadAllBytes(file.Destination)))throw new IOException("Resource copy verification failed.");written.Add(file.Destination);}}
-        catch{foreach(var file in files){if(previous[file.Destination] is { } old)File.WriteAllBytes(file.Destination,old);else File.Delete(file.Destination);File.Delete(file.Destination+".mercury-tmp");}foreach(var file in backups)File.Delete(file);throw;}
+        FileTransaction.Copy(files,backup);written.AddRange(files.Select(f=>f.Destination));
         return written.ToArray();}
     }
 }
+public sealed record ReplaceAudioRequest(string Bank,ushort WaveId,string HcaBase64);
 public sealed record BuildTextureRequest(string Template,string Target,string ImageBase64);

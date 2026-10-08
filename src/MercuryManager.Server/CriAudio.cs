@@ -73,7 +73,7 @@ public static class CriAudio
         }
     }
     // HTTP PCM is emitted incrementally; neither the complete AWB nor decoded WAV is buffered.
-    public static async Task Play(HttpContext context,string path,int index,int part)
+    public static async Task Play(HttpContext context,string path,int index,int part,Func<string,string>? resolveBank=null)
     {
         DefaultFileProvider? provider=null;AcbReader? acb=null;AwbReader? awb=null;
         try
@@ -91,7 +91,7 @@ public static class CriAudio
                 var wave=waves[part];
                 if(wave.EncodeType is not (EEncodeType.HCA or EEncodeType.HCA_ALT))throw new InvalidDataException("Only HCA preview is supported.");
                 if(wave.Streaming==EWaveformStreamType.Memory){awb=acb.GetAwb();waveId=wave.Id;}
-                else{var bankName=Convert.ToString(acb.AtomCueSheetData["StreamAwb"][wave.PortNo]["Name"])??throw new InvalidDataException("Missing bank name.");if(bankName!=Path.GetFileName(bankName)||bankName.Contains('\\'))throw new InvalidDataException("Invalid bank name.");var external=Path.Combine(Path.GetDirectoryName(path)!,bankName+".awb");MusicWorkspaceStore.RejectLinks(external);awb=new AwbReader(File.OpenRead(external));waveId=wave.StreamId;}
+                else{var bankName=Convert.ToString(acb.AtomCueSheetData["StreamAwb"][wave.PortNo]["Name"])??throw new InvalidDataException("Missing bank name.");if(bankName!=Path.GetFileName(bankName)||bankName.Contains('\\'))throw new InvalidDataException("Invalid bank name.");var external=resolveBank is null?Path.Combine(Path.GetDirectoryName(path)!,bankName+".awb"):resolveBank(bankName+".awb");MusicWorkspaceStore.RejectLinks(external);awb=new AwbReader(File.OpenRead(external));waveId=wave.StreamId;}
             }
             if(awb is null)throw new InvalidDataException("No AWB available.");
             var entry=awb.Waves.Single(w=>w.WaveId==waveId);

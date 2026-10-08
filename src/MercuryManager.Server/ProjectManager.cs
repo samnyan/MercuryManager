@@ -23,7 +23,7 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
         var p=Read(id);hash.AppendData(System.Text.Encoding.UTF8.GetBytes(p.Name+"\n"+p.ContentRoot));
         var working=Path.Combine(DirectoryFor(id),"working");
         if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Resources"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
-        {hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(working,f)));hash.AppendData(File.ReadAllBytes(f));}
+        {hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(working,f)));using var input=File.OpenRead(f);var buffer=new byte[1024*1024];int count;while((count=input.Read(buffer))>0)hash.AppendData(buffer,0,count);}
         return Convert.ToHexString(hash.GetHashAndReset());
     }
     public object Save(string id)

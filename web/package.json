@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@lucide/vue": "^1.52.0",
     "ag-grid-community": "^35.0.0",
     "ag-grid-vue3": "^35.0.0",
     "naive-ui": "^2.43.0",
