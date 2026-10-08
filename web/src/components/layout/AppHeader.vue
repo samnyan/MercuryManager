@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, h } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   NButton,
   NSpace,
@@ -53,10 +53,23 @@ async function run(action: () => Promise<void>) {
 
 async function showOpen() {
   await run(async () => {
-    projects.value = await api('/projects')
+    const list = await api<Array<{ id: string; name: string; saved: boolean }>>('/projects')
+    projects.value = list
+    selected.value = list[0]?.id ?? ''
     dialog.value = 'open'
   })
 }
+
+onMounted(async () => {
+  const savedWs = localStorage.getItem('mercury-workspace')
+  if (savedWs && !project.id) {
+    try {
+      await project.resume(savedWs)
+    } catch {
+      localStorage.removeItem('mercury-workspace')
+    }
+  }
+})
 
 async function accept() {
   await run(async () => {
