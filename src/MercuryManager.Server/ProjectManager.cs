@@ -11,7 +11,8 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
     private Project Read(string id) => JsonSerializer.Deserialize<Project>(File.ReadAllText(Metadata(id)))!;
     private void Store(Project project) { var path=Metadata(project.Id); File.WriteAllText(path+".tmp",JsonSerializer.Serialize(project)); File.Move(path+".tmp",path,true); }
     public object Status(string id) { var p=Read(id); return new {p.Id,p.Name,p.ContentRoot,dirty=p.SavedHash!=Hash(id),saved=p.SavedHash!=null}; }
-    public object[] List() => Directory.GetDirectories(Root).Where(d=>File.Exists(Path.Combine(d,"project-info.json"))).Select(d=>Status(Path.GetFileName(d))).ToArray();
+    // The picker needs metadata, not a full content digest of every project's AWBs.
+    public object[] List() => Directory.GetDirectories(Root).Where(d=>File.Exists(Path.Combine(d,"project-info.json"))).Select(d=>{var p=Read(Path.GetFileName(d));return (object)new {p.Id,p.Name,p.ContentRoot,saved=p.SavedHash!=null};}).ToArray();
     public object Create(string name)
     {
         if(string.IsNullOrWhiteSpace(name)||name.Length>100)throw new ArgumentException("Project name required (maximum 100 characters).");

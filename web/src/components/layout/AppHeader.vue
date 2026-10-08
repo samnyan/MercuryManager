@@ -33,7 +33,7 @@ const dialog = ref('')
 const path = ref('')
 const label = ref('')
 const selected = ref('')
-const projects = ref<{ id: string; name: string; dirty: boolean }[]>([])
+const projects = ref<{ id: string; name: string; saved: boolean }[]>([])
 
 const mode = ref('overwrite')
 const backup = ref(true)
@@ -296,7 +296,7 @@ function onMobileMenuSelect(key: string) {
           <n-select
             v-if="dialog === 'open'"
             v-model:value="selected"
-            :options="projects.map(p => ({ label: p.name + (p.dirty ? ' *' : ''), value: p.id }))"
+            :options="projects.map(p => ({ label: p.name, value: p.id }))"
           />
 
           <template v-if="dialog === 'import'">

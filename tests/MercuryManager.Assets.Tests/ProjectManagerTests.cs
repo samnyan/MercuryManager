@@ -31,5 +31,16 @@ public sealed class ProjectManagerTests : IDisposable
         var dir=Path.Combine(root,id,"working","Message","Test");Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"Test.uasset"),"test");
         Assert.False(Json(manager.Status(id)).GetProperty("dirty").GetBoolean());
     }
+    [Fact] public void ListReadsMetadataWithoutOpeningResourcePayloads()
+    {
+        var manager=Manager();var id=Json(manager.Create("Picker")).GetProperty("id").GetString()!;
+        var resources=Path.Combine(root,id,"working","Resources");Directory.CreateDirectory(resources);
+        var bank=Path.Combine(resources,"test.awb");File.WriteAllText(bank,"payload");
+        using var locked=File.Open(bank,FileMode.Open,FileAccess.ReadWrite,FileShare.None);
+        var entry=Json(Assert.Single(manager.List()));
+        Assert.Equal(id,entry.GetProperty("id").GetString());
+        Assert.False(entry.TryGetProperty("dirty",out _));
+        Assert.Throws<IOException>(()=>manager.Status(id));
+    }
     public void Dispose(){if(Directory.Exists(root))Directory.Delete(root,true);}
 }

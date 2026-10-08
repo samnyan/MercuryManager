@@ -16,6 +16,7 @@
     <Content Update="wwwroot/**/*;appsettings*.json" CopyToPublishDirectory="Never" ExcludeFromSingleFile="false" />
     <EmbeddedResource Include="../../web/src/textureBindings.json" LogicalName="MercuryManager.TextureBindings.json" />
     <EmbeddedResource Include="../../web/src/tableCatalog.json" LogicalName="MercuryManager.TableCatalog.json" />
+    <PackageReference Include="VGAudio" Version="2.2.1" />
   </ItemGroup>
 
 </Project>

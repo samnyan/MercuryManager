@@ -5,7 +5,7 @@ namespace MercuryManager.Server;
 public static class AwbWriter
 {
     public sealed record Entry(ushort Id,long Length,Func<Stream> Open);
-    public static void Write(Stream output,IReadOnlyList<Entry> entries,ushort alignment=32,ushort subkey=0)
+    public static void Write(Stream output,IReadOnlyList<Entry> entries,ushort alignment=32,ushort subkey=0,Action<long,long>? progress=null)
     {
         if(!output.CanSeek||!output.CanWrite)throw new ArgumentException("Seekable output required.");
         if(alignment==0||entries.Select(e=>e.Id).Distinct().Count()!=entries.Count||entries.Any(e=>e.Length<0))throw new InvalidDataException("Invalid AWB entries.");
@@ -19,13 +19,13 @@ public static class AwbWriter
         foreach(var entry in entries)writer.Write(entry.Id);
         long offsets=output.Position;for(int i=0;i<=entries.Count;i++)writer.Write(0u);
         var pointers=new uint[entries.Count+1];pointers[0]=(uint)header;
-        var buffer=new byte[1024*1024];
+        var buffer=new byte[1024*1024];long copied=0,total=entries.Sum(e=>e.Length);
         for(int i=0;i<entries.Count;i++)
         {
             var entry=entries[i];long padding=Align(output.Position,alignment)-output.Position;
             for(long j=0;j<padding;j++)writer.Write((byte)0);
             using var input=entry.Open();long remaining=entry.Length;
-            while(remaining>0){int n=input.Read(buffer,0,(int)Math.Min(buffer.Length,remaining));if(n==0)throw new EndOfStreamException("Truncated AWB payload.");output.Write(buffer,0,n);remaining-=n;}
+            while(remaining>0){int n=input.Read(buffer,0,(int)Math.Min(buffer.Length,remaining));if(n==0)throw new EndOfStreamException("Truncated AWB payload.");output.Write(buffer,0,n);remaining-=n;copied+=n;progress?.Invoke(copied,total);}
             pointers[i+1]=checked((uint)output.Position);
         }
         long end=output.Position;output.Position=offsets;foreach(var pointer in pointers)writer.Write(pointer);output.Position=end;

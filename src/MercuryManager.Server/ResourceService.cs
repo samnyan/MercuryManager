@@ -43,12 +43,23 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     }
     public object ReplaceAudio(string id,string path,string bank,ushort waveId,byte[] hca)
     {
-        lock(assets){if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Open the paired CueSheet uasset.");if(hca.Length==0||hca.Length>32*1024*1024)throw new ArgumentException("HCA upload limit: 32 MiB.");
+        lock(assets){if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Open the paired CueSheet uasset.");if(hca.Length==0||hca.Length>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");
         var sheetPath=path;var resolved=CriAudio.Target(Resolve(id,path),p=>{sheetPath=p;return Resolve(id,p);});var sheet=resolved.Path;if(bank!=Path.GetFileName(bank)||bank.Contains('\\')||!bank.EndsWith(".awb",StringComparison.Ordinal))throw new ArgumentException("Invalid bank.");
         var bankPath=(Path.GetDirectoryName(sheetPath)?.Replace('\\','/')+"/"+bank).TrimStart('/');var originalBank=Resolve(id,bankPath);
         var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
-        try{var input=Path.Combine(stage,"input.hca");File.WriteAllBytes(input,hca);var result=Path.Combine(stage,"output");CriAudioEditor.Replace(sheet,originalBank,waveId,input,result);
+        try{var input=Path.Combine(stage,"input.hca");File.WriteAllBytes(input,hca.AsSpan(0,Math.Min(4,hca.Length)).SequenceEqual("RIFF"u8)?HcaEncoding.Encode(hca):hca);var result=Path.Combine(stage,"output");CriAudioEditor.Replace(sheet,originalBank,waveId,input,result);
         var files=Directory.GetFiles(result).Select(f=>(Source:f,Destination:Path.Combine(DraftRoot(id),Path.GetDirectoryName(sheetPath)??"",Path.GetFileName(f)))).ToArray();FileTransaction.Copy(files,false);return new{path,waveId,verified=true};}
+        finally{Directory.Delete(stage,true);}}
+    }
+    public object EditCue(string id,string path,CueEditRequest request)
+    {
+        lock(assets){var sheetPath=path;var sheet=CriAudio.Target(Resolve(id,path),p=>{sheetPath=p;return Resolve(id,p);}).Path;
+        if(request.Bank!=Path.GetFileName(request.Bank)||request.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");var bankPath=((Path.GetDirectoryName(sheetPath)??"")+"/"+request.Bank).TrimStart('/');var bank=Resolve(id,bankPath);
+        var stage=Path.Combine(assets.WorkspaceDirectory(id),"cue-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+        try{var result=Path.Combine(stage,"output");if(request.Operation=="delete")CriCueEditor.Delete(sheet,bank,request.CueId,result);
+        else if(request.Operation=="add"){string Input(string name,string? base64){var bytes=Convert.FromBase64String(base64??"");if(bytes.Length==0||bytes.Length>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("RIFF"u8))bytes=HcaEncoding.Encode(bytes);var f=Path.Combine(stage,name+".hca");File.WriteAllBytes(f,bytes);return f;}var sp=Input("speaker",request.SpeakerBase64);var hp=Input("headphone",request.HeadphoneBase64);CriCueEditor.Add(sheet,bank,request.TemplateId,request.CueId,request.Name??"",sp,hp,result);}
+        else throw new ArgumentException("Unknown Cue operation.");
+        FileTransaction.Copy(Directory.GetFiles(result).Select(f=>(Source:f,Destination:Path.Combine(DraftRoot(id),Path.GetDirectoryName(sheetPath)??"",Path.GetFileName(f)))).ToArray(),false);return new{verified=true};}
         finally{Directory.Delete(stage,true);}}
     }
     public object Info(string id,string path)
@@ -76,5 +87,6 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         return written.ToArray();}
     }
 }
+public sealed record CueEditRequest(string Operation,string Bank,int CueId,int TemplateId=88,string? Name=null,string? SpeakerBase64=null,string? HeadphoneBase64=null);
 public sealed record ReplaceAudioRequest(string Bank,ushort WaveId,string HcaBase64);
 public sealed record BuildTextureRequest(string Template,string Target,string ImageBase64);

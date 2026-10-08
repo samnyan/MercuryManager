@@ -40,6 +40,11 @@ public sealed class CriUtf
         else if(Rows.Count==1){int i=Columns.IndexOf(c);Columns[i]=c with{Flags=0x30,Constant=pointer};Rows[row][column]=pointer;}
         else throw new InvalidDataException("Cannot edit shared constant blob in multi-row table.");
     }
+    public long Number(int row,string column){var b=Rows[row][column];return b.Length switch{1=>b[0],2=>BinaryPrimitives.ReadUInt16BigEndian(b),4=>BinaryPrimitives.ReadUInt32BigEndian(b),8=>checked((long)BinaryPrimitives.ReadUInt64BigEndian(b)),_=>throw new InvalidDataException("Not an integer.")};}
+    public void Promote(string name){int i=Columns.FindIndex(c=>c.Name==name);if(i<0)throw new InvalidDataException("Missing column.");Columns[i]=Columns[i] with{Flags=0x50,Constant=null};}
+    public void SetNumber(int row,string name,long value){Promote(name);var b=Rows[row][name];switch(b.Length){case 1:b[0]=checked((byte)value);break;case 2:BinaryPrimitives.WriteUInt16BigEndian(b,checked((ushort)value));break;case 4:BinaryPrimitives.WriteUInt32BigEndian(b,checked((uint)value));break;case 8:BinaryPrimitives.WriteUInt64BigEndian(b,checked((ulong)value));break;default:throw new InvalidDataException("Not an integer.");}}
+    public void SetText(int row,string name,string text){Promote(name);var bytes=Encoding.UTF8.GetBytes(text+"\0");uint offset=(uint)strings.Length;strings=strings.Concat(bytes).ToArray();BinaryPrimitives.WriteUInt32BigEndian(Rows[row][name],offset);}
+    public int CloneRow(int donor){if(Rows.Count>=ushort.MaxValue)throw new InvalidDataException("Table row limit.");Rows.Add(Rows[donor].ToDictionary(k=>k.Key,k=>k.Value.ToArray()));return Rows.Count-1;}
     public byte[] Write()
     {
         using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
