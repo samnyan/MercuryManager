@@ -23,6 +23,24 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)||entry.EndsWith(".awb",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');items[relative]=folder;}}}
         return items.OrderByDescending(x=>x.Value).ThenBy(x=>x.Key,StringComparer.Ordinal).Select(x=>(object)new{path=x.Key,name=Path.GetFileName(x.Key),directory=x.Value}).ToArray();
     }
+    public object ImportJson(string id,string path,string json)
+    {
+        lock(assets)
+        {
+            var source=Resolve(id,path);var dest=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(dest);
+            var stage=Path.Combine(assets.WorkspaceDirectory(id),"json-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+            try
+            {
+                var output=Path.Combine(stage,Path.GetFileName(path));ResourceJson.Import(source,json,output);
+                var files=Directory.GetFiles(stage).Select(f=>(Source:f,Target:Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(f)))).ToArray();
+                var old=new Dictionary<string,byte[]?>();foreach(var f in files){MusicWorkspaceStore.RejectLinks(f.Target);old[f.Target]=File.Exists(f.Target)?File.ReadAllBytes(f.Target):null;}
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                try{foreach(var f in files)File.Copy(f.Source,f.Target,true);}catch{foreach(var f in files){if(old[f.Target] is {} data)File.WriteAllBytes(f.Target,data);else File.Delete(f.Target);}throw;}
+                return new{path,verified=true};
+            }
+            finally{Directory.Delete(stage,true);}
+        }
+    }
     public object Info(string id,string path)
     {
         var source=Resolve(id,path);var a=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);

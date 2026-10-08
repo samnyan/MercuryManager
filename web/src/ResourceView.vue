@@ -23,6 +23,17 @@ const data = ref<unknown>()
 const isTexture = ref(false)
 const busy = ref(false)
 const isAudio = ref(false)
+const jsonInput=ref<HTMLInputElement>()
+const jsonBusy=ref(false)
+const jsonUrl=computed(()=>'/api/projects/'+project.id+'/resource-json?'+new URLSearchParams({path:path.value}))
+async function uploadJson(event:Event){
+ const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return;
+ if(file.size>32*1024*1024){error.value=tr('ui.jsonTooLarge');input.value='';return}
+ if(!window.confirm(tr('ui.jsonImportConfirm'))){input.value='';return}
+ jsonBusy.value=true;error.value='';
+ try{await api(`/projects/${project.id}/resource-json?`+new URLSearchParams({path:path.value}),'POST',{json:await file.text()});await project.status();project.revision++;reload.value++}catch(e){error.value=String(e)}finally{jsonBusy.value=false;input.value=''}
+}
+const reload=ref(0)
 
 let controller: AbortController | undefined
 let generation = 0
@@ -34,7 +45,7 @@ function cleanup() {
 }
 
 watch(
-  () => [route.query.path, project.id],
+  () => [route.query.path, project.id,reload.value],
   async () => {
     cleanup()
     const request = ++generation
@@ -98,9 +109,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="resource-view-container">
-    <h2 class="page-title resource-path-title">
-      {{ path || tr('ui.selectResource') }}
-    </h2>
+    <div class="resource-title-row">
+      <h2 class="page-title resource-path-title">{{ path || tr('ui.selectResource') }}</h2>
+      <n-space v-if="project.id && path.endsWith('.uasset')" :wrap="false">
+        <n-button tag="a" :href="jsonUrl" download :disabled="busy || jsonBusy">{{tr('ui.jsonExport')}}</n-button>
+        <n-button :loading="jsonBusy" :disabled="busy" @click="jsonInput?.click()">{{tr('ui.jsonImport')}}</n-button>
+      </n-space>
+      <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="uploadJson" />
+    </div>
 
     <n-tabs v-if="data || isAudio" v-model:value="mode" type="line" class="resource-tabs">
       <n-tab name="texture" :disabled="!isTexture">
@@ -155,6 +171,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.resource-title-row {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.resource-title-row h2 {flex:1;min-width:0}
 .resource-view-container {
   display: flex;
   flex-direction: column;
