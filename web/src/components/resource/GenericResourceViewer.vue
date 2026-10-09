@@ -69,6 +69,7 @@ function navigate(parts: string[]) {
   selected.value = value
   search.value = ''
   nextTick(() => {
+    gridApi.value?.resetColumnState()
     gridApi.value?.sizeColumnsToFit()
   })
 }
@@ -327,6 +328,7 @@ const columns = computed<ColDef[]>(() => {
   if (isTableDisplayActive.value) {
     return [
       {
+        colId: 'col_index',
         field: 'name',
         headerName: 'Index',
         width: 85,
@@ -373,7 +375,7 @@ const columns = computed<ColDef[]>(() => {
   // 2. 依赖导入列表模式
   if (importMode.value) {
     return [
-      { field: 'name', headerName: 'Index', width: 85, pinned: 'left', sortable: true },
+      { colId: 'import_index', field: 'name', headerName: 'Index', width: 85, pinned: 'left', sortable: true },
       { field: 'ObjectName', headerName: 'Object Name', minWidth: 220, flex: 1.5 },
       { field: 'ClassPackage', headerName: 'Class Package', minWidth: 180, flex: 1 },
       { field: 'ClassName', headerName: 'Class Name', minWidth: 160, flex: 1 },
@@ -386,6 +388,7 @@ const columns = computed<ColDef[]>(() => {
   // 3. 默认键值对属性视图
   return [
     {
+      colId: 'prop_name',
       field: 'name',
       headerName: tr('ui.viewerName'),
       minWidth: 320,
@@ -413,6 +416,7 @@ const columns = computed<ColDef[]>(() => {
       }
     },
     {
+      colId: 'prop_type',
       field: 'type',
       headerName: tr('ui.viewerType'),
       width: 145,
@@ -430,6 +434,7 @@ const columns = computed<ColDef[]>(() => {
       }
     },
     {
+      colId: 'prop_value',
       field: 'value',
       headerName: tr('ui.viewerValue'),
       minWidth: 200,
@@ -477,6 +482,13 @@ const columns = computed<ColDef[]>(() => {
       }
     }
   ]
+})
+
+watch(columns, () => {
+  nextTick(() => {
+    gridApi.value?.resetColumnState()
+    gridApi.value?.sizeColumnsToFit()
+  })
 })
 </script>
 
@@ -574,6 +586,7 @@ const columns = computed<ColDef[]>(() => {
           class="generic-ag-grid ag-fill-grid"
           :row-data="rows"
           :column-defs="columns"
+        :maintain-column-order="false"
           :default-col-def="{
             sortable: true,
             filter: true,

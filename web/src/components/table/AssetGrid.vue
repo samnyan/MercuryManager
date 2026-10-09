@@ -72,10 +72,11 @@ const columns = computed(() => {
   const rowNameHeader = rowNameSchema ? formatFieldHeader(rowNameSchema, locale) : tr('ui.rowKey')
   const result: any[] = [
     {
+      colId: 'rowName',
       field: 'rowName',
       headerName: rowNameHeader,
-      flex: 1.3,
-      minWidth: rowNameSchema?.tableMinWidth ?? 140
+      flex: 1.5,
+      minWidth: rowNameSchema?.tableMinWidth ? Math.max(Number(rowNameSchema.tableMinWidth), 160) : 160
     }
   ]
 

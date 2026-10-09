@@ -27,8 +27,8 @@ const data = computed(() =>
 )
 
 const columns = computed<ColDef[]>(() => [
-  { field: 'rowName', headerName: 'ID', flex: 1, minWidth: 90 },
-  { field: 'MusicMessage', headerName: fieldTitle('MusicMessage'), flex: 3, minWidth: 220 },
+  { field: 'rowName', headerName: 'ID', flex: 1.2, minWidth: 100 },
+  { field: 'MusicMessage', headerName: fieldTitle('MusicMessage'), flex: 3.5, minWidth: 240 },
   { field: 'ArtistMessage', headerName: fieldTitle('ArtistMessage'), flex: 2, minWidth: 160 },
   { field: 'VersionNo', headerName: fieldTitle('VersionNo'), flex: 1, minWidth: 90 },
   { field: 'ScoreGenre', headerName: fieldTitle('ScoreGenre'), flex: 1, minWidth: 90 },
