@@ -51,6 +51,18 @@ async function run(action: () => Promise<void>) {
 
 const adding = ref(false)
 
+watch(
+  () => [project.id, project.contentRoot],
+  async ([pid, root]) => {
+    if (pid && root && project.rows.length === 0) {
+      run(async () => {
+        await project.refresh()
+      })
+    }
+  },
+  { immediate: true }
+)
+
 function add() {
   if (!project.rows.length) return
   adding.value = true

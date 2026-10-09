@@ -20,31 +20,37 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   return result.data
 }
 export const useProject = defineStore('project', () => {
-  const id = ref(''), name=ref(''), dirty=ref(false), pending=ref(false), saved=ref(false), revision=ref(0)
+  const id = ref(''), name=ref(''), dirty=ref(false), pending=ref(false), saved=ref(false), revision=ref(0), loading=ref(false)
   async function status(){const p=await api<{name:string;contentRoot:string;dirty:boolean;saved:boolean}>(`/projects/${id.value}`);name.value=p.name;contentRoot.value=p.contentRoot??'';dirty.value=p.dirty;saved.value=p.saved}
-  async function create(label:string){const p=await api<{id:string}>('/projects','POST',{name:label});id.value=p.id;rows.value=[];await status();revision.value++}
-  async function importTables(path:string){await api(`/projects/${id.value}/import`,'POST',{serverPath:path});await status();await refresh();revision.value++}
-  async function save(){await api(`/projects/${id.value}/save`,'POST');await status()}
+  async function create(label:string){loading.value=true; try{const p=await api<{id:string}>('/projects','POST',{name:label});id.value=p.id;rows.value=[];await status();revision.value++} finally {loading.value=false}}
+  async function importTables(path:string){loading.value=true; try{await api(`/projects/${id.value}/import`,'POST',{serverPath:path});await status();await refresh();revision.value++} finally {loading.value=false}}
+  async function save(){loading.value=true; try{await api(`/projects/${id.value}/save`,'POST');await status()} finally {loading.value=false}}
   const rows = ref<Row[]>([])
   const contentRoot = ref('')
   function close() { pending.value=false; id.value = ''; rows.value = []; contentRoot.value = ''; localStorage.removeItem('mercury-workspace') }
   async function open(path: string) {
-    const workspace = await api<{id:string;contentRoot:string}>('/workspaces', 'POST', {serverPath:path})
-    const loadedRows = await api<Row[]>(`/workspaces/${workspace.id}/music`)
-    id.value = workspace.id
-    contentRoot.value = workspace.contentRoot
-    rows.value = loadedRows
-    localStorage.setItem('mercury-workspace', workspace.id)
+    loading.value = true
+    try {
+      const workspace = await api<{id:string;contentRoot:string}>('/workspaces', 'POST', {serverPath:path})
+      id.value = workspace.id
+      contentRoot.value = workspace.contentRoot
+      rows.value = []
+      localStorage.setItem('mercury-workspace', workspace.id)
+    } finally {
+      loading.value = false
+    }
   }
   async function resume(workspaceId: string) {
-    const workspace = await api<{contentRoot?:string}>('/projects/' + encodeURIComponent(workspaceId))
-    const loadedRows = workspace.contentRoot ? await api<Row[]>(`/workspaces/${encodeURIComponent(workspaceId)}/music`) : []
-    id.value = workspaceId
-    await status();revision.value++
-    contentRoot.value = workspace.contentRoot ?? ''
-    rows.value = loadedRows
-    localStorage.setItem('mercury-workspace', workspaceId)
+    loading.value = true
+    try {
+      id.value = workspaceId
+      localStorage.setItem('mercury-workspace', workspaceId)
+      await status()
+      revision.value++
+    } finally {
+      loading.value = false
+    }
   }
   async function refresh() { rows.value = await api<Row[]>(`/workspaces/${id.value}/music`) }
-  return { id, name, dirty, pending, saved, revision, rows, contentRoot, close, open, resume, refresh, status, create, importTables, save }
+  return { id, name, dirty, pending, saved, revision, loading, rows, contentRoot, close, open, resume, refresh, status, create, importTables, save }
 })

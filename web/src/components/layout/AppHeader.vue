@@ -239,6 +239,11 @@ function onMobileMenuSelect(key: string) {
       >
         {{ project.name }}{{ project.dirty || project.pending ? ' *' : '' }}
       </n-tag>
+
+      <div v-if="project.loading" class="header-loading-tag">
+        <n-spin size="small" />
+        <span class="loading-text">加载中...</span>
+      </div>
     </div>
 
     <!-- 桌面端操作区域 -->
@@ -396,6 +401,21 @@ function onMobileMenuSelect(key: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.header-loading-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #2080f0;
+  background: #f0f7ff;
+  border: 1px solid #bae0ff;
+  padding: 2px 8px;
+  border-radius: 12px;
+  line-height: 1;
+}
+.loading-text {
+  font-weight: 500;
 }
 .header-right-desktop {
   display: flex;
