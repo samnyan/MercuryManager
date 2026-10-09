@@ -590,6 +590,10 @@ const columns = computed<ColDef[]>(() => {
     padding-bottom: 6px;
   }
   .grid-wrapper {
+    /* A percentage-height grid needs a definite parent height, not min-height. */
+    flex: none;
+    height: 60vh;
+    height: clamp(400px, 60dvh, 640px);
     min-height: 400px;
   }
 }
