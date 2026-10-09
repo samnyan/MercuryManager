@@ -122,6 +122,8 @@ function add() {
       ? false
       : typeof f.value === 'number'
       ? 0
+      : f.value === null
+      ? null
       : ''
   }))
   editor.value = true

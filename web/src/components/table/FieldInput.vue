@@ -2,7 +2,7 @@
 import TexturePreview from '../resource/TexturePreview.vue'
 import ArrayEditor from './ArrayEditor.vue'
 import textureBindings from '../../textureBindings.json'
-import { computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { NCheckbox, NInput, NInputNumber, NSelect } from 'naive-ui'
 import type { Field } from '../../project'
 import { useProject } from '../../project'
@@ -122,6 +122,41 @@ const isTextarea = computed(() => {
   if (['ArrayPropertyData', 'MapPropertyData', 'StrPropertyData'].includes(props.field.type)) return true
   return props.fieldSchema?.type === 'array' || props.fieldSchema?.type === 'map'
 })
+
+const canBeNull = computed(() => {
+  if (['ArrayPropertyData', 'MapPropertyData'].includes(props.field.type)) return false
+  if (props.fieldSchema?.type === 'array' || props.fieldSchema?.type === 'map') return false
+  return true
+})
+
+const isNull = computed(() => props.field.value === null)
+
+const previousText = ref<string>(props.field.value != null ? String(props.field.value) : '')
+
+watch(
+  () => props.field.value,
+  val => {
+    if (val != null) {
+      previousText.value = String(val)
+    }
+  }
+)
+
+function onTextInput(val: string) {
+  props.field.value = val
+  previousText.value = val
+}
+
+function toggleNull(checked: boolean) {
+  if (checked) {
+    if (props.field.value != null) {
+      previousText.value = String(props.field.value)
+    }
+    props.field.value = null
+  } else {
+    props.field.value = previousText.value ?? ''
+  }
+}
 </script>
 
 <template>
@@ -170,14 +205,26 @@ const isTextarea = computed(() => {
     />
 
     <!-- 复杂嵌套结构数组/Map/多行字符串等 -->
-    <n-input
-      v-else
-      :type="isTextarea ? 'textarea' : 'text'"
-      :autosize="{ minRows: 2, maxRows: 12 }"
-      :value="field.value == null ? '' : String(field.value)"
-      :disabled="field.readOnly || fieldSchema?.readOnly"
-      @update:value="field.value = $event"
-    />
+    <div v-else class="text-input-wrapper">
+      <n-input
+        :type="isTextarea ? 'textarea' : 'text'"
+        :autosize="{ minRows: 2, maxRows: 12 }"
+        :value="field.value == null ? '' : String(field.value)"
+        :disabled="field.readOnly || fieldSchema?.readOnly || isNull"
+        :placeholder="isNull ? 'null' : undefined"
+        @update:value="onTextInput"
+      />
+      <div v-if="canBeNull" class="null-checkbox-row">
+        <n-checkbox
+          :checked="isNull"
+          :disabled="field.readOnly || fieldSchema?.readOnly"
+          size="small"
+          @update:checked="toggleNull"
+        >
+          {{ tr('ui.setNull') }}
+        </n-checkbox>
+      </div>
+    </div>
 
     <texture-preview
       v-if="table ? imageBindings[table]?.[field.name] !== undefined : field.name === 'JacketAssetName'"
@@ -210,6 +257,14 @@ const isTextarea = computed(() => {
 </template>
 
 <style scoped>
+.text-input-wrapper {
+  width: 100%;
+}
+.null-checkbox-row {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+}
 .enum-hint {
   margin-top: 4px;
   font-size: 11px;

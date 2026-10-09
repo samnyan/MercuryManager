@@ -292,7 +292,7 @@ public sealed class MusicWorkspaceStore
                 {
                     switch (field)
                     {
-                        case StrPropertyData v: v.Value = new FString(edit.Value.GetString() ?? throw new ArgumentException("String cannot be null.")); break;
+                        case StrPropertyData v: v.Value = edit.Value.ValueKind == JsonValueKind.Null ? null : new FString(edit.Value.GetString()!); break;
                         case UInt64PropertyData v: v.Value = ulong.Parse(edit.Value.GetString() ?? throw new ArgumentException("uint64 requires decimal string."), CultureInfo.InvariantCulture); break;
                         case UInt32PropertyData v: v.Value = edit.Value.GetUInt32(); break;
                         case IntPropertyData v: v.Value = edit.Value.GetInt32(); break;
