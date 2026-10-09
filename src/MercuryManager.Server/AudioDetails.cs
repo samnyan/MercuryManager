@@ -7,6 +7,12 @@ public static class AudioDetails
     public static object Read(byte[] bytes)
     {
         var summary=AudioInspection.Read(bytes);
+        if(summary.Format=="ogg")
+        {
+            using var oggStream=new MemoryStream(bytes);
+            using var reader=new NVorbis.VorbisReader(oggStream,false);
+            return new {fileBytes=bytes.LongLength,summary,vendor=reader.Tags?.EncoderVendor,comments=reader.Tags?.All};
+        }
         if(summary.Format!="hca")return new {fileBytes=bytes.LongLength,summary};
         using var stream=new MemoryStream(bytes);var h=new HcaDecoder(stream,0,0).HcaInfo;
         var fields=new SortedDictionary<string,object?>();

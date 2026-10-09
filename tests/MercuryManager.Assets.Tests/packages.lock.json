@@ -215,6 +215,11 @@
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
       },
+      "NVorbis": {
+        "type": "Transitive",
+        "resolved": "0.10.5",
+        "contentHash": "o+IptCG4Avze39HrGeztC+xIp6fOOwGVAwkoa1J++4Ji1WmZ+KIKlFl5wsgxsXqBkmdpfs/vFSUproiLKYa2bw=="
+      },
       "OffiUtils": {
         "type": "Transitive",
         "resolved": "3.2.0",
@@ -391,6 +396,7 @@
         "dependencies": {
           "CUE4Parse": "[1.2.2.202610, )",
           "CUE4Parse-Conversion": "[1.2.2.202610, )",
+          "NVorbis": "[0.10.5, )",
           "OggVorbisEncoder": "[1.2.2, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[2.88.9, )",
           "UAssetAPI": "[1.1.0, )",

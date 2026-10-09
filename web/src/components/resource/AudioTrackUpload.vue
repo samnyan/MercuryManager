@@ -20,7 +20,7 @@ watch([info,token,mode,loopMode,start,end],()=>{const i=info.value;if(!i||!token
 </script>
 <template>
 <n-card :title="route || 'Track '+trackIndex" size="small" class="audio-track-upload">
-<input v-if="!existing" type="file" accept=".hca,.wav" :disabled="loading" @change="choose" />
+<input v-if="!existing" type="file" accept=".hca,.wav,.ogg" :disabled="loading" @change="choose" />
 <p v-if="loading">{{tr('ui.audioReadingFile')}}</p><p v-if="error" role="alert" class="audio-field-error">{{error}}</p>
 <template v-if="info">
 <p>{{info.format.toUpperCase()}} · {{info.channels}} ch · {{info.sampleRate}} Hz · {{info.samples}} samples <n-button text type="primary" :title="tr('ui.audioDetails')" :aria-label="tr('ui.audioDetails')" @click="detailShow=true"><info-icon :size="17" /></n-button></p>
