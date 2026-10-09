@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { NButton, NInput, NInputNumber, NCheckbox } from 'naive-ui'
+import { tr } from '../../i18n'
 
 const props = defineProps<{
   value: string | number | boolean | unknown[] | null
@@ -80,7 +81,7 @@ function updateItem(index: number, val: any) {
     <div class="array-header">
       <span class="array-badge">{{ itemType }}[] ({{ items.length }})</span>
       <n-button size="tiny" quaternary @click="rawMode = !rawMode">
-        {{ rawMode ? '切换为列表编辑' : 'JSON 源码编辑' }}
+        {{ rawMode ? tr('ui.switchToListEdit') : tr('ui.switchToJsonEdit') }}
       </n-button>
     </div>
 
@@ -97,7 +98,7 @@ function updateItem(index: number, val: any) {
     <!-- 结构化列表模式 -->
     <div v-else class="array-items-list">
       <div v-if="items.length === 0" class="array-empty">
-        暂无项目，点击下方添加
+        {{ tr('ui.noItemsClickToAdd') }}
       </div>
       <div
         v-for="(item, idx) in items"
@@ -149,7 +150,7 @@ function updateItem(index: number, val: any) {
 
       <div class="array-footer">
         <n-button size="small" dashed block :disabled="disabled" @click="addItem">
-          + 添加项
+          {{ tr('ui.addItem') }}
         </n-button>
       </div>
     </div>

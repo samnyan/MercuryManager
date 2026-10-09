@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { NPopover, NSpin, NEmpty } from 'naive-ui'
+import { tr } from '../../i18n'
 import { api, useProject } from '../../project'
 
 const props = defineProps<{
@@ -52,7 +53,7 @@ async function handleShowChange(val: boolean) {
       <template #trigger>
         <span
           class="cue-ref-link"
-          :title="`点击反查关联台词: ${cueName}`"
+          :title="tr('ui.reverseVoiceLookup').replace('{name}', cueName)"
         >
           {{ cueName }}
         </span>
@@ -60,13 +61,13 @@ async function handleShowChange(val: boolean) {
 
       <div class="voice-popover-panel">
         <div class="popover-header">
-          <span class="popover-title">匹配语音 {{ matches.length }} 个:</span>
+          <span class="popover-title">{{ tr('ui.matchedVoiceLines').replace('{count}', String(matches.length)) }}</span>
           <span class="cue-badge">{{ cueName }}</span>
         </div>
 
         <div v-if="loading" class="popover-loading">
           <n-spin size="small" />
-          <span style="font-size: 12px; margin-left: 8px">检索中...</span>
+          <span style="font-size: 12px; margin-left: 8px">{{ tr('ui.searching') }}</span>
         </div>
 
         <div v-else-if="error" class="popover-error">
@@ -74,7 +75,7 @@ async function handleShowChange(val: boolean) {
         </div>
 
         <div v-else-if="matches.length === 0" class="popover-empty">
-          <n-empty size="small" description="未找到引用此语音的台词行" />
+          <n-empty size="small" :description="tr('ui.noVoiceLinesFound')" />
         </div>
 
         <div v-else class="popover-table-container">

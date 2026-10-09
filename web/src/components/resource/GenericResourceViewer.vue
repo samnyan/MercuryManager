@@ -62,7 +62,7 @@ const location = computed(() => '/' + segments.value.map(encodeURIComponent).joi
 const displayLocation = computed(() => '/' + segments.value.join('/'))
 
 const crumbs = computed(() => [
-  { label: '根目录', depth: 0 },
+  { label: tr('ui.rootDirectory'), depth: 0 },
   ...segments.value.map((label, index) => ({ label, depth: index + 1 }))
 ])
 
@@ -122,10 +122,10 @@ function isVirtualField(name: string) {
 
 function summary(value: unknown): string {
   if (value === null) return 'null'
-  if (Array.isArray(value)) return `[Array: ${value.length} 项]`
+  if (Array.isArray(value)) return `[Array: ${value.length} ${tr('ui.itemUnit')}]`
   if (typeof value === 'object') {
     const keys = Object.keys(value as Record<string, unknown>)
-    return `{Object: ${keys.length} 属性}`
+    return `{Object: ${keys.length} ${tr('ui.propertyUnit')}}`
   }
   return String(value)
 }
@@ -344,7 +344,7 @@ const columns = computed<ColDef[]>(() => {
         cellRenderer: (params: any) => {
           const row = params.data
           if (row?.isNavigable) {
-            return `<span class="ag-index-nav" data-action="drill" title="点击或双击进入此项详情">${escapeHtml(
+            return `<span class="ag-index-nav" data-action="drill" title="${escapeHtml(tr('ui.drillDownHint'))}">${escapeHtml(
               String(params.value ?? '')
             )}</span>`
           }
@@ -415,7 +415,7 @@ const columns = computed<ColDef[]>(() => {
             return h(VoiceMatchesPopover, { cueName: rawName })
           }
 
-          return `<div class="ag-name-cell ag-name-navigable ${isVirtual ? 'ag-virtual-name' : ''}" title="点击或双击进入查看">
+          return `<div class="ag-name-cell ag-name-navigable ${isVirtual ? 'ag-virtual-name' : ''}" title="${escapeHtml(tr('ui.viewDetailsHint'))}">
             <span class="ag-folder-icon">${icon}</span>
             <span class="ag-name-text">${escapeHtml(label)}</span>
           </div>`
@@ -557,7 +557,7 @@ watch(columns, () => {
             class="back-btn"
             @click="goUp"
           >
-            ⇡ 上级
+            {{ tr('ui.goParent') }}
           </n-button>
           <n-breadcrumb class="breadcrumb-bar">
             <n-breadcrumb-item
@@ -578,14 +578,14 @@ watch(columns, () => {
             size="small"
             class="table-toggle-check"
           >
-            表格形式展示
+            {{ tr('ui.tableViewMode') }}
           </n-checkbox>
 
           <n-tag size="small" :bordered="false" class="count-tag">
-            共 {{ rows.length }} 项
+            {{ tr('ui.totalItems').replace('{count}', String(rows.length)) }}
           </n-tag>
           <n-button size="tiny" quaternary @click="copyCurrentPath">
-            {{ copiedPath ? '已复制路径 ✓' : '复制路径' }}
+            {{ copiedPath ? tr('ui.copiedPath') : tr('ui.copyPath') }}
           </n-button>
         </div>
       </div>

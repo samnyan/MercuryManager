@@ -2,7 +2,7 @@
 import { ref, computed, h, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { NTabs, NTab, NInput, NMenu } from 'naive-ui'
-import { tr } from '../../i18n'
+import { i18n, tr } from '../../i18n'
 import { tableCatalog } from '../../tableCatalog'
 import ResourceTree from '../resource/ResourceTree.vue'
 
@@ -52,57 +52,45 @@ const names = [
   "UserPlateBackgroundMessage", "WelcomeMessage"
 ]
 
-const messageLabels: Record<string, string> = {
-  "AttackSEMessage": "打击音效", "BingoMissionConditionMessage": "宾果任务条件", "BingoMissionMessage": "宾果任务",
-  "BoostItemMessage": "增益道具", "Chara01Message": "角色 01", "Chara02Message": "角色 02",
-  "Chara03Message": "角色 03", "Chara04Message": "角色 04", "Chara54Message": "角色 54",
-  "Chara55Message": "角色 55", "Chara56Message": "角色 56", "Chara57Message": "角色 57",
-  "Chara58Message": "角色 58", "Chara59Message": "角色 59", "Chara60Message": "角色 60",
-  "Chara61Message": "角色 61", "CharaMessageCommon": "角色通用", "ErrorMessage": "错误信息",
-  "EventMessage": "活动", "GradeMessage": "等级", "IconMessage": "图标", "MultiPlayMessage": "多人游玩",
-  "MusicLicenseMessage": "歌曲版权", "MusicSearchMessage": "歌曲搜索", "MusicSelectOptionMenuMessage": "选曲设置菜单",
-  "MyRoomMessage": "个人房间", "NavigateCharacterMessage": "导航角色", "NGWordMessage": "禁用词",
-  "ResultMessage": "成绩结果", "ShopMessage": "商店", "StageUpMessage": "段位挑战", "SugorokuMessage": "GATE",
-  "SystemMessage": "系统", "TestModeMessage": "测试模式", "TicketMessage": "票券",
-  "TouchEffectMessage": "触摸特效", "TouchPanelSymbolColorMessage": "触摸符号颜色",
-  "UserPlateBackgroundMessage": "玩家名牌背景", "WelcomeMessage": "欢迎信息"
-}
-
-function navLabel(chinese: string, english: string) {
+function navLabel(primary: string, secondary: string) {
   return () =>
     h('div', { class: 'nav-label' }, [
-      h('div', { class: 'nav-title' }, chinese),
-      h('small', { class: 'nav-sub' }, english)
+      h('div', { class: 'nav-title' }, primary),
+      h('small', { class: 'nav-sub' }, secondary)
     ])
 }
 
-const options = computed(() =>
-  mode.value === 'Table'
+const options = computed(() => {
+  const query = navSearch.value.trim().toLowerCase()
+  return mode.value === 'Table'
     ? [...new Set(tableCatalog.map(t => t.group))]
         .map(group => ({
           key: group,
           label: tr('ui.' + (groupKeys[group] ?? 'systemAndInterface')),
           children: tableCatalog
-            .filter(
-              t =>
-                t.group === group &&
-                `${t.title} ${t.name}`.toLowerCase().includes(navSearch.value.toLowerCase())
-            )
-            .map(({ name, title }) => ({
+            .filter(t => {
+              if (t.group !== group) return false
+              if (!query) return true
+              const localized = tr('tables.' + t.name).toLowerCase()
+              return `${t.title} ${t.name} ${localized}`.toLowerCase().includes(query)
+            })
+            .map(({ name }) => ({
               label: navLabel(tr('tables.' + name), name),
               key: '/table/' + name
             }))
         }))
         .filter(g => g.children.length)
     : names
-        .filter(name =>
-          `${messageLabels[name]} ${name}`.toLowerCase().includes(navSearch.value.toLowerCase())
-        )
+        .filter(name => {
+          if (!query) return true
+          const localized = tr('messages.' + name).toLowerCase()
+          return `${name} ${localized}`.toLowerCase().includes(query)
+        })
         .map(name => ({
           label: navLabel(tr('messages.' + name), name),
           key: '/message/' + encodeURIComponent(name)
         }))
-)
+})
 
 function toggle(value: string) {
   mode.value = value

@@ -242,7 +242,7 @@ function onMobileMenuSelect(key: string) {
 
       <div v-if="project.loading" class="header-loading-tag">
         <n-spin size="small" />
-        <span class="loading-text">加载中...</span>
+        <span class="loading-text">{{ tr('ui.loading') }}</span>
       </div>
     </div>
 
@@ -286,7 +286,7 @@ function onMobileMenuSelect(key: string) {
         @select="onMobileMenuSelect"
       >
         <n-button size="small" secondary>
-          <span>操作 ▾</span>
+          <span>{{ tr('ui.actions') }} ▾</span>
         </n-button>
       </n-dropdown>
     </div>

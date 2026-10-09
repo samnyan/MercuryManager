@@ -59,7 +59,7 @@ function select(keys: (string | number)[], options: (TreeOption | null)[]) {
 <template>
   <div class="resource-tree-container">
     <div v-if="loading" class="resource-tree-loading">
-      <n-spin size="small" :description="tr('ui.loading') || '加载资源中...'" />
+      <n-spin size="small" :description="tr('ui.loadingResources')" />
     </div>
     <n-tree
       v-else

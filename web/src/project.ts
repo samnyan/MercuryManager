@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { tr } from './i18n'
 export interface Field { name: string; type: string; value: string | number | boolean | null; readOnly: boolean }
 export interface Row { rowName: string; fields: Field[] }
 export interface ApiResult<T> { code: number; message: string; data: T }
@@ -9,13 +10,13 @@ export class ApiError extends Error {
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   let response: Response
   try { response = await fetch('/api' + path, { method, headers: { 'Content-Type': 'application/json', 'X-Mercury-Local': '1' }, body: body === undefined ? undefined : JSON.stringify(body) }) }
-  catch { throw new ApiError('无法连接服务器，请检查网络或服务是否已启动', -1, 0) }
+  catch { throw new ApiError(tr('ui.networkError') || 'Network error', -1, 0) }
   const text = await response.text()
   let result: ApiResult<T>
   try { result = JSON.parse(text) }
-  catch { throw new ApiError(`服务器响应不是有效 JSON（HTTP ${response.status}），请检查服务日志`, -2, response.status) }
+  catch { throw new ApiError((tr('ui.invalidJsonResponse') || 'Invalid JSON response').replace('{status}', String(response.status)), -2, response.status) }
   if (!result || typeof result.code !== 'number' || typeof result.message !== 'string' || !('data' in result))
-    throw new ApiError('服务器响应格式不符合 ApiResult，请刷新页面或检查服务版本', -2, response.status)
+    throw new ApiError(tr('ui.invalidApiResult') || 'Invalid ApiResult format', -2, response.status)
   if (!response.ok || result.code !== 0) throw new ApiError(result.message || `HTTP ${response.status}`, result.code, response.status)
   return result.data
 }

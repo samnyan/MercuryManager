@@ -186,12 +186,12 @@ function toggleNull(checked: boolean) {
         :options="enumOptions"
         filterable
         tag
-        :placeholder="enumName ? `选择或输入 ${enumName}` : '选择枚举值'"
+        :placeholder="enumName ? tr('ui.selectOrInputEnum').replace('{name}', enumName) : tr('ui.selectEnumValue')"
         :disabled="field.readOnly || fieldSchema?.readOnly"
         @update:value="field.value = $event"
       />
       <div v-if="enumName" class="enum-hint">
-        关联枚举: <code>{{ enumName }}</code>
+        {{ tr('ui.associatedEnum') }}: <code>{{ enumName }}</code>
       </div>
     </div>
 
