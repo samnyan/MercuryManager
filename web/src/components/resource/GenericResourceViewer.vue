@@ -388,8 +388,9 @@ const columns = computed<ColDef[]>(() => {
     {
       field: 'name',
       headerName: tr('ui.viewerName'),
-      minWidth: 200,
-      flex: 1.2,
+      minWidth: 280,
+      width: 320,
+      flex: 1.5,
       cellRenderer: (params: any) => {
         const row = params.data
         if (!row) return ''
