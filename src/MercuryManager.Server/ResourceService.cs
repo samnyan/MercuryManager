@@ -7,10 +7,33 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         if(!(relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.EndsWith(".awb",StringComparison.Ordinal))||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
         return relative;
     }
-    public string Resolve(string id,string path)
+    // Content-relative paths always use '/', including on Windows.
+    public static string Sibling(string path,string name)
+    {
+        Validate(path);AudioBanks.ValidateName(name);
+        return Validate(path[..(path.LastIndexOf('/')+1)]+name);
+    }
+    public sealed record ResourceSources(string Selected,bool Project,bool Game);
+    public ResourceSources Sources(string id,string path)
     {
         Validate(path);var draft=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(draft);
-        if(File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
+        var root=assets.Get(id).ContentRoot;var original=root is null?null:Path.Combine(root,path);
+        if(original is not null)MusicWorkspaceStore.RejectLinks(original);
+        bool project=File.Exists(draft),game=original is not null&&File.Exists(original);
+        return new(project?"project":"game",project,game);
+    }
+    public sealed record AudioResource(string Path,string? CueName,string Relative);
+    public AudioResource AudioTarget(string id,string path,string? source=null)
+    {
+        string relative=path;
+        var target=CriAudio.Target(Resolve(id,path,source),p=>{relative=p;return Resolve(id,p,source);});
+        return new(target.Path,target.CueName,relative);
+    }
+    public string Resolve(string id,string path,string? source=null)
+    {
+        if(source is not (null or "project" or "game"))throw new ArgumentException("Invalid resource source.");
+        Validate(path);var draft=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(draft);
+        if(source!="game"&&File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
         var original=Path.Combine(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path);MusicWorkspaceStore.RejectLinks(original);
         foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(original,ext));
         if(!File.Exists(original))throw new FileNotFoundException("Resource missing.");return original;
@@ -45,7 +68,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     {
         lock(assets){if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Open the paired CueSheet uasset.");if(hca.Length==0||hca.Length>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");
         var sheetPath=path;var resolved=CriAudio.Target(Resolve(id,path),p=>{sheetPath=p;return Resolve(id,p);});var sheet=resolved.Path;if(bank!=Path.GetFileName(bank)||bank.Contains('\\')||!bank.EndsWith(".awb",StringComparison.Ordinal))throw new ArgumentException("Invalid bank.");
-        var bankPath=(Path.GetDirectoryName(sheetPath)?.Replace('\\','/')+"/"+bank).TrimStart('/');var originalBank=Resolve(id,bankPath);
+        var bankPath=Sibling(sheetPath,bank);var originalBank=Resolve(id,bankPath);
         var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         try{var input=Path.Combine(stage,"input.hca");var raw=hca.AsSpan(0,Math.Min(4,hca.Length)).SequenceEqual("OggS"u8)?AudioInspection.DecodeOggToWav(hca):hca;File.WriteAllBytes(input,raw.AsSpan(0,Math.Min(4,raw.Length)).SequenceEqual("RIFF"u8)?HcaEncoding.Encode(raw):raw);var result=Path.Combine(stage,"output");CriAudioEditor.Replace(sheet,originalBank,waveId,input,result);
         var files=Directory.GetFiles(result).Select(f=>(Source:f,Destination:Path.Combine(DraftRoot(id),Path.GetDirectoryName(sheetPath)??"",Path.GetFileName(f)))).ToArray();FileTransaction.Copy(files,false);return new{path,waveId,verified=true};}
@@ -54,7 +77,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     public object EditCue(string id,string path,CueEditRequest request)
     {
         lock(assets){var sheetPath=path;var sheet=CriAudio.Target(Resolve(id,path),p=>{sheetPath=p;return Resolve(id,p);}).Path;
-        if(request.Bank!=Path.GetFileName(request.Bank)||request.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");var bankPath=((Path.GetDirectoryName(sheetPath)??"")+"/"+request.Bank).TrimStart('/');var bank=Resolve(id,bankPath);
+        if(request.Bank!=Path.GetFileName(request.Bank)||request.Bank.Contains('\\'))throw new ArgumentException("Invalid bank.");var bankPath=Sibling(sheetPath,request.Bank);var bank=Resolve(id,bankPath);
         var stage=Path.Combine(assets.WorkspaceDirectory(id),"cue-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         try{var result=Path.Combine(stage,"output");if(request.Operation=="delete")CriCueEditor.Delete(sheet,bank,request.CueId,result);
         else if(request.Operation=="add"){string Input(string name,string? base64){var bytes=Convert.FromBase64String(base64??"");if(bytes.Length==0||bytes.Length>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("OggS"u8))bytes=AudioInspection.DecodeOggToWav(bytes);if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("RIFF"u8))bytes=HcaEncoding.Encode(bytes);var f=Path.Combine(stage,name+".hca");File.WriteAllBytes(f,bytes);return f;}var sp=Input("speaker",request.SpeakerBase64);var hp=Input("headphone",request.HeadphoneBase64);CriCueEditor.Add(sheet,bank,request.TemplateId,request.CueId,request.Name??"",sp,hp,result);}

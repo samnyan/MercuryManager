@@ -16,7 +16,7 @@ public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resourc
         assets.Get(id);var root=UploadRoot(id);MusicWorkspaceStore.RejectLinks(root);Directory.CreateDirectory(root);string token=Guid.NewGuid().ToString("N"),file=Path.Combine(root,token);long total=0;
         try{await using var output=File.Create(file);var buffer=new byte[65536];int n;while((n=await request.Body.ReadAsync(buffer,request.HttpContext.RequestAborted))>0){total+=n;if(total>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");await output.WriteAsync(buffer.AsMemory(0,n));}if(total==0)throw new ArgumentException("Empty upload.");await output.DisposeAsync();var bytes=File.ReadAllBytes(file);var info=AudioInspection.Read(bytes) with {Details=AudioDetails.Read(bytes)};if(bytes.Length>=4&&bytes.AsSpan(0,4).SequenceEqual("OggS"u8)){var wav=AudioInspection.DecodeOggToWav(bytes,info.LoopStart,info.LoopEnd,info.LoopEnabled);File.WriteAllBytes(file,wav);}return new{uploadId=token,size=total,info};}catch{File.Delete(file);throw;}
     }
-    public object Start(string id,string path,AudioAction[] actions)
+    public object Start(string id,string path,AudioAction[] actions,string? source=null)
     {
         if(actions is null || actions.Length is <1 or >100)throw new ArgumentException("Apply requires 1–100 actions.");
         foreach(var action in actions)
@@ -37,28 +37,28 @@ public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resourc
                 if(!File.Exists(file))throw new FileNotFoundException("Audio upload missing; upload the file again.");
             }
         }
-        resources.Resolve(id,path);var key=id;if(!active.TryAdd(key,0))throw new InvalidOperationException("Audio apply already running.");
+        resources.Resolve(id,path,source);var key=id;if(!active.TryAdd(key,0))throw new InvalidOperationException("Audio apply already running.");
         string token=Guid.NewGuid().ToString("N");var job=new Job{Owner=id};jobs[token]=job;
-        _=Task.Run(()=>{try{Run(id,path,actions,(p,s)=>job.State=new(p,s));job.State=new(100,"complete",true);}catch(Exception ex){logger.LogError(ex,"Audio job {JobId} failed for project {ProjectId} at {Stage}",token,id,job.State.Stage);job.State=new(job.State.Percent,"failed",true,ex.Message);}finally{active.TryRemove(key,out _);}});return new{jobId=token};
+        _=Task.Run(()=>{try{Run(id,path,actions,(p,s)=>job.State=new(p,s),source);job.State=new(100,"complete",true);}catch(Exception ex){logger.LogError(ex,"Audio job {JobId} failed for project {ProjectId} at {Stage}",token,id,job.State.Stage);job.State=new(job.State.Percent,"failed",true,ex.Message);}finally{active.TryRemove(key,out _);}});return new{jobId=token};
     }
     public async Task Events(string id,string token,HttpContext context)
     {
         if(!jobs.TryGetValue(token,out var job)||job.Owner!=id)throw new FileNotFoundException("Job missing.");context.Response.ContentType="text/event-stream";context.Response.Headers.CacheControl="no-cache";
         while(!context.RequestAborted.IsCancellationRequested){var state=job.State;await context.Response.WriteAsync("data: "+JsonSerializer.Serialize(state, new JsonSerializerOptions(JsonSerializerDefaults.Web))+"\n\n",context.RequestAborted);await context.Response.Body.FlushAsync(context.RequestAborted);if(state.Done)break;await Task.Delay(250,context.RequestAborted);}
     }
-    void Run(string id,string path,AudioAction[] actions,Action<int,string> report)
+    void Run(string id,string path,AudioAction[] actions,Action<int,string> report,string? resourceSource)
     {
-        lock(assets){string relative=path;var source=CriAudio.Target(resources.Resolve(id,path),p=>{relative=p;return resources.Resolve(id,p);}).Path;var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-batch-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+        lock(assets){string relative=path;var source=CriAudio.Target(resources.Resolve(id,path,resourceSource),p=>{relative=p;return resources.Resolve(id,p,resourceSource);}).Path;var stage=Path.Combine(assets.WorkspaceDirectory(id),"audio-batch-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         using var batch=new AudioBatchContext();var encoded=new Dictionary<string,string>();
         string Input(string? token,WaveformLoopEdit[]? loops=null){if(token==null||!Guid.TryParseExact(token,"N",out _))throw new ArgumentException("Invalid upload reference.");string cacheKey=token+JsonSerializer.Serialize(loops);if(encoded.TryGetValue(cacheKey,out var cached))return cached;string f=Path.Combine(UploadRoot(id),token);MusicWorkspaceStore.RejectLinks(f);var bytes=File.ReadAllBytes(f);if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("OggS"u8))bytes=AudioInspection.DecodeOggToWav(bytes);if(bytes.AsSpan(0,Math.Min(4,bytes.Length)).SequenceEqual("RIFF"u8))bytes=HcaEncoding.Encode(bytes,loops);else if(loops is {Length:>0}){var settings=loops.Select(e=>(e.LoopFlag,e.LoopStart,e.LoopEnd)).Distinct().ToArray();if(settings.Length!=1)throw new InvalidDataException("Shared HCA requires identical loops.");bytes=HcaLoopChunk.Edit(bytes,settings[0].LoopFlag!=0,settings[0].LoopStart,settings[0].LoopEnd);}string output=Path.Combine(stage,Guid.NewGuid().ToString("N")+".hca");File.WriteAllBytes(output,bytes);return encoded[cacheKey]=output;}
         var createdBanks=new Dictionary<string,string>();string? currentSheet=null;
-        string ResolveBank(string name)=>createdBanks.TryGetValue(name,out var staged)?staged:resources.Resolve(id,((Path.GetDirectoryName(relative)??"")+"/"+name).TrimStart('/'));
+        string ResolveBank(string name)=>createdBanks.TryGetValue(name,out var staged)?staged:resources.Resolve(id,ResourceService.Sibling(relative,name),resourceSource);
         string PrepareBank(string sheet,string name,bool create,string donor)
         {
             var top=CriUtf.Read(CueSheetWriter.Extract(new UAssetAPI.UAsset(sheet,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19)));
             if(AudioBanks.Port(top,name)>=0)return ResolveBank(name);
             if(!create)throw new InvalidDataException("Target bank missing; enable Create bank explicitly.");
-            string rel=((Path.GetDirectoryName(relative)??"")+"/"+name).TrimStart('/');
+            string rel=ResourceService.Sibling(relative,name);
             try{resources.Resolve(id,rel);throw new InvalidDataException("Unregistered bank file already exists; refusing to overwrite.");}catch(FileNotFoundException){}
             var folder=Path.Combine(stage,"banks");Directory.CreateDirectory(folder);var dest=Path.Combine(folder,name);AudioBanks.Create(donor,dest);
             using(var f=File.OpenRead(dest))AudioBanks.Register(top,name,System.Security.Cryptography.MD5.HashData(f),AudioBanks.Header(dest,0));
