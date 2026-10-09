@@ -20,7 +20,10 @@ public static class CriAudio
         for(int i=0;i+1<indexes.Length;i+=2)
         {
             int trackIndex=U16(indexes,i);var track=tables["Track"][trackIndex];var sends=new Dictionary<string,int>();
-            var command=Bytes(tables["TrackCommand"][Number(track,"CommandIndex")],"Command");
+            // Track commands are optional (e.g. voice sheets use CommandIndex=-1).
+            int commandIndex=Number(track,"CommandIndex");
+            var command=commandIndex is -1 or 65535 ? []
+                : Bytes(tables["TrackCommand"][commandIndex],"Command");
             for(int pos=0;pos+3<=command.Length;){int op=U16(command,pos),size=command[pos+2];pos+=3;if(pos+size>command.Length)break;if(op==111&&size==4){int key=U16(command,pos);if(key<tables["Strings"].Count)sends[Convert.ToString(tables["Strings"][key]["StringValue"])??""]=U16(command,pos+2);}pos+=size;}
             var waveIndexes=new List<int>();var visited=new HashSet<int>();
             void Synth(int index){if(!visited.Add(index))return;var refs=Bytes(tables["Synth"][index],"ReferenceItems");for(int j=0;j+3<refs.Length;j+=4){int type=U16(refs,j),target=U16(refs,j+2);if(type==1)waveIndexes.Add(target);else if(type==2)Synth(target);}}
