@@ -14,7 +14,7 @@ public sealed class AudioJobs(MusicWorkspaceStore assets,ResourceService resourc
     public async Task<object> Upload(string id,HttpRequest request)
     {
         assets.Get(id);var root=UploadRoot(id);MusicWorkspaceStore.RejectLinks(root);Directory.CreateDirectory(root);string token=Guid.NewGuid().ToString("N"),file=Path.Combine(root,token);long total=0;
-        try{await using var output=File.Create(file);var buffer=new byte[65536];int n;while((n=await request.Body.ReadAsync(buffer,request.HttpContext.RequestAborted))>0){total+=n;if(total>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");await output.WriteAsync(buffer.AsMemory(0,n));}if(total==0)throw new ArgumentException("Empty upload.");await output.DisposeAsync();var info=AudioInspection.Read(File.ReadAllBytes(file));return new{uploadId=token,size=total,info};}catch{File.Delete(file);throw;}
+        try{await using var output=File.Create(file);var buffer=new byte[65536];int n;while((n=await request.Body.ReadAsync(buffer,request.HttpContext.RequestAborted))>0){total+=n;if(total>128*1024*1024)throw new ArgumentException("Audio upload limit: 128 MiB.");await output.WriteAsync(buffer.AsMemory(0,n));}if(total==0)throw new ArgumentException("Empty upload.");await output.DisposeAsync();var bytes=File.ReadAllBytes(file);var info=AudioInspection.Read(bytes) with {Details=AudioDetails.Read(bytes)};return new{uploadId=token,size=total,info};}catch{File.Delete(file);throw;}
     }
     public object Start(string id,string path,AudioAction[] actions)
     {

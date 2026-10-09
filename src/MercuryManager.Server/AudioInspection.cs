@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using CUE4Parse.UE4.Criware.Decoders.HCA;
 using VGAudio.Containers.Wave;
 namespace MercuryManager.Server;
-public sealed record AudioFileInfo(string Format,int Channels,int SampleRate,long Samples,bool LoopEnabled,long LoopStart,long LoopEnd,bool Encrypted=false);
+public sealed record AudioFileInfo(string Format,int Channels,int SampleRate,long Samples,bool LoopEnabled,long LoopStart,long LoopEnd,bool Encrypted=false){public object? Details{get;init;}};
 public static class AudioInspection
 {
     public static AudioFileInfo Read(byte[] bytes)

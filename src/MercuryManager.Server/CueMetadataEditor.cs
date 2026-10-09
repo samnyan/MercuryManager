@@ -8,7 +8,7 @@ public static class CueMetadataEditor
 {
     public static AudioFileInfo Inspect(string bank,ushort waveId)
     {
-        using var awb=new AwbReader(File.OpenRead(bank));var wave=awb.Waves.Single(w=>w.WaveId==waveId);using var s=awb.GetWaveSubfileStream(wave);using var m=new MemoryStream();s.CopyTo(m);return AudioInspection.Read(m.ToArray());
+        using var awb=new AwbReader(File.OpenRead(bank));var wave=awb.Waves.Single(w=>w.WaveId==waveId);using var s=awb.GetWaveSubfileStream(wave);using var m=new MemoryStream();s.CopyTo(m);var bytes=m.ToArray();return AudioInspection.Read(bytes) with {Details=AudioDetails.Read(bytes)};
     }
     public static object Describe(string sheet,int cueId)
     {

@@ -11,6 +11,7 @@ builder.Services.AddSingleton<ProjectManager>();
 builder.Services.AddSingleton<TexturePreviewService>();
 builder.Services.AddSingleton<ResourceService>();
 builder.Services.AddSingleton<AudioJobs>();
+builder.Services.AddSingleton<VoiceLookupService>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
 var app = builder.Build();
 app.UseApiResults();
@@ -49,8 +50,10 @@ app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,ResourceServi
 app.MapGet("/api/projects/{id}/audio-wave-info",(string id,string path,string bank,ushort waveId,ResourceService r)=>{AudioBanks.ValidateName(bank);string relative=path;CriAudio.Target(r.Resolve(id,path),p=>{relative=p;return r.Resolve(id,p);});return CueMetadataEditor.Inspect(r.Resolve(id,((Path.GetDirectoryName(relative)??"")+"/"+bank).TrimStart('/')),waveId);});
 app.MapGet("/api/projects/{id}/audio-metadata",(string id,string path,int cueId,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));return CueMetadataEditor.Describe(target.Path,cueId);});
 app.MapGet("/api/projects/{id}/audio-extension",(string id,string path,string bank,ushort waveId,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));return WaveformExtensions.Describe(target.Path,bank,waveId);});
+app.MapGet("/api/projects/{id}/resource-audio-details",(string id,string path,int index,int? part,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));if(target.CueName is not null&&!CriAudio.List(target.Path).Any(c=>c.Index==index&&c.Name==target.CueName))throw new ArgumentException("Cue does not match asset reference.");string relative=path;CriAudio.Target(r.Resolve(id,path),p=>{relative=p;return r.Resolve(id,p);});return CriAudio.Details(target.Path,index,part??0,bank=>r.Resolve(id,((Path.GetDirectoryName(relative)??"")+"/"+bank).TrimStart('/')));});
 app.MapGet("/api/projects/{id}/resource-cues",(string id,string path,bool? all,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));return CriAudio.List(target.Path).Where(c=>all==true||target.CueName is null||c.Name==target.CueName).ToArray();});
 app.MapGet("/api/projects/{id}/resource-audio",(HttpContext context,string id,string path,int index,int? part,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));if(target.CueName is not null&&!CriAudio.List(target.Path).Any(c=>c.Index==index&&c.Name==target.CueName))throw new ArgumentException("Cue does not match asset reference.");string relative=path;CriAudio.Target(r.Resolve(id,path),p=>{relative=p;return r.Resolve(id,p);});return CriAudio.Play(context,target.Path,index,part??0,bank=>r.Resolve(id,((Path.GetDirectoryName(relative)??" ").Trim()+"/"+bank).TrimStart('/')));});
+app.MapGet("/api/projects/{id}/resource-audio-export",(HttpContext context,string id,string path,int index,int? part,string format,ResourceService r)=>{var target=CriAudio.Target(r.Resolve(id,path),p=>r.Resolve(id,p));if(target.CueName is not null&&!CriAudio.List(target.Path).Any(c=>c.Index==index&&c.Name==target.CueName))throw new ArgumentException("Cue does not match asset reference.");string relative=path;CriAudio.Target(r.Resolve(id,path),p=>{relative=p;return r.Resolve(id,p);});return CriAudio.Export(context,target.Path,index,part??0,format,bank=>r.Resolve(id,((Path.GetDirectoryName(relative)??" ").Trim()+"/"+bank).TrimStart('/')));});
 app.MapGet("/api/projects/{id}/resource-json",(string id,string path,ResourceService r)=>Results.File(System.Text.Encoding.UTF8.GetBytes(ResourceJson.Export(r.Resolve(id,path))),"application/octet-stream",Path.GetFileNameWithoutExtension(path)+".json"));
 app.MapPost("/api/projects/{id}/resource-json",(string id,string path,ImportResourceJsonRequest request,ResourceService r)=>r.ImportJson(id,path,request.Json));
 app.MapPost("/api/projects/{id}/audio-upload",(string id,HttpRequest request,AudioJobs jobs)=>jobs.Upload(id,request));
@@ -92,11 +95,24 @@ app.MapPost("/api/workspaces/{id}/write", (string id, WriteRequest request, Musi
     written.AddRange(resources.Write(id,request.Mode=="overwrite"?store.Get(id).ContentRoot!:request.OutputDirectory!,request.Backup));
     return new { writtenFiles = written.Distinct().ToArray() };
 });
+app.MapGet("/api/workspaces/{id}/voice-lookup", (string id, string? voiceId, string? voiceIds, VoiceLookupService voices) =>
+{
+    if (!string.IsNullOrWhiteSpace(voiceId))
+    {
+        return Results.Ok(voices.Lookup(id, voiceId));
+    }
+    if (!string.IsNullOrWhiteSpace(voiceIds))
+    {
+        var list = voiceIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return Results.Ok(voices.LookupBatch(id, list));
+    }
+    return Results.Ok(Array.Empty<VoiceMatch>());
+});
 app.MapGet("/api/workspaces/{id}/tables", (string id, MessageWorkspaceStore store) => store.Tables(id));
 app.MapGet("/api/workspaces/{id}/messages", (string id, MessageWorkspaceStore store) => store.List(id));
 app.MapGet("/api/workspaces/{id}/messages/{name}", (string id, string name, MessageWorkspaceStore store) => store.Read(id,name));
-app.MapPost("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store) => {store.Edit(id,name,request.RowName,request.Fields,true);return Results.Ok();});
-app.MapPatch("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store) => {store.Edit(id,name,request.RowName,request.Fields,false);return Results.Ok();});
+app.MapPost("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store, VoiceLookupService voices) => {store.Edit(id,name,request.RowName,request.Fields,true);voices.Invalidate(id);return Results.Ok();});
+app.MapPatch("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store, VoiceLookupService voices) => {store.Edit(id,name,request.RowName,request.Fields,false);voices.Invalidate(id);return Results.Ok();});
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapEmbeddedFrontend();
 if (startup.LaunchBrowser)

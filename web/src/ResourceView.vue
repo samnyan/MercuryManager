@@ -139,6 +139,7 @@ onBeforeUnmount(() => {
         <generic-resource-viewer
           v-if="data && mode === 'generic'"
           :data="data"
+          :path="path"
           :preview-src="src"
           :preview-error="textureError"
           :raw-url="rawUrl"

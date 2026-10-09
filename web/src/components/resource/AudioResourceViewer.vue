@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import {ref,computed,watch,h,defineComponent,onBeforeUnmount,nextTick} from 'vue'
-import {NInput,NButton,NModal,NCard,NInputNumber,NSelect,NTag,NProgress,NFormItem,NRadioGroup,NRadio} from 'naive-ui'
+import {NInput,NButton,NModal,NDialog,NCard,NInputNumber,NSelect,NTag,NProgress,NFormItem,NRadioGroup,NRadio,NDropdown} from 'naive-ui'
 import {AgGridVue} from 'ag-grid-vue3'
 import {themeQuartz,type ColDef,type ICellRendererParams,type SpanRowsParams} from 'ag-grid-community'
-import {Play} from '@lucide/vue'
+import {Play,Info} from '@lucide/vue'
 import {api,useProject} from '../../project'
 import {tr} from '../../i18n'
 import AudioTrackUpload from './AudioTrackUpload.vue'
+import AudioDetailsDialog from './AudioDetailsDialog.vue'
+import VoiceMatchesPopover from './VoiceMatchesPopover.vue'
+const detailShow=ref(false),detailData=ref<unknown>()
+async function showDetails(row:AudioRow){detailData.value={cue:row.cue.name,track:row.track,loading:true};detailShow.value=true;try{const audio=await api<unknown>(`/projects/${project.id}/resource-audio-details?`+new URLSearchParams({path:props.path,index:String(row.cue.index),part:String(row.part)}));detailData.value={cue:row.cue.name,track:row.track,audio}}catch(e){detailData.value={track:row.track,error:String(e)}}}
 const props=defineProps<{path:string}>()
 const project=useProject()
 type Track={waveId:number;route:string;bank:string;trackIndex:number;waveformIndex:number;channels:number;sampleRate:number}
@@ -61,11 +65,19 @@ watch(()=>[props.path,project.id],load,{immediate:true})
 async function play(row:AudioRow){stop();error.value='';selected.value=`${row.cue.name} · Wave ${row.waveId}`;src.value=`/api/projects/${project.id}/resource-audio?`+new URLSearchParams({path:props.path,index:String(row.cue.index),part:String(row.part)});await nextTick();try{await player.value?.play()}catch(e){error.value=String(e)}}
 const rows=computed<AudioRow[]>(()=>cues.value.flatMap<AudioRow>(c=>c.waveIds.length?c.waveIds.map((waveId,part)=>({key:`${c.index}:${part}`,cue:c,waveId,part,track:c.tracks[part]})):[{key:`${c.index}:empty`,cue:c,waveId:null,part:0}]))
 const spanCue=(p:SpanRowsParams<AudioRow>)=>p.nodeA?.data?.cue.index===p.nodeB?.data?.cue.index
-const TrackCell=defineComponent({props:['params'],setup(p){return()=>{const row=(p.params as ICellRendererParams<AudioRow>).data;if(!row)return null;const t=row.track;return h('div',{class:'audio-track-cell'},[h('button',{class:'audio-play-icon',type:'button',title:tr('ui.audioPlay'),'aria-label':`${tr('ui.audioPlay')} ${row.waveId??''}`,disabled:row.waveId===null||!!row.cue.error,onClick:()=>play(row)},[h(Play,{size:18})]),h('span',{title:row.cue.error??undefined},row.cue.error||(t?`Track ${t.trackIndex} · ${t.route || 'Unknown'} · ${t.bank} · ${t.channels}ch / ${t.sampleRate}Hz`:'—'))])}}})
-const ActionCell=defineComponent({props:['params'],setup(p){return()=>{const row=(p.params as ICellRendererParams<AudioRow>).data;return row?h('div',{class:'audio-action-cell'},[h(NButton,{size:'small',disabled:busy.value||!row.track||!props.path.endsWith('.uasset')||!!row.cue.error,onClick:()=>openMetadata(row)},()=>tr('ui.audioMetadata'))]):null}}})
+const TrackCell=defineComponent({props:['params'],setup(p){return()=>{const row=(p.params as ICellRendererParams<AudioRow>).data;if(!row)return null;const t=row.track;return h('div',{class:'audio-track-cell'},[h('button',{class:'audio-play-icon',type:'button',title:tr('ui.audioPlay'),'aria-label':`${tr('ui.audioPlay')} ${row.waveId??''}`,disabled:row.waveId===null||!!row.cue.error,onClick:()=>play(row)},[h(Play,{size:18})]),h('span',{title:row.cue.error??undefined},row.cue.error||(t?`Track ${t.trackIndex} · ${t.route || 'Unknown'} · ${t.bank} · ${t.channels}ch / ${t.sampleRate}Hz`:'—')),h('button',{class:'audio-play-icon',type:'button',title:tr('ui.audioDetails'),'aria-label':tr('ui.audioDetails'),disabled:row.waveId===null,onClick:()=>showDetails(row)},[h(Info,{size:17})])])}}})
+function exportAudio(row:AudioRow,format:string){if(row.waveId===null||!row.track)return;const url=`/api/projects/${project.id}/resource-audio-export?`+new URLSearchParams({path:props.path,index:String(row.cue.index),part:String(row.part),format});const a=document.createElement('a');a.href=url;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a)}
+const exportOptions=computed(()=>[{label:tr('ui.audioExportWav'),key:'wav'},{label:tr('ui.audioExportOgg'),key:'ogg'},{label:tr('ui.audioExportHca'),key:'hca'}])
+const ActionCell=defineComponent({props:['params'],setup(p){return()=>{const row=(p.params as ICellRendererParams<AudioRow>).data;return row?h('div',{class:'audio-action-cell'},[h(NButton,{size:'small',disabled:busy.value||!row.track||!props.path.endsWith('.uasset')||!!row.cue.error,onClick:()=>openMetadata(row)},()=>tr('ui.audioMetadata')),h(NDropdown,{options:exportOptions.value,onSelect:(key:string)=>exportAudio(row,key),trigger:'click'},{default:()=>h(NButton,{size:'small',disabled:busy.value||!row.track||row.waveId===null||!!row.cue.error},()=>tr('ui.audioExport'))})]):null}}})
+const isVoiceResource = computed(() => {
+  const p = props.path || ''
+  return p.startsWith('Sound/Voice/') || p.startsWith('Sound/Voice\\')
+})
+
+const CueCell=defineComponent({props:['params'],setup(p){return()=>{const row=(p.params as ICellRendererParams<AudioRow>).data;if(!row)return null;return isVoiceResource.value ? h(VoiceMatchesPopover,{cueName:row.cue.name}) : h('span',row.cue.name)}}})
 const columns=computed<ColDef<AudioRow>[]>(()=>[
 {headerName:'Index',valueGetter:p=>p.data?.cue.index,minWidth:75,maxWidth:100,spanRows:spanCue},
-{headerName:'Cue',valueGetter:p=>p.data?.cue.name,minWidth:230,flex:2,spanRows:spanCue},
+{headerName:'Cue',valueGetter:p=>p.data?.cue.name,cellRenderer:CueCell,minWidth:280,flex:2,spanRows:spanCue},
 {headerName:'Cue ID',valueGetter:p=>p.data?.cue.cueId,minWidth:95,maxWidth:115,spanRows:spanCue},
 {headerName:'Wave ID',field:'waveId',minWidth:100,maxWidth:120},
 {headerName:'Track / Bus / Bank',valueGetter:p=>p.data?.track?`${p.data.track.route} ${p.data.track.bank}`:'',colId:'track',cellRenderer:TrackCell,minWidth:440,flex:3},
@@ -75,6 +87,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 </script>
 <template>
 <div class="audio-view-container view-fill-container">
+<audio-details-dialog v-model:show="detailShow" :data="detailData" />
 
 <div class="audio-toolbar view-header-fixed">
 <div v-if="path.endsWith('.uasset')" class="audio-actions"><n-button :disabled="busy" @click="bankDonor=banks[0]?.value || '';bankName='';bankDialog=true">{{tr('ui.audioCreateBank')}}</n-button><n-button :disabled="busy" @click="openAdd">{{tr('ui.audioAddCue')}}</n-button><n-button :disabled="busy" @click="batchMode=!batchMode">{{tr('ui.audioBatch')}} {{batchMode?'‹':'›'}}</n-button><n-button v-if="batchMode" type="error" :disabled="busy || !selectedCues.length" @click="deleteCue">{{tr('ui.audioDeleteCue')}}</n-button><n-tag>{{tr('ui.audioPending')}}: {{pending.length}}</n-tag><n-button type="primary" :disabled="busy || !pending.length" @click="applyDialog=true">{{tr('ui.audioApply')}}</n-button></div>
@@ -84,7 +97,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <n-form-item :label="tr('ui.audioBankName')"><n-input v-model:value="bankName" placeholder="MER_BGM_V4_01.awb" /></n-form-item>
 <n-button type="primary" :disabled="busy || !bankDonor || !/^[A-Za-z0-9_-]+\.awb$/i.test(bankName) || banks.some(b=>b.value===bankName)" @click="queueBank">{{tr('ui.audioQueue')}}</n-button>
 </n-card></n-modal>
-<n-modal v-model:show="metadataDialog"><n-card :title="tr('ui.audioMetadata')" style="width:min(680px,95vw);max-height:90vh;overflow:auto" :bordered="false"><div class="audio-add-form">
+<n-modal v-model:show="metadataDialog"><n-dialog :title="tr('ui.audioMetadata')" :show-icon="false" style="width:min(680px,95vw)" @close="metadataDialog=false"><div class="audio-add-form audio-cue-dialog-body">
 <n-form-item label="CueName"><n-input v-model:value="metadataName" /></n-form-item>
 <n-form-item label="Cue ID"><n-input-number v-model:value="metadataId" :min="0" :max="2147483647" :precision="0" /></n-form-item>
 <p v-if="editConflict" class="audio-field-error">{{tr('ui.audioEditConflict')}}</p>
@@ -97,9 +110,9 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <audio-track-upload v-if="!editReading && metadataRow?.track" :key="editSession+':'+audioMode" :route="metadataRow.track.route" :track-index="metadataRow.track.trackIndex" :existing="audioMode!==2" :initial="audioMode===2?undefined:editInfo" @change="editUpload=$event" />
 <p v-if="audioMode===2 || editUpload?.loop" role="alert">{{tr('ui.audioRebuildWarning')}} <strong>{{metadataBank}}</strong></p>
 <p>{{tr('ui.audioSharedWarning')}}</p><div v-if="error" role="alert">{{error}}</div>
-<n-button type="primary" :disabled="busy || !editValid" @click="queueMetadata">{{tr('ui.audioQueue')}}</n-button>
-</div></n-card></n-modal>
-<n-modal v-model:show="adding"><n-card :title="tr('ui.audioAddCue')" style="width:min(680px,95vw);max-height:90vh;overflow:auto" :bordered="false"><div class="audio-add-form">
+</div><template #action><n-button type="primary" :disabled="busy || !editValid" @click="queueMetadata">{{tr('ui.audioQueue')}}</n-button></template>
+</n-dialog></n-modal>
+<n-modal v-model:show="adding"><n-dialog :title="tr('ui.audioAddCue')" :show-icon="false" style="width:min(680px,95vw)" @close="adding=false"><div class="audio-add-form audio-cue-dialog-body">
 <n-form-item label="AWB"><n-radio-group v-model:value="createBank"><n-radio :value="0">{{tr('ui.audioExistingBank')}}</n-radio><n-radio :value="1">{{tr('ui.audioCreateBank')}}</n-radio></n-radio-group></n-form-item>
 <n-form-item v-if="!createBank" label="AWB"><n-select v-model:value="newBank" :options="banks" filterable /></n-form-item>
 <n-form-item v-else :label="tr('ui.audioBankName')"><n-input v-model:value="newBankName" placeholder="MER_BGM_V4_01.awb" /><span v-if="banks.some(b=>b.value===newBankName)" role="alert" class="audio-field-error">{{tr('ui.audioBankConflict')}}</span></n-form-item>
@@ -107,7 +120,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <n-form-item label="Cue ID" :validation-status="cueConflicts.id?'error':undefined" :feedback="cueConflicts.id?tr('ui.audioIdConflict'):undefined"><n-input-number v-model:value="newId" :min="0" :max="2147483647" :precision="0" /></n-form-item>
 <n-form-item :label="tr('ui.audioTemplateCue')"><n-select v-model:value="templateId" :options="templates" filterable /></n-form-item><p class="audio-form-help">{{tr('ui.audioTemplateHelp')}}</p>
 <audio-track-upload v-for="track in addTracks" :key="addSession+':'+String(templateId)+':'+track.trackIndex" :route="track.route" :track-index="track.trackIndex" @change="trackUploads[track.trackIndex]=$event" />
-<div v-if="error" role="alert">{{error}}</div><n-button :loading="busy" :disabled="busy || !addValid" @click="addCue">{{tr('ui.audioQueue')}}</n-button></div></n-card></n-modal>
+<div v-if="error" role="alert">{{error}}</div></div><template #action><n-button type="primary" :loading="busy" :disabled="busy || !addValid" @click="addCue">{{tr('ui.audioQueue')}}</n-button></template></n-dialog></n-modal>
 <n-modal v-model:show="applyDialog" :mask-closable="!busy" :close-on-esc="!busy"><n-card :title="tr('ui.audioApply')" style="width:min(700px,95vw)" :bordered="false">
 <ul class="audio-pending-list"><li v-for="(a,i) in pending" :key="i">{{tr('ui.audioOp'+a.operation)}} · {{a.bank}}{{a.targetBank && a.targetBank!==a.bank ? ' → '+a.targetBank : ''}} · {{a.name || (a.operation==='replace'?a.waveId:a.cueId)}} <n-button v-if="!busy" size="tiny" @click="pending.splice(i,1)">×</n-button></li></ul>
 <n-progress v-if="applying || progress>0" type="line" :percentage="progress" /><p>{{stageText}}</p><div v-if="error" role="alert">{{error}}</div>
@@ -119,6 +132,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 </div>
 </template>
 <style>
+.audio-cue-dialog-body{max-height:calc(90dvh - 140px);overflow:auto;padding-right:8px}
 .audio-view-container{display:flex;flex-direction:column;height:100%;min-height:0;flex:1;overflow:hidden}
 .audio-toolbar{display:flex;gap:16px;margin-bottom:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;flex-shrink:0}.audio-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.audio-player{margin-left:auto;text-align:right}.audio-player audio{display:block;width:320px;height:40px}.audio-pending-list{max-height:300px;overflow:auto}.audio-toolbar .n-input-number{width:140px}.audio-add-form{display:flex;flex-direction:column}
 .audio-form-help{margin:0;color:#888;font-size:12px}.audio-field-error{color:#d03050}.audio-loop-fields{padding:12px;border:1px solid #8884;border-radius:6px}.audio-add-form .n-form-item{margin:0}
@@ -126,6 +140,9 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 .audio-grid{height:100%;width:100%}
 .audio-track-cell{display:flex;align-items:center;gap:10px;height:100%}
 .audio-action-cell{display:flex;align-items:center;gap:8px;height:100%}
+.audio-grid .ag-cell[col-id="actions"],
+.audio-grid .ag-cell[col-id="actions"] .ag-cell-wrapper,
+.audio-grid .ag-cell[col-id="actions"] .ag-cell-value{display:flex;align-items:center;height:100%}
 .audio-track-cell span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .audio-play-icon{border:0;background:transparent;color:#2080f0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:6px;flex-shrink:0}
 .audio-play-icon:disabled{opacity:.4;cursor:default}

@@ -26,4 +26,5 @@ Thumbs.db
 *.log
 *.swp
 *.swo
+.playwright-cli/
 /src/MercuryManager.Server/wwwroot/

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, h } from 'vue'
 import {
   NTree,
   NInput,
@@ -22,12 +22,14 @@ import {
   type ColDef
 } from 'ag-grid-community'
 import { tr } from '../../i18n'
+import VoiceMatchesPopover from './VoiceMatchesPopover.vue'
 
 const props = defineProps<{
   data: unknown
-  rawUrl?: string
+  path?: string
   previewSrc?: string
   previewError?: string
+  rawUrl?: string
 }>()
 
 const gridApi = ref<GridApi | null>(null)
@@ -50,6 +52,11 @@ const rawDownload = computed(() =>
     ? props.rawUrl + '&exportIndex=' + encodeURIComponent(segments.value[1] ?? '')
     : ''
 )
+
+const isVoiceDirectory = computed(() => {
+  const p = props.path || ''
+  return p.startsWith('Sound/Voice/') || p.startsWith('Sound/Voice\\')
+})
 
 const location = computed(() => '/' + segments.value.map(encodeURIComponent).join('/'))
 const displayLocation = computed(() => '/' + segments.value.join('/'))
@@ -403,10 +410,19 @@ const columns = computed<ColDef[]>(() => {
         if (row.isNavigable) {
           const isArr = Array.isArray(row.item)
           const icon = isArr ? '🗂️' : '📁'
+
+          if (isArr && typeof rawName === 'string' && isVoiceDirectory.value && /^MER_VO_\w+$/i.test(rawName)) {
+            return h(VoiceMatchesPopover, { cueName: rawName })
+          }
+
           return `<div class="ag-name-cell ag-name-navigable ${isVirtual ? 'ag-virtual-name' : ''}" title="点击或双击进入查看">
             <span class="ag-folder-icon">${icon}</span>
             <span class="ag-name-text">${escapeHtml(label)}</span>
           </div>`
+        }
+
+        if (typeof rawName === 'string' && isVoiceDirectory.value && /^MER_VO_\w+$/i.test(rawName)) {
+          return h(VoiceMatchesPopover, { cueName: rawName })
         }
 
         if (isVirtual) {
@@ -478,6 +494,11 @@ const columns = computed<ColDef[]>(() => {
 
         const safeVal = escapeHtml(String(row.value ?? ''))
         const hoverText = escapeHtml(formatHoverPreview(row.item ?? row.value))
+
+        if (typeof row.value === 'string' && isVoiceDirectory.value && /^MER_VO_\w+$/i.test(row.value)) {
+          return h(VoiceMatchesPopover, { cueName: row.value })
+        }
+
         return `<span class="ag-val-text ${isVirtual ? 'ag-virtual-val' : ''}" title="${hoverText}">${safeVal}</span>`
       }
     }

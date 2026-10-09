@@ -391,6 +391,7 @@
         "dependencies": {
           "CUE4Parse": "[1.2.2.202610, )",
           "CUE4Parse-Conversion": "[1.2.2.202610, )",
+          "OggVorbisEncoder": "[1.2.2, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[2.88.9, )",
           "UAssetAPI": "[1.1.0, )",
           "VGAudio": "[2.2.1, )"

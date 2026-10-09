@@ -3,6 +3,7 @@ using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.Assets.Exports.Criware;
 using CUE4Parse.UE4.Criware.Readers;
 using CUE4Parse.UE4.Criware.Decoders.HCA;
+using OggVorbisEncoder;
 namespace MercuryManager.Server;
 
 public static class CriAudio
@@ -75,57 +76,227 @@ public static class CriAudio
             }).ToArray();
         }
     }
+    private sealed record WaveResolution(DefaultFileProvider? Provider, AcbReader? Acb, AwbReader Awb, int WaveId, string CueName) : IDisposable
+    {
+        public void Dispose()
+        {
+            Awb.Dispose();
+            Acb?.Dispose();
+            Provider?.Dispose();
+        }
+    }
+
+    private static WaveResolution ResolveWave(string path, int index, int part, Func<string,string>? resolveBank = null)
+    {
+        DefaultFileProvider? provider = null;
+        AcbReader? acb = null;
+        AwbReader? awb = null;
+        int waveId;
+        string cueName;
+        if (path.EndsWith(".awb", StringComparison.OrdinalIgnoreCase))
+        {
+            awb = new AwbReader(File.OpenRead(path));
+            if (index < 0 || index >= awb.Waves.Count) throw new ArgumentException("Invalid wave index.");
+            waveId = awb.Waves[index].WaveId;
+            cueName = $"Wave_{waveId}";
+        }
+        else
+        {
+            (provider, acb) = OpenAcb(path);
+            var names = acb.AtomCueSheetData["CueName"];
+            if (index < 0 || index >= names.Count) throw new ArgumentException("Invalid cue index.");
+            var cue = acb.AtomCueSheetData["Cue"][Convert.ToInt32(names[index]["CueIndex"])];
+            cueName = Convert.ToString(names[index]["CueName"]) ?? $"Cue_{index}";
+            var waves = acb.GetWaveformsFromCueId(Convert.ToInt32(cue["CueId"]));
+            if (part < 0 || part >= waves.Count) throw new ArgumentException("Cue has no selected waveform.");
+            var wave = waves[part];
+            if (wave.EncodeType is not (EEncodeType.HCA or EEncodeType.HCA_ALT)) throw new InvalidDataException("Only HCA preview is supported.");
+            if (wave.Streaming == EWaveformStreamType.Memory) { awb = acb.GetAwb(); waveId = wave.Id; }
+            else
+            {
+                var bankName = Convert.ToString(acb.AtomCueSheetData["StreamAwb"][wave.PortNo]["Name"]) ?? throw new InvalidDataException("Missing bank name.");
+                if (bankName != Path.GetFileName(bankName) || bankName.Contains('\\')) throw new InvalidDataException("Invalid bank name.");
+                var external = resolveBank is null ? Path.Combine(Path.GetDirectoryName(path)!, bankName + ".awb") : resolveBank(bankName + ".awb");
+                MusicWorkspaceStore.RejectLinks(external);
+                awb = new AwbReader(File.OpenRead(external));
+                waveId = wave.StreamId;
+            }
+        }
+        if (awb is null) throw new InvalidDataException("No AWB available.");
+        return new WaveResolution(provider, acb, awb, waveId, cueName);
+    }
+
+    public static object Details(string path,int index,int part,Func<string,string>? resolveBank=null)
+    {
+        using var res=ResolveWave(path,index,part,resolveBank);var entry=res.Awb.Waves.Single(w=>w.WaveId==res.WaveId);
+        using var source=res.Awb.GetWaveSubfileStream(entry);using var bytes=new MemoryStream();source.CopyTo(bytes);
+        return new {cueName=res.CueName,waveId=res.WaveId,awbSubkey=res.Awb.Subkey,entryBytes=entry.Length,audio=AudioDetails.Read(bytes.ToArray())};
+    }
     // HTTP PCM is emitted incrementally; neither the complete AWB nor decoded WAV is buffered.
     public static async Task Play(HttpContext context,string path,int index,int part,Func<string,string>? resolveBank=null)
     {
-        DefaultFileProvider? provider=null;AcbReader? acb=null;AwbReader? awb=null;
-        try
+        using var res = ResolveWave(path, index, part, resolveBank);
+        var entry = res.Awb.Waves.Single(w => w.WaveId == res.WaveId);
+        using var source = res.Awb.GetWaveSubfileStream(entry);
+        using var pcm = new HcaWaveStream(source, 0, res.Awb.Subkey);
+        if (pcm.Length > uint.MaxValue - 36 || pcm.Length <= 0) throw new InvalidDataException("Audio exceeds WAV limits.");
+        using var header = new MemoryStream();
+        using (var w = new BinaryWriter(header, System.Text.Encoding.ASCII, true))
         {
-            int waveId;
-            if(path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase))
-            {awb=new AwbReader(File.OpenRead(path));if(index<0||index>=awb.Waves.Count)throw new ArgumentException("Invalid wave index.");waveId=awb.Waves[index].WaveId;}
-            else
-            {
-                (provider,acb)=OpenAcb(path);var names=acb.AtomCueSheetData["CueName"];
-                if(index<0||index>=names.Count)throw new ArgumentException("Invalid cue index.");
-                var cue=acb.AtomCueSheetData["Cue"][Convert.ToInt32(names[index]["CueIndex"])];
-                var waves=acb.GetWaveformsFromCueId(Convert.ToInt32(cue["CueId"]));
-                if(part<0||part>=waves.Count)throw new ArgumentException("Cue has no selected waveform.");
-                var wave=waves[part];
-                if(wave.EncodeType is not (EEncodeType.HCA or EEncodeType.HCA_ALT))throw new InvalidDataException("Only HCA preview is supported.");
-                if(wave.Streaming==EWaveformStreamType.Memory){awb=acb.GetAwb();waveId=wave.Id;}
-                else{var bankName=Convert.ToString(acb.AtomCueSheetData["StreamAwb"][wave.PortNo]["Name"])??throw new InvalidDataException("Missing bank name.");if(bankName!=Path.GetFileName(bankName)||bankName.Contains('\\'))throw new InvalidDataException("Invalid bank name.");var external=resolveBank is null?Path.Combine(Path.GetDirectoryName(path)!,bankName+".awb"):resolveBank(bankName+".awb");MusicWorkspaceStore.RejectLinks(external);awb=new AwbReader(File.OpenRead(external));waveId=wave.StreamId;}
-            }
-            if(awb is null)throw new InvalidDataException("No AWB available.");
-            var entry=awb.Waves.Single(w=>w.WaveId==waveId);
-            using var source=awb.GetWaveSubfileStream(entry);
-            using var pcm=new HcaWaveStream(source,0,awb.Subkey);
-            if(pcm.Length>uint.MaxValue-36||pcm.Length<=0)throw new InvalidDataException("Audio exceeds WAV limits.");
-            using var header=new MemoryStream();using(var w=new BinaryWriter(header,System.Text.Encoding.ASCII,true))
-            {w.Write("RIFF"u8);w.Write((uint)pcm.Length+36);w.Write("WAVEfmt "u8);w.Write(16);w.Write((short)1);w.Write((short)pcm.WaveFormat.Channels);w.Write(pcm.WaveFormat.SampleRate);w.Write(pcm.WaveFormat.AverageBytesPerSecond);w.Write((short)pcm.WaveFormat.BlockAlign);w.Write((short)16);w.Write("data"u8);w.Write((uint)pcm.Length);}
-            long total=pcm.Length+44,start=0,end=total-1;
-            context.Response.Headers.AcceptRanges="bytes";
-            var range=context.Request.Headers.Range.ToString();
-            if(range.Length>0)
-            {
-                var match=System.Text.RegularExpressions.Regex.Match(range,@"^bytes=(\d*)-(\d*)$");
-                if(!match.Success || (match.Groups[1].Value.Length==0&&match.Groups[2].Value.Length==0))
-                {context.Response.StatusCode=416;context.Response.Headers.ContentRange=$"bytes */{total}";return;}
-                if(match.Groups[1].Value.Length==0){if(!long.TryParse(match.Groups[2].Value,out var suffix)||suffix<=0){context.Response.StatusCode=416;return;}start=Math.Max(0,total-suffix);}
-                else if(!long.TryParse(match.Groups[1].Value,out start)){context.Response.StatusCode=416;return;}
-                if(match.Groups[1].Value.Length>0&&match.Groups[2].Value.Length>0){if(!long.TryParse(match.Groups[2].Value,out end)){context.Response.StatusCode=416;return;}end=Math.Min(end,total-1);}
-                if(start>=total||start>end){context.Response.StatusCode=416;context.Response.Headers.ContentRange=$"bytes */{total}";return;}
-                context.Response.StatusCode=206;context.Response.Headers.ContentRange=$"bytes {start}-{end}/{total}";
-            }
-            context.Response.ContentType="audio/wav";context.Response.ContentLength=end-start+1;
-            long remaining=end-start+1;
-            if(start<44){int n=(int)Math.Min(44-start,remaining);await context.Response.Body.WriteAsync(header.ToArray().AsMemory((int)start,n),context.RequestAborted);remaining-=n;}
-            long offset=Math.Max(0,start-44);int align=pcm.WaveFormat.BlockAlign;pcm.Position=offset-offset%align;
-            if(offset%align>0){var frame=new byte[align];if(pcm.Read(frame,0,align)!=align)throw new EndOfStreamException();int from=(int)(offset%align),n=(int)Math.Min(align-from,remaining);await context.Response.Body.WriteAsync(frame.AsMemory(from,n),context.RequestAborted);remaining-=n;}
-            var buffer=new byte[32768];
-            // Read whole PCM frames, then slice arbitrary HTTP byte boundaries.
-            while(remaining>0){context.RequestAborted.ThrowIfCancellationRequested();int count=pcm.Read(buffer,0,buffer.Length);if(count==0)break;int n=(int)Math.Min(count,remaining);await context.Response.Body.WriteAsync(buffer.AsMemory(0,n),context.RequestAborted);remaining-=n;await context.Response.Body.FlushAsync(context.RequestAborted);}
+            w.Write("RIFF"u8);
+            w.Write((uint)pcm.Length + 36);
+            w.Write("WAVEfmt "u8);
+            w.Write(16);
+            w.Write((short)1);
+            w.Write((short)pcm.WaveFormat.Channels);
+            w.Write(pcm.WaveFormat.SampleRate);
+            w.Write(pcm.WaveFormat.AverageBytesPerSecond);
+            w.Write((short)pcm.WaveFormat.BlockAlign);
+            w.Write((short)16);
+            w.Write("data"u8);
+            w.Write((uint)pcm.Length);
         }
-        finally{awb?.Dispose();acb?.Dispose();provider?.Dispose();}
+        long total = pcm.Length + 44, start = 0, end = total - 1;
+        context.Response.Headers.AcceptRanges = "bytes";
+        var range = context.Request.Headers.Range.ToString();
+        if (range.Length > 0)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(range, @"^bytes=(\d*)-(\d*)$");
+            if (!match.Success || (match.Groups[1].Value.Length == 0 && match.Groups[2].Value.Length == 0))
+            { context.Response.StatusCode = 416; context.Response.Headers.ContentRange = $"bytes */{total}"; return; }
+            if (match.Groups[1].Value.Length == 0) { if (!long.TryParse(match.Groups[2].Value, out var suffix) || suffix <= 0) { context.Response.StatusCode = 416; return; } start = Math.Max(0, total - suffix); }
+            else if (!long.TryParse(match.Groups[1].Value, out start)) { context.Response.StatusCode = 416; return; }
+            if (match.Groups[1].Value.Length > 0 && match.Groups[2].Value.Length > 0) { if (!long.TryParse(match.Groups[2].Value, out end)) { context.Response.StatusCode = 416; return; } end = Math.Min(end, total - 1); }
+            if (start >= total || start > end) { context.Response.StatusCode = 416; context.Response.Headers.ContentRange = $"bytes */{total}"; return; }
+            context.Response.StatusCode = 206; context.Response.Headers.ContentRange = $"bytes {start}-{end}/{total}";
+        }
+        context.Response.ContentType = "audio/wav"; context.Response.ContentLength = end - start + 1;
+        long remaining = end - start + 1;
+        if (start < 44) { int n = (int)Math.Min(44 - start, remaining); await context.Response.Body.WriteAsync(header.ToArray().AsMemory((int)start, n), context.RequestAborted); remaining -= n; }
+        long offset = Math.Max(0, start - 44); int align = pcm.WaveFormat.BlockAlign; pcm.Position = offset - offset % align;
+        if (offset % align > 0) { var frame = new byte[align]; if (pcm.Read(frame, 0, align) != align) throw new EndOfStreamException(); int from = (int)(offset % align), n = (int)Math.Min(align - from, remaining); await context.Response.Body.WriteAsync(frame.AsMemory(from, n), context.RequestAborted); remaining -= n; }
+        var buffer = new byte[32768];
+        while (remaining > 0) { context.RequestAborted.ThrowIfCancellationRequested(); int count = pcm.Read(buffer, 0, buffer.Length); if (count == 0) break; int n = (int)Math.Min(count, remaining); await context.Response.Body.WriteAsync(buffer.AsMemory(0, n), context.RequestAborted); remaining -= n; await context.Response.Body.FlushAsync(context.RequestAborted); }
+    }
+
+    public static async Task Export(HttpContext context, string path, int index, int part, string format, Func<string,string>? resolveBank = null)
+    {
+        string fmt = format?.Trim().ToLowerInvariant() ?? "";
+        if (fmt is not ("wav" or "ogg" or "hca")) throw new ArgumentException("Format must be wav, ogg, or hca.");
+        using var res = ResolveWave(path, index, part, resolveBank);
+        var entry = res.Awb.Waves.Single(w => w.WaveId == res.WaveId);
+        using var source = res.Awb.GetWaveSubfileStream(entry);
+
+        var safeName = string.Join("_", res.CueName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (string.IsNullOrWhiteSpace(safeName)) safeName = $"Audio_{res.WaveId}";
+        var fileName = $"{safeName}_{res.WaveId}.{fmt}";
+        context.Response.Headers.ContentDisposition = $"attachment; filename=\"{Uri.EscapeDataString(fileName)}\"; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
+
+        switch (fmt)
+        {
+            case "hca":
+                context.Response.ContentType = "application/octet-stream";
+                context.Response.ContentLength = source.Length;
+                await source.CopyToAsync(context.Response.Body, context.RequestAborted);
+                break;
+            case "wav":
+                using (var pcm = new HcaWaveStream(source, 0, res.Awb.Subkey))
+                {
+                    if (pcm.Length > uint.MaxValue - 36 || pcm.Length <= 0) throw new InvalidDataException("Audio exceeds WAV limits.");
+                    using var header = new MemoryStream();
+                    using (var w = new BinaryWriter(header, System.Text.Encoding.ASCII, true))
+                    {
+                        w.Write("RIFF"u8);
+                        w.Write((uint)pcm.Length + 36);
+                        w.Write("WAVEfmt "u8);
+                        w.Write(16);
+                        w.Write((short)1);
+                        w.Write((short)pcm.WaveFormat.Channels);
+                        w.Write(pcm.WaveFormat.SampleRate);
+                        w.Write(pcm.WaveFormat.AverageBytesPerSecond);
+                        w.Write((short)pcm.WaveFormat.BlockAlign);
+                        w.Write((short)16);
+                        w.Write("data"u8);
+                        w.Write((uint)pcm.Length);
+                    }
+                    context.Response.ContentType = "audio/wav";
+                    context.Response.ContentLength = pcm.Length + 44;
+                    await context.Response.Body.WriteAsync(header.ToArray(), context.RequestAborted);
+                    await pcm.CopyToAsync(context.Response.Body, context.RequestAborted);
+                }
+                break;
+            case "ogg":
+                using (var pcm = new HcaWaveStream(source, 0, res.Awb.Subkey))
+                {
+                    context.Response.ContentType = "audio/ogg";
+                    await EncodePcmToOgg(pcm, context.Response.Body, context.RequestAborted);
+                }
+                break;
+        }
+    }
+
+    private static async Task EncodePcmToOgg(HcaWaveStream pcm, Stream output, CancellationToken ct)
+    {
+        int channels = pcm.WaveFormat.Channels;
+        int sampleRate = pcm.WaveFormat.SampleRate;
+        var info = VorbisInfo.InitVariableBitRate(channels, sampleRate, 0.6f);
+        var oggStream = new OggStream(Guid.NewGuid().GetHashCode());
+
+        var comments = new Comments();
+        oggStream.PacketIn(HeaderPacketBuilder.BuildInfoPacket(info));
+        oggStream.PacketIn(HeaderPacketBuilder.BuildCommentsPacket(comments));
+        oggStream.PacketIn(HeaderPacketBuilder.BuildBooksPacket(info));
+
+        async Task FlushPages(bool force)
+        {
+            while (oggStream.PageOut(out OggPage page, force))
+            {
+                await output.WriteAsync(page.Header, 0, page.Header.Length, ct);
+                await output.WriteAsync(page.Body, 0, page.Body.Length, ct);
+            }
+        }
+
+        await FlushPages(true);
+
+        var processingState = ProcessingState.Create(info);
+        const int bufferSamples = 2048;
+        int bytesPerFrame = channels * 2;
+        byte[] pcmBuffer = new byte[bufferSamples * bytesPerFrame];
+        float[][] floatSamples = new float[channels][];
+        for (int ch = 0; ch < channels; ch++) floatSamples[ch] = new float[bufferSamples];
+
+        int bytesRead;
+        while ((bytesRead = pcm.Read(pcmBuffer, 0, pcmBuffer.Length)) > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            int frames = bytesRead / bytesPerFrame;
+            for (int i = 0; i < frames; i++)
+            {
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    int sampleIdx = i * bytesPerFrame + ch * 2;
+                    short sample = (short)(pcmBuffer[sampleIdx] | (pcmBuffer[sampleIdx + 1] << 8));
+                    floatSamples[ch][i] = sample / 32768f;
+                }
+            }
+
+            await FlushPages(false);
+            processingState.WriteData(floatSamples, frames, 0);
+
+            while (!oggStream.Finished && processingState.PacketOut(out OggPacket packet))
+            {
+                oggStream.PacketIn(packet);
+                await FlushPages(false);
+            }
+        }
+
+        processingState.WriteEndOfStream();
+        while (!oggStream.Finished && processingState.PacketOut(out OggPacket packet))
+        {
+            oggStream.PacketIn(packet);
+            await FlushPages(false);
+        }
+        await FlushPages(true);
+        await output.FlushAsync(ct);
     }
 }

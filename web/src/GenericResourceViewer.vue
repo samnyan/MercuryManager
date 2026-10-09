@@ -3,6 +3,7 @@ import GenericResourceViewerImpl from './components/resource/GenericResourceView
 
 defineProps<{
   data: unknown
+  path?: string
   rawUrl?: string
   previewSrc?: string
   previewError?: string
@@ -12,8 +13,9 @@ defineProps<{
 <template>
   <GenericResourceViewerImpl
     :data="data"
-    :raw-url="rawUrl"
+    :path="path"
     :preview-src="previewSrc"
     :preview-error="previewError"
+    :raw-url="rawUrl"
   />
 </template>

@@ -14,7 +14,7 @@ public static class ApiResultMiddleware
         app.Use(async (context, next) =>
         {
             if (!context.Request.Path.StartsWithSegments("/api")) { await next(context); return; }
-            if(context.Request.Path.Value?.EndsWith("/resource-audio",StringComparison.Ordinal)==true||context.Request.Path.Value?.EndsWith("/audio-events",StringComparison.Ordinal)==true)
+            if(context.Request.Path.Value?.EndsWith("/resource-audio",StringComparison.Ordinal)==true||context.Request.Path.Value?.EndsWith("/resource-audio-export",StringComparison.Ordinal)==true||context.Request.Path.Value?.EndsWith("/audio-events",StringComparison.Ordinal)==true)
             {
                 try{await next(context);}catch(OperationCanceledException) when(context.RequestAborted.IsCancellationRequested){}
                 catch(Exception ex){if(context.Response.HasStarted){context.Abort();return;}context.Response.Clear();context.Response.StatusCode=ex is FileNotFoundException?404:400;await context.Response.WriteAsJsonAsync(ApiResult.Error(context.Response.StatusCode,ex.Message));}

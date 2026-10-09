@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import {ref,watch} from 'vue'
-import {NCard,NFormItem,NRadioGroup,NRadio,NSelect,NInputNumber} from 'naive-ui'
+import {Info as InfoIcon} from '@lucide/vue'
+import AudioDetailsDialog from './AudioDetailsDialog.vue'
+import {NButton,NCard,NFormItem,NRadioGroup,NRadio,NSelect,NInputNumber} from 'naive-ui'
 import {useProject} from '../../project'
 import {tr} from '../../i18n'
-export type AudioInfo={format:string;channels:number;sampleRate:number;samples:number;loopEnabled:boolean;loopStart:number;loopEnd:number;encrypted:boolean}
+export type AudioInfo={format:string;channels:number;sampleRate:number;samples:number;loopEnabled:boolean;loopStart:number;loopEnd:number;encrypted:boolean;details?:unknown}
+const detailShow=ref(false)
 const props=defineProps<{route:string;trackIndex:number;initial?:AudioInfo;existing?:boolean}>()
 const emit=defineEmits<{change:[value:{trackIndex:number;uploadId:string;loop?:{waveformIndex:number;loopStart:number;loopEnd:number;loopFlag:number}}|null]}>()
 const project=useProject()
@@ -20,7 +23,8 @@ watch([info,token,mode,loopMode,start,end],()=>{const i=info.value;if(!i||!token
 <input v-if="!existing" type="file" accept=".hca,.wav" :disabled="loading" @change="choose" />
 <p v-if="loading">{{tr('ui.audioReadingFile')}}</p><p v-if="error" role="alert" class="audio-field-error">{{error}}</p>
 <template v-if="info">
-<p>{{info.format.toUpperCase()}} · {{info.channels}} ch · {{info.sampleRate}} Hz · {{info.samples}} samples</p>
+<p>{{info.format.toUpperCase()}} · {{info.channels}} ch · {{info.sampleRate}} Hz · {{info.samples}} samples <n-button text type="primary" :title="tr('ui.audioDetails')" :aria-label="tr('ui.audioDetails')" @click="detailShow=true"><info-icon :size="17" /></n-button></p>
+<audio-details-dialog v-model:show="detailShow" :data="info.details ?? info" />
 <n-form-item v-if="info.format==='hca'" :label="tr('ui.audioLoopSource')"><n-radio-group v-model:value="mode"><n-radio :value="0">{{tr('ui.audioHcaLoops')}}</n-radio><n-radio :value="1" :disabled="info.encrypted">{{tr('ui.audioModifyLoops')}}</n-radio></n-radio-group></n-form-item>
 <p v-if="info.encrypted">{{tr('ui.audioEncryptedLoop')}}</p>
 <n-form-item :label="tr('ui.audioLoopMode')"><n-select v-model:value="loopMode" :disabled="info.format==='hca' && mode===0" :options="[{label:tr('ui.audioNoLoop'),value:0},{label:tr('ui.audioWholeLoop'),value:1},{label:tr('ui.audioCustomLoop'),value:2}]" /></n-form-item>
