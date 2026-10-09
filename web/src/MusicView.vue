@@ -152,8 +152,8 @@ watch(
 </script>
 
 <template>
-  <div class="music-view-container">
-    <div class="music-header">
+  <div class="music-view-container view-fill-container">
+    <div class="music-header view-header-fixed">
       <h2 class="page-title">{{ tr('ui.musicParameters') }}</h2>
 
       <div class="toolbar-wrapper">
@@ -180,10 +180,10 @@ watch(
       </div>
     </div>
 
-    <div class="grid-container">
+    <div class="grid-container view-grid-fill">
       <ag-grid-vue
         :theme="themeQuartz"
-        class="music-grid"
+        class="music-grid ag-fill-grid"
         :row-data="data"
         :column-defs="columns"
         :default-col-def="{ sortable: true, filter: true, resizable: true }"
@@ -236,10 +236,11 @@ watch(
 .grid-container {
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 .music-grid {
-  height: calc(100vh - 160px);
-  min-height: 320px;
+  height: 100%;
+  width: 100%;
 }
 
 @media (max-width: 768px) {
@@ -255,9 +256,6 @@ watch(
   .toolbar-search {
     max-width: 100%;
     width: 100%;
-  }
-  .music-grid {
-    height: calc(100vh - 180px);
   }
 }
 </style>

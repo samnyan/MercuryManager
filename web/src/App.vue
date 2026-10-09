@@ -84,20 +84,31 @@ body {
 }
 .app-container {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .app-body {
   flex: 1;
-  height: calc(100vh - 52px);
+  min-height: 0;
+  height: auto;
 }
 .desktop-sider {
   height: 100%;
 }
 .app-content {
   padding: 12px 16px;
-  overflow-y: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.app-content > .n-layout-scroll-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 @media (max-width: 768px) {
   .app-content {
@@ -109,5 +120,35 @@ body {
   line-height: 24px;
   margin: 0 0 8px;
   font-weight: 600;
+}
+
+/* ========================================================
+   全局统一页面自适应高度与 AG Grid 规范类
+   原则：
+   1. 页面容器 (view-fill-container) 满高 (height: 100%; flex: 1)
+   2. 头部工具栏/标题 (view-header-fixed) 不缩放 (flex-shrink: 0)
+   3. 表格容器 (view-grid-fill) 自适应撑满剩余高度 (flex: 1; min-height: 0)
+   4. AG Grid (ag-fill-grid) 100% 充满父容器，内部负责虚拟滚动，避免外层双滚动条
+   ======================================================== */
+.view-fill-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.view-header-fixed {
+  flex-shrink: 0;
+}
+.view-grid-fill {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+}
+.ag-fill-grid {
+  height: 100% !important;
+  width: 100% !important;
 }
 </style>

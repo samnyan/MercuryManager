@@ -186,9 +186,9 @@ watch(
 </script>
 
 <template>
-  <div class="view-container">
+  <div class="view-container view-fill-container">
     <!-- 顶部标题与响应式工具/搜索区 -->
-    <div class="view-header">
+    <div class="view-header view-header-fixed">
       <h2 class="page-title">{{ heading }}</h2>
 
       <div class="toolbar-wrapper">
@@ -223,7 +223,7 @@ watch(
     </div>
 
     <!-- 表格区域 -->
-    <div class="grid-wrapper">
+    <div class="grid-wrapper view-grid-fill">
       <asset-grid
         :rows="rows"
         :search="search"
@@ -279,8 +279,11 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  flex: 1;
 }
 .view-header {
+  flex-shrink: 0;
   margin-bottom: 10px;
 }
 .toolbar-wrapper {

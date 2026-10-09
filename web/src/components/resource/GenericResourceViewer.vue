@@ -514,9 +514,9 @@ const columns = computed<ColDef[]>(() => {
     </div>
 
     <!-- 右侧 AG Grid 详情区 -->
-    <div class="generic-details">
+    <div class="generic-details view-fill-container">
       <!-- 顶部路径面包屑与快捷导航 -->
-      <div class="viewer-toolbar">
+      <div class="viewer-toolbar view-header-fixed">
         <div class="crumb-container">
           <n-button
             size="tiny"
@@ -559,7 +559,7 @@ const columns = computed<ColDef[]>(() => {
       </div>
 
       <!-- 搜索过滤 -->
-      <div class="search-bar">
+      <div class="search-bar view-header-fixed">
         <n-input
           v-model:value="search"
           :placeholder="tr('ui.searchFieldsRowKey')"
@@ -569,10 +569,10 @@ const columns = computed<ColDef[]>(() => {
       </div>
 
       <!-- AG Grid 主格 -->
-      <div class="grid-wrapper">
+      <div class="grid-wrapper view-grid-fill">
         <ag-grid-vue
           :theme="themeQuartz"
-          class="generic-ag-grid"
+          class="generic-ag-grid ag-fill-grid"
           :row-data="rows"
           :column-defs="columns"
           :default-col-def="{
@@ -594,20 +594,25 @@ const columns = computed<ColDef[]>(() => {
 <style scoped>
 .generic-viewer {
   display: flex;
+  flex-direction: row;
   gap: 14px;
-  height: calc(100vh - 220px);
-  min-height: 360px;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 .generic-tree {
   width: 280px;
   flex-shrink: 0;
-  overflow: auto;
+  height: 100%;
+  overflow-y: auto;
   border-right: 1px solid #e0e0e6;
   padding-right: 6px;
 }
 .generic-details {
   flex: 1;
   min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -619,6 +624,7 @@ const columns = computed<ColDef[]>(() => {
   margin-bottom: 8px;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 .crumb-container {
   display: flex;
@@ -651,11 +657,13 @@ const columns = computed<ColDef[]>(() => {
 }
 .search-bar {
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .grid-wrapper {
   flex: 1;
-  min-height: 250px;
+  min-height: 0;
   width: 100%;
+  height: 100%;
 }
 .generic-ag-grid {
   width: 100%;
@@ -673,22 +681,23 @@ const columns = computed<ColDef[]>(() => {
 @media (max-width: 768px) {
   .generic-viewer {
     flex-direction: column;
-    height: auto;
-    min-height: calc(100vh - 200px);
+    height: 100%;
+    min-height: 0;
+    gap: 8px;
   }
   .generic-tree {
     width: 100%;
-    max-height: 180px;
+    height: auto;
+    max-height: 160px;
+    flex-shrink: 0;
     border-right: none;
     border-bottom: 1px solid #e0e0e6;
     padding-bottom: 6px;
   }
   .grid-wrapper {
-    /* A percentage-height grid needs a definite parent height, not min-height. */
-    flex: none;
-    height: 60vh;
-    height: clamp(400px, 60dvh, 640px);
-    min-height: 400px;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
   }
 }
 </style>

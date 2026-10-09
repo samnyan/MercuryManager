@@ -108,8 +108,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="resource-view-container">
-    <div class="resource-title-row">
+  <div class="resource-view-container view-fill-container">
+    <div class="resource-title-row view-header-fixed">
       <h2 class="page-title resource-path-title">{{ path || tr('ui.selectResource') }}</h2>
       <n-space v-if="project.id && path.endsWith('.uasset')" :wrap="false">
         <n-button tag="a" :href="jsonUrl" download :disabled="busy || jsonBusy">{{tr('ui.jsonExport')}}</n-button>
@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
       <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="uploadJson" />
     </div>
 
-    <n-tabs v-if="data || isAudio" v-model:value="mode" type="line" class="resource-tabs">
+    <n-tabs v-if="data || isAudio" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab name="texture" :disabled="!isTexture">
         {{ tr('ui.textureMode') }}
       </n-tab>
@@ -128,39 +128,44 @@ onBeforeUnmount(() => {
       </n-tab>
     </n-tabs>
 
-    <audio-resource-viewer v-if="isAudio && !busy && mode === 'awb'" :path="path" />
-    <n-spin :show="busy">
-      <div v-if="error" class="error-banner">{{ error }}</div>
+    <div class="resource-main-pane view-grid-fill">
+      <audio-resource-viewer v-if="isAudio && !busy && mode === 'awb'" :path="path" class="resource-fill-item" />
+      <div v-else-if="busy" class="resource-loading-pane">
+        <n-spin size="large" />
+      </div>
+      <div v-else class="resource-fill-item">
+        <div v-if="error" class="error-banner">{{ error }}</div>
 
-      <generic-resource-viewer
-        v-if="data && mode === 'generic'"
-        :data="data"
-        :preview-src="src"
-        :preview-error="textureError"
-        :raw-url="rawUrl"
-      />
-
-      <div v-if="mode === 'texture'" class="texture-pane">
-        <n-image
-          v-if="src"
-          :src="src"
-          width="512"
-          class="texture-img"
+        <generic-resource-viewer
+          v-if="data && mode === 'generic'"
+          :data="data"
+          :preview-src="src"
+          :preview-error="textureError"
+          :raw-url="rawUrl"
         />
-        <div v-if="textureError" class="error-banner">{{ textureError }}</div>
-        <n-button
-          v-if="src"
-          type="primary"
-          :disabled="!supported"
-          @click="show = true"
-        >
-          {{ tr('ui.useTextureBase') }}
-        </n-button>
-        <div v-if="src && !supported" class="unsupported-hint">
-          {{ tr('ui.unsupportedTexture') }}
+
+        <div v-if="mode === 'texture'" class="texture-pane">
+          <n-image
+            v-if="src"
+            :src="src"
+            width="512"
+            class="texture-img"
+          />
+          <div v-if="textureError" class="error-banner">{{ textureError }}</div>
+          <n-button
+            v-if="src"
+            type="primary"
+            :disabled="!supported"
+            @click="show = true"
+          >
+            {{ tr('ui.useTextureBase') }}
+          </n-button>
+          <div v-if="src && !supported" class="unsupported-hint">
+            {{ tr('ui.unsupportedTexture') }}
+          </div>
         </div>
       </div>
-    </n-spin>
+    </div>
 
     <texture-create-dialog
       v-model:show="show"
@@ -176,23 +181,53 @@ onBeforeUnmount(() => {
 .resource-view-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  gap: 10px;
 }
 .resource-path-title {
   word-break: break-all;
 }
 .resource-tabs {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+.resource-main-pane {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.resource-loading-pane {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.resource-fill-item {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .error-banner {
   color: #d03050;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .texture-pane {
   display: flex;
   flex-direction: column;
   gap: 12px;
   align-items: flex-start;
+  overflow-y: auto;
+  flex: 1;
 }
 .texture-img {
   max-width: 100%;

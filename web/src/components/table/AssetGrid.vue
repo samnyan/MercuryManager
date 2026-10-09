@@ -136,7 +136,7 @@ const columns = computed(() => {
 <template>
   <ag-grid-vue
     :theme="themeQuartz"
-    class="asset-grid"
+    class="asset-grid ag-fill-grid"
     :row-data="data"
     :column-defs="columns"
     :default-col-def="{ sortable: true, filter: true, resizable: true }"
@@ -148,14 +148,8 @@ const columns = computed(() => {
 
 <style>
 .asset-grid {
-  height: calc(100vh - 170px);
-  min-height: 320px;
+  height: 100%;
   width: 100%;
-}
-@media (max-width: 768px) {
-  .asset-grid {
-    height: calc(100vh - 200px);
-  }
 }
 .ref-link {
   color: #18a058;
