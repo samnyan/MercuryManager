@@ -39,5 +39,16 @@ public class HcaEncodingTests
         Assert.Equal(start,encoded.LoopStart);Assert.Equal(end,encoded.LoopEnd);Assert.Equal(4800,info.SampleCount);Assert.Equal(start,info.LoopStartSample);Assert.Equal(end,info.LoopEndSample);
     }
     [Fact]public void RejectsConflictingSharedLoops()=>Assert.Throws<InvalidDataException>(()=>HcaEncoding.Encode(Wav(),[new(0,0,4800,2),new(1,100,4800,2)]));
+    [Fact]public void HeaderEditsPreservePayloadAndCanRemoveLoop()
+    {
+        var source=HcaEncoding.Encode(Wav(),[new(0,123,3456,2)]);var before=AudioInspection.Read(source);
+        var edited=HcaLoopChunk.Edit(source,true,100,4000);var info=AudioInspection.Read(edited);Assert.Equal(100,info.LoopStart);Assert.Equal(4000,info.LoopEnd);Assert.Equal(before.Samples,info.Samples);
+        int oldHeader=System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(6));int newHeader=System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(edited.AsSpan(6));Assert.Equal(source[oldHeader..],edited[newHeader..]);
+        var disabled=AudioInspection.Read(HcaLoopChunk.Edit(edited,false,0,0));Assert.False(disabled.LoopEnabled);Assert.Equal(4800,disabled.Samples);
+    }
+    [Fact]public void ReadsWavSmplExclusiveEnd()
+    {
+        var original=Wav();using var s=new MemoryStream();s.Write(original);using var w=new BinaryWriter(s);w.Write("smpl"u8);w.Write(60);w.Write(new byte[28]);w.Write(1);w.Write(0);w.Write(0);w.Write(0);w.Write(123);w.Write(3455);w.Write(0);w.Write(0);var bytes=s.ToArray();System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4),bytes.Length-8);var info=AudioInspection.Read(bytes);Assert.True(info.LoopEnabled);Assert.Equal(123,info.LoopStart);Assert.Equal(3456,info.LoopEnd);
+    }
     [Fact]public void RejectsInvalidWav()=>Assert.ThrowsAny<Exception>(()=>HcaEncoding.Encode([1,2,3]));
 }

@@ -27,7 +27,14 @@ public static class WaveformExtensions
             if(!affected.Contains(edit.WaveformIndex))throw new InvalidDataException("Extension edit does not belong to replaced wave.");
             int index=checked((int)waves.Number(edit.WaveformIndex,"ExtensionData"));
             if(edit.LoopFlag is <0 or >2)throw new InvalidDataException("LoopFlag must be 0–2.");
-            if(index==65535){waves.SetNumber(edit.WaveformIndex,"LoopFlag",edit.LoopFlag==0?0:1);continue;}
+            if(edit.LoopFlag==0){waves.SetNumber(edit.WaveformIndex,"LoopFlag",0);continue;}
+            if(edit.LoopStart<0||edit.LoopEnd<=edit.LoopStart||edit.LoopEnd>samples)throw new InvalidDataException("Loop points must satisfy 0 <= start < end <= sample count.");
+            if(index==65535)
+            {
+                if(edit.LoopFlag==1){waves.SetNumber(edit.WaveformIndex,"LoopFlag",1);continue;}
+                if(extension is null||extension.Rows.Count==0||extension.Columns.Any(c=>c.Name is not ("LoopStart" or "LoopEnd")))throw new InvalidDataException("No safe extension template available for custom loops.");
+                index=0;
+            }
             if(extension is null||index<0||index>=extension.Rows.Count)throw new InvalidDataException("This waveform has no editable extension.");
             if(edit.LoopFlag is <0 or >2||edit.LoopStart<0||edit.LoopEnd<=edit.LoopStart||edit.LoopEnd>samples)throw new InvalidDataException("Loop points must satisfy 0 <= start < end <= new sample count; LoopFlag must be 0–2.");
             // Clone to avoid changing another waveform sharing the original record.

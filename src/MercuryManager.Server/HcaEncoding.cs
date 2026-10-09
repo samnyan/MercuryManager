@@ -5,7 +5,7 @@ namespace MercuryManager.Server;
 public static class HcaEncoding
 {
     // VGAudio's WAV reader accepts integer PCM only. Normalize IEEE float first.
-    private static byte[] NormalizeWav(byte[] wav)
+    public static byte[] NormalizeWav(byte[] wav)
     {
         if(wav.Length<12||!wav.AsSpan(0,4).SequenceEqual("RIFF"u8)||!wav.AsSpan(8,4).SequenceEqual("WAVE"u8))throw new InvalidDataException("Invalid RIFF WAV.");
         int end=checked((int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(wav.AsSpan(4))+8);
@@ -54,7 +54,7 @@ public static class HcaEncoding
         if(format.ChannelCount is <1 or >2||format.SampleRate is <8000 or >96000||format.SampleCount<=0||format.SampleCount>format.SampleRate*600)throw new InvalidDataException("WAV must be mono/stereo, 8–96 kHz and no longer than 10 minutes.");
         var settings=loops?.Select(e=>(Enabled:e.LoopFlag!=0,e.LoopStart,e.LoopEnd)).Distinct().ToArray();
         if(settings is {Length:>1})throw new InvalidDataException("Shared HCA requires identical loop settings on all waveforms.");
-        if(settings is {Length:1}&&(settings[0].LoopStart<0||settings[0].LoopEnd<=settings[0].LoopStart||settings[0].LoopEnd>format.SampleCount))throw new InvalidDataException("Loop points outside new audio.");
+        if(settings is {Length:1}&&settings[0].Enabled&&(settings[0].LoopStart<0||settings[0].LoopEnd<=settings[0].LoopStart||settings[0].LoopEnd>format.SampleCount))throw new InvalidDataException("Loop points outside new audio.");
         // Encode the entire stream first: the encoder's looping path trims the tail.
         if(settings is not null)format=format.WithLoop(false);
         var hca=new HcaWriter().GetFile(format,new HcaConfiguration {TrimFile=false});
