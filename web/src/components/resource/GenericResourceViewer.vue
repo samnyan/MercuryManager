@@ -9,6 +9,7 @@ import {
   NImage,
   NButton,
   NTag,
+  NCheckbox,
   type TreeOption
 } from 'naive-ui'
 import { AgGridVue } from 'ag-grid-vue3'
@@ -35,6 +36,7 @@ const selected = ref<unknown>()
 const search = ref('')
 const segments = ref<string[]>([])
 const copiedPath = ref(false)
+const asTable = ref(true)
 
 const rawMode = computed(
   () =>
@@ -105,6 +107,11 @@ function fieldLabel(name: string) {
   return ['Parser', 'Tables'].includes(name) ? `[${name}]` : name
 }
 
+function isVirtualField(name: string) {
+  const lbl = fieldLabel(name)
+  return lbl.startsWith('[') && lbl.endsWith(']')
+}
+
 function summary(value: unknown): string {
   if (value === null) return 'null'
   if (Array.isArray(value)) return `[Array: ${value.length} 项]`
@@ -113,6 +120,22 @@ function summary(value: unknown): string {
     return `{Object: ${keys.length} 属性}`
   }
   return String(value)
+}
+
+function formatHoverPreview(val: unknown): string {
+  if (val === null || val === undefined) return String(val)
+  if (typeof val === 'object') {
+    try {
+      const json = JSON.stringify(val, null, 2)
+      if (json.length > 2000) {
+        return json.slice(0, 2000) + '\n... (truncated)'
+      }
+      return json
+    } catch {
+      return String(val)
+    }
+  }
+  return String(val)
 }
 
 function escapeHtml(str: string): string {
@@ -173,14 +196,34 @@ const acbTableMode = computed(
     segments.value[3] === 'Tables' &&
     Array.isArray(selected.value)
 )
-const acbKeys = computed(() =>
-  acbTableMode.value
-    ? [...new Set((selected.value as Record<string, unknown>[]).flatMap(r => Object.keys(r)))]
-    : []
-)
+
+// 判断当前是否可以以二维表格形式呈现（即当前为包含对象的 Array）
+const canTableView = computed(() => {
+  if (!Array.isArray(selected.value) || selected.value.length === 0) return false
+  return selected.value.some(item => item !== null && typeof item === 'object')
+})
+
+const isTableDisplayActive = computed(() => {
+  return (canTableView.value && asTable.value) || acbTableMode.value
+})
+
+// 对象数组表格模式下的所有动态列名
+const tableColumnsKeys = computed(() => {
+  if (!isTableDisplayActive.value || !Array.isArray(selected.value)) return []
+  const keySet = new Set<string>()
+  for (const item of selected.value as unknown[]) {
+    if (item !== null && typeof item === 'object') {
+      for (const k of Object.keys(item as Record<string, unknown>)) {
+        keySet.add(k)
+      }
+    }
+  }
+  return Array.from(keySet)
+})
 
 export interface ViewerRow {
   name: string
+  _index?: number
   type: string
   value: string
   item: unknown
@@ -189,21 +232,35 @@ export interface ViewerRow {
 }
 
 const rows = computed<ViewerRow[]>(() => {
-  if (acbTableMode.value) {
-    return (selected.value as Record<string, unknown>[]).map((item, index) => ({
-      ...item,
-      name: String(index),
-      type: 'Object',
-      value: summary(item),
-      item,
-      isNavigable: false
-    }))
+  // 表格展示模式（对象数组或 ACB Tables）
+  if (isTableDisplayActive.value && Array.isArray(selected.value)) {
+    return (selected.value as unknown[]).map((item, index) => {
+      const isNav = item !== null && typeof item === 'object'
+      const rowObj: any = {
+        name: String(index),
+        _index: index,
+        type: type(item),
+        value: summary(item),
+        item,
+        isNavigable: isNav
+      }
+      if (item !== null && typeof item === 'object') {
+        for (const k of tableColumnsKeys.value) {
+          rowObj[k] = (item as any)[k]
+        }
+      } else {
+        rowObj['Value'] = item
+      }
+      return rowObj
+    })
   }
 
+  // 依赖导入表模式
   if (importMode.value && Array.isArray(selected.value)) {
     return (selected.value as Record<string, unknown>[]).map((item, index) => ({
       ...item,
       name: String(index),
+      _index: index,
       type: 'Object',
       value: String(item.ObjectName ?? ''),
       item,
@@ -211,6 +268,7 @@ const rows = computed<ViewerRow[]>(() => {
     }))
   }
 
+  // 默认普通键值对列表模式
   const value = selected.value
   const entries: [string, unknown][] =
     value !== null && typeof value === 'object'
@@ -257,7 +315,7 @@ function onCellClicked(event: CellClickedEvent) {
     return
   }
 
-  if (target.closest('[data-action="drill"]') || target.closest('.object-link')) {
+  if (target.closest('[data-action="drill"]') || target.closest('.object-link') || target.closest('.ag-index-nav')) {
     if (event.data?.isNavigable) {
       openRow(event.data)
     }
@@ -265,33 +323,57 @@ function onCellClicked(event: CellClickedEvent) {
 }
 
 const columns = computed<ColDef[]>(() => {
-  if (acbTableMode.value) {
+  // 1. 表格形式展示（对象数组 / ACB Table）
+  if (isTableDisplayActive.value) {
     return [
       {
         field: 'name',
         headerName: 'Index',
-        width: 90,
+        width: 85,
         pinned: 'left',
-        sortable: true
+        sortable: true,
+        cellRenderer: (params: any) => {
+          const row = params.data
+          if (row?.isNavigable) {
+            return `<span class="ag-index-nav" data-action="drill" title="点击或双击进入此项详情">${escapeHtml(
+              String(params.value ?? '')
+            )}</span>`
+          }
+          return `<span>${escapeHtml(String(params.value ?? ''))}</span>`
+        }
       },
-      ...acbKeys.value.map(key => ({
+      ...tableColumnsKeys.value.map(key => ({
         field: key,
         headerName: key,
-        minWidth: 160,
+        minWidth: 150,
         flex: 1,
+        tooltipValueGetter: (params: any) => {
+          return formatHoverPreview(params.value)
+        },
         cellRenderer: (params: any) => {
           const val = params.value
-          if (val == null) return '<span style="color:#aaa">—</span>'
-          const str = typeof val === 'object' ? JSON.stringify(val) : String(val)
-          return `<span title="${escapeHtml(str)}">${escapeHtml(str)}</span>`
+          if (val === undefined) return '<span style="color:#ccc">—</span>'
+          if (val === null) return '<span style="color:#999;font-style:italic">null</span>'
+          const preview = formatHoverPreview(val)
+          if (typeof val === 'object') {
+            const isArr = Array.isArray(val)
+            const icon = isArr ? '🗂️' : '📁'
+            const text = summary(val)
+            return `<span class="ag-cell-obj" title="${escapeHtml(preview)}">${icon} ${escapeHtml(
+              text
+            )}</span>`
+          }
+          const str = String(val)
+          return `<span class="ag-val-text" title="${escapeHtml(preview)}">${escapeHtml(str)}</span>`
         }
       }))
     ]
   }
 
+  // 2. 依赖导入列表模式
   if (importMode.value) {
     return [
-      { field: 'name', headerName: 'Index', width: 90, pinned: 'left', sortable: true },
+      { field: 'name', headerName: 'Index', width: 85, pinned: 'left', sortable: true },
       { field: 'ObjectName', headerName: 'Object Name', minWidth: 220, flex: 1.5 },
       { field: 'ClassPackage', headerName: 'Class Package', minWidth: 180, flex: 1 },
       { field: 'ClassName', headerName: 'Class Name', minWidth: 160, flex: 1 },
@@ -301,7 +383,7 @@ const columns = computed<ColDef[]>(() => {
     ]
   }
 
-  // 默认普通对象/数组层级视图
+  // 3. 默认键值对属性视图
   return [
     {
       field: 'name',
@@ -313,19 +395,19 @@ const columns = computed<ColDef[]>(() => {
         if (!row) return ''
         const rawName = row.name
         const label = fieldLabel(rawName)
-        const isSpecial = /^\\[.*\\]$/.test(label)
+        const isVirtual = isVirtualField(rawName)
 
         if (row.isNavigable) {
           const isArr = Array.isArray(row.item)
           const icon = isArr ? '🗂️' : '📁'
-          return `<div class="ag-name-cell ag-name-navigable" title="双击或点击展开此项">
+          return `<div class="ag-name-cell ag-name-navigable ${isVirtual ? 'ag-virtual-name' : ''}" title="点击或双击进入查看">
             <span class="ag-folder-icon">${icon}</span>
             <span class="ag-name-text">${escapeHtml(label)}</span>
           </div>`
         }
 
-        if (isSpecial) {
-          return `<span class="ag-special-name">${escapeHtml(label)}</span>`
+        if (isVirtual) {
+          return `<span class="ag-virtual-name">${escapeHtml(label)}</span>`
         }
         return `<span>${escapeHtml(label)}</span>`
       }
@@ -333,7 +415,7 @@ const columns = computed<ColDef[]>(() => {
     {
       field: 'type',
       headerName: tr('ui.viewerType'),
-      width: 140,
+      width: 145,
       cellRenderer: (params: any) => {
         const t = String(params.value || '')
         let cls = 'badge-other'
@@ -352,12 +434,20 @@ const columns = computed<ColDef[]>(() => {
       headerName: tr('ui.viewerValue'),
       minWidth: 280,
       flex: 2,
+      tooltipValueGetter: (params: any) => {
+        const row = params.data
+        if (row?.item !== undefined) {
+          return formatHoverPreview(row.item)
+        }
+        return String(params.value ?? '')
+      },
       cellRenderer: (params: any) => {
         const row = params.data
         if (!row) return ''
+        const isVirtual = isVirtualField(row.name)
 
         if (row.name === '[RawData]' && rawMode.value) {
-          let html = '<div class="ag-raw-actions">'
+          let html = '<div class="ag-raw-actions ag-virtual-val">'
           if (props.previewSrc || props.previewError) {
             html += `<button type="button" class="ag-btn-preview" data-action="preview">🔍 ${escapeHtml(
               tr('ui.rawPreview')
@@ -374,28 +464,16 @@ const columns = computed<ColDef[]>(() => {
 
         if (row.isNavigable) {
           const summaryStr = escapeHtml(row.value)
-          return `<button type="button" class="ag-drill-btn" data-action="drill" title="进入查看内部数据">
+          const hoverText = escapeHtml(formatHoverPreview(row.item))
+          return `<button type="button" class="ag-drill-btn ${isVirtual ? 'ag-virtual-val' : ''}" data-action="drill" title="${hoverText}">
             <span>${summaryStr}</span>
             <span class="drill-arrow">➔</span>
           </button>`
         }
 
         const safeVal = escapeHtml(String(row.value ?? ''))
-        return `<span class="ag-val-text" title="${safeVal}">${safeVal}</span>`
-      }
-    },
-    {
-      headerName: '',
-      width: 80,
-      pinned: 'right',
-      sortable: false,
-      filter: false,
-      resizable: false,
-      cellRenderer: (params: any) => {
-        if (params.data?.isNavigable) {
-          return `<button type="button" class="ag-quick-enter-btn" data-action="drill" title="查看内部属性">进入 ➔</button>`
-        }
-        return ''
+        const hoverText = escapeHtml(formatHoverPreview(row.item ?? row.value))
+        return `<span class="ag-val-text ${isVirtual ? 'ag-virtual-val' : ''}" title="${hoverText}">${safeVal}</span>`
       }
     }
   ]
@@ -460,6 +538,16 @@ const columns = computed<ColDef[]>(() => {
         </div>
 
         <div class="actions-right">
+          <!-- 动态表格展示开关 -->
+          <n-checkbox
+            v-if="canTableView"
+            v-model:checked="asTable"
+            size="small"
+            class="table-toggle-check"
+          >
+            表格形式展示
+          </n-checkbox>
+
           <n-tag size="small" :bordered="false" class="count-tag">
             共 {{ rows.length }} 项
           </n-tag>
@@ -492,6 +580,7 @@ const columns = computed<ColDef[]>(() => {
             resizable: true
           }"
           :quick-filter-text="search"
+          :enable-browser-tooltips="true"
           @grid-ready="onGridReady"
           @row-double-clicked="onRowDoubleClicked"
           @cell-clicked="onCellClicked"
@@ -548,8 +637,12 @@ const columns = computed<ColDef[]>(() => {
 .actions-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
+}
+.table-toggle-check {
+  font-size: 13px;
+  color: #333;
 }
 .count-tag {
   background-color: #f2f4f8;
@@ -617,15 +710,34 @@ const columns = computed<ColDef[]>(() => {
 .ag-folder-icon {
   font-size: 14px;
 }
-.ag-special-name {
-  font-style: italic;
-  color: #8c8c8c;
+.ag-virtual-name {
+  font-style: italic !important;
+  color: #7f8c8d;
+}
+.ag-virtual-val {
+  font-style: italic !important;
+}
+.ag-index-nav {
+  color: #18a058;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ag-index-nav:hover {
+  text-decoration: underline;
+}
+.ag-cell-obj {
+  color: #2080f0;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ag-cell-obj:hover {
+  text-decoration: underline;
 }
 .type-badge {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-family: monospace;
   font-weight: 500;
   line-height: 1.4;
@@ -695,20 +807,6 @@ const columns = computed<ColDef[]>(() => {
 }
 .ag-drill-btn:hover .drill-arrow {
   transform: translateX(2px);
-}
-.ag-quick-enter-btn {
-  background: #e7f7ed;
-  color: #18a058;
-  border: 1px solid #b7eb8f;
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.ag-quick-enter-btn:hover {
-  background: #18a058;
-  color: #fff;
 }
 .ag-val-text {
   overflow: hidden;
