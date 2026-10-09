@@ -114,7 +114,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 <n-button type="primary" :loading="busy" :disabled="busy || !pending.length" @click="apply">{{tr('ui.confirm')}}</n-button></n-card></n-modal>
 <div v-if="error" role="alert" style="color:#d03050;flex-shrink:0">{{error}}</div>
 <div class="audio-grid-wrapper view-grid-fill">
-<ag-grid-vue class="audio-grid ag-fill-grid" :theme="themeQuartz" :column-defs="columns" :default-col-def="defaultColDef" :row-data="rows" :get-row-id="p=>p.data.key" :enable-cell-span="true" :row-height="44" :row-selection="{mode:'multiRow',checkboxes:batchMode,headerCheckbox:batchMode,enableClickSelection:false}" @selection-changed="selectionChanged" />
+<ag-grid-vue class="audio-grid ag-fill-grid" :theme="themeQuartz" :column-defs="columns" :default-col-def="defaultColDef" :row-data="rows" :get-row-id="p=>p.data.key" :enable-cell-span="true" :row-height="44" :enable-cell-text-selection="true" :ensure-dom-order="true" :row-selection="{mode:'multiRow',checkboxes:batchMode,headerCheckbox:batchMode,enableClickSelection:false}" @selection-changed="selectionChanged" />
 </div>
 </div>
 </template>

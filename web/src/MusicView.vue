@@ -189,6 +189,8 @@ watch(
         :default-col-def="{ sortable: true, filter: true, resizable: true }"
         :quick-filter-text="search"
         :get-row-id="params => params.data.rowName"
+        :enable-cell-text-selection="true"
+        :ensure-dom-order="true"
         @row-clicked="select"
       />
     </div>

@@ -142,6 +142,8 @@ const columns = computed(() => {
     :column-defs="columns"
     :default-col-def="{ sortable: true, filter: true, resizable: true }"
     :quick-filter-text="search"
+    :enable-cell-text-selection="true"
+    :ensure-dom-order="true"
     @grid-ready="onGridReady"
     @row-clicked="emit('select', $event.data.rowName)"
   />

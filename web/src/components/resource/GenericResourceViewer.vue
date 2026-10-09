@@ -586,7 +586,7 @@ watch(columns, () => {
           class="generic-ag-grid ag-fill-grid"
           :row-data="rows"
           :column-defs="columns"
-        :maintain-column-order="false"
+          :maintain-column-order="false"
           :default-col-def="{
             sortable: true,
             filter: true,
@@ -594,6 +594,8 @@ watch(columns, () => {
           }"
           :quick-filter-text="search"
           :enable-browser-tooltips="true"
+          :enable-cell-text-selection="true"
+          :ensure-dom-order="true"
           @grid-ready="onGridReady"
           @row-double-clicked="onRowDoubleClicked"
           @cell-clicked="onCellClicked"
