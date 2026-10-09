@@ -388,9 +388,8 @@ const columns = computed<ColDef[]>(() => {
     {
       field: 'name',
       headerName: tr('ui.viewerName'),
-      minWidth: 280,
-      width: 320,
-      flex: 1.5,
+      minWidth: 320,
+      flex: 3,
       cellRenderer: (params: any) => {
         const row = params.data
         if (!row) return ''
@@ -433,7 +432,7 @@ const columns = computed<ColDef[]>(() => {
     {
       field: 'value',
       headerName: tr('ui.viewerValue'),
-      minWidth: 280,
+      minWidth: 200,
       flex: 2,
       tooltipValueGetter: (params: any) => {
         const row = params.data
