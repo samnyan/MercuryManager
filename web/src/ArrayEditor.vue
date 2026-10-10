@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import ArrayEditorImpl from './components/table/ArrayEditor.vue'
+import type { FieldValue } from './project'
 
 defineProps<{
-  value: string | number | boolean | unknown[] | null
+  value: FieldValue
   itemType: 'string' | 'number' | 'boolean' | 'object'
   disabled?: boolean
 }>()
 
 const emit = defineEmits<{
-  'update:value': [val: string]
+  'update:value': [val: FieldValue[]]
 }>()
 </script>
 

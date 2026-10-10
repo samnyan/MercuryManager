@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { tr } from './i18n'
-export interface Field { name: string; type: string; value: string | number | boolean | null; readOnly: boolean }
+export type FieldValue = string | number | boolean | null | unknown[] | Record<string, unknown>
+export interface PropertyShape { type: string; element?: PropertyShape | null; fields?: Record<string, PropertyShape> | null }
+export interface Field { name: string; type: string; value: FieldValue; readOnly: boolean; shape?: PropertyShape | null }
 export interface Row { rowName: string; fields: Field[] }
 export interface ApiResult<T> { code: number; message: string; data: T }
 export class ApiError extends Error {

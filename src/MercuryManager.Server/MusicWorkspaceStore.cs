@@ -9,7 +9,8 @@ using UAssetAPI.UnrealTypes;
 namespace MercuryManager.Server;
 
 public sealed record Workspace(string Id, string Profile, string UassetHash, string UexpHash, int RowCount, string? ContentRoot = null);
-public sealed record MusicField(string Name, string Type, object? Value, bool ReadOnly);
+public sealed record PropertyShape(string Type,PropertyShape? Element=null,Dictionary<string,PropertyShape>? Fields=null);
+public sealed record MusicField(string Name, string Type, object? Value, bool ReadOnly,PropertyShape? Shape=null);
 public sealed record MusicRow(string RowName, MusicField[] Fields);
 
 public sealed class MusicWorkspaceStore

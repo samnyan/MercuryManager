@@ -1,214 +1,36 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NButton, NInput, NInputNumber, NCheckbox } from 'naive-ui'
+import { computed } from 'vue'
+import { NButton } from 'naive-ui'
+import StructuredValueEditor from './StructuredValueEditor.vue'
+import type { FieldValue, PropertyShape } from '../../project'
 import { tr } from '../../i18n'
-
-const props = defineProps<{
-  value: string | number | boolean | unknown[] | null
-  itemType: 'string' | 'number' | 'boolean' | 'object'
-  disabled?: boolean
-}>()
-
-const emit = defineEmits<{
-  'update:value': [val: string]
-}>()
-
-const rawMode = ref(false)
-const rawJson = ref('')
-const items = ref<any[]>([])
-
-function parseValue(val: unknown): any[] {
-  if (Array.isArray(val)) return [...val]
-  if (typeof val === 'string') {
-    try {
-      const parsed = JSON.parse(val)
-      if (Array.isArray(parsed)) return parsed
-    } catch {
-      // ignore
-    }
-  }
-  return []
+const props=defineProps<{value:FieldValue;shape?:PropertyShape|null;itemType?:'string'|'number'|'boolean'|'object';disabled?:boolean}>()
+const emit=defineEmits<{'update:value':[value:FieldValue[]]}>()
+const items=computed<FieldValue[]>(()=>Array.isArray(props.value)?props.value as FieldValue[]:[])
+const element=computed<PropertyShape>(()=>props.shape?.element??{type:props.itemType==='number'?'IntPropertyData':props.itemType==='boolean'?'BoolPropertyData':'StrPropertyData'})
+function initial(shape:PropertyShape):FieldValue {
+ if(shape.type==='ArrayPropertyData')return []
+ if(shape.type==='StructPropertyData')return Object.fromEntries(Object.entries(shape.fields??{}).map(([k,s])=>[k,initial(s)]))
+ if(shape.type==='BoolPropertyData')return false
+ if(['Int64PropertyData','UInt64PropertyData'].includes(shape.type))return '0'
+ if(/^(Int|UInt|Float|Double|Byte)/.test(shape.type))return 0
+ return ''
 }
-
-function syncFromProps() {
-  const arr = parseValue(props.value)
-  items.value = arr
-  rawJson.value = JSON.stringify(arr, null, 2)
-}
-
-watch(() => props.value, syncFromProps, { immediate: true })
-
-function emitChange(newItems: any[]) {
-  items.value = newItems
-  const jsonStr = JSON.stringify(newItems)
-  rawJson.value = JSON.stringify(newItems, null, 2)
-  emit('update:value', jsonStr)
-}
-
-function onRawInput(val: string) {
-  rawJson.value = val
-  try {
-    const parsed = JSON.parse(val)
-    if (Array.isArray(parsed)) {
-      items.value = parsed
-      emit('update:value', JSON.stringify(parsed))
-    }
-  } catch {
-    emit('update:value', val)
-  }
-}
-
-function addItem() {
-  const defVal = props.itemType === 'number' ? 0 : props.itemType === 'boolean' ? false : ''
-  const updated = [...items.value, defVal]
-  emitChange(updated)
-}
-
-function removeItem(index: number) {
-  const updated = items.value.filter((_, i) => i !== index)
-  emitChange(updated)
-}
-
-function updateItem(index: number, val: any) {
-  const updated = [...items.value]
-  updated[index] = val
-  emitChange(updated)
-}
+function update(index:number,value:FieldValue){emit('update:value',items.value.map((item,i)=>i===index?value:item))}
+function add(){emit('update:value',[...items.value,initial(element.value)])}
 </script>
-
 <template>
-  <div class="array-editor">
-    <div class="array-header">
-      <span class="array-badge">{{ itemType }}[] ({{ items.length }})</span>
-      <n-button size="tiny" quaternary @click="rawMode = !rawMode">
-        {{ rawMode ? tr('ui.switchToListEdit') : tr('ui.switchToJsonEdit') }}
-      </n-button>
-    </div>
-
-    <!-- 原始源码模式 -->
-    <n-input
-      v-if="rawMode"
-      type="textarea"
-      :autosize="{ minRows: 2, maxRows: 8 }"
-      :value="rawJson"
-      :disabled="disabled"
-      @update:value="onRawInput"
-    />
-
-    <!-- 结构化列表模式 -->
-    <div v-else class="array-items-list">
-      <div v-if="items.length === 0" class="array-empty">
-        {{ tr('ui.noItemsClickToAdd') }}
-      </div>
-      <div
-        v-for="(item, idx) in items"
-        :key="idx"
-        class="array-row"
-      >
-        <span class="array-index">#{{ idx }}</span>
-
-        <div class="array-control">
-          <!-- 布尔类型 -->
-          <n-checkbox
-            v-if="itemType === 'boolean'"
-            :checked="Boolean(item)"
-            :disabled="disabled"
-            @update:checked="updateItem(idx, $event)"
-          >
-            {{ Boolean(item) ? 'True' : 'False' }}
-          </n-checkbox>
-
-          <!-- 数值类型 -->
-          <n-input-number
-            v-else-if="itemType === 'number'"
-            :value="Number(item)"
-            :disabled="disabled"
-            style="width: 100%"
-            @update:value="updateItem(idx, $event ?? 0)"
-          />
-
-          <!-- 字符串类型 -->
-          <n-input
-            v-else
-            :value="String(item ?? '')"
-            :disabled="disabled"
-            style="width: 100%"
-            @update:value="updateItem(idx, $event)"
-          />
-        </div>
-
-        <n-button
-          size="tiny"
-          type="error"
-          quaternary
-          :disabled="disabled"
-          @click="removeItem(idx)"
-        >
-          ✕
-        </n-button>
-      </div>
-
-      <div class="array-footer">
-        <n-button size="small" dashed block :disabled="disabled" @click="addItem">
-          {{ tr('ui.addItem') }}
-        </n-button>
-      </div>
-    </div>
+ <div class="array-editor">
+  <div class="array-header"><code>{{element.type.replace('PropertyData','')}}[] ({{items.length}})</code></div>
+  <div v-if="!items.length" class="array-empty">{{tr('ui.noItemsClickToAdd')}}</div>
+  <div v-for="(item,index) in items" :key="index" class="array-row">
+   <span class="array-index">#{{index}}</span>
+   <structured-value-editor :value="item" :shape="element" :disabled="disabled" @update:value="update(index,$event)" />
+   <n-button size="tiny" type="error" quaternary :disabled="disabled" :aria-label="tr('ui.delete')+' '+index" @click="emit('update:value',items.filter((_,i)=>i!==index))">✕</n-button>
   </div>
+  <n-button size="small" dashed block :disabled="disabled || (element.type==='StructPropertyData' && !element.fields)" @click="add">{{tr('ui.addItem')}}</n-button>
+ </div>
 </template>
-
 <style scoped>
-.array-editor {
-  width: 100%;
-  border: 1px solid #e0e0e6;
-  border-radius: 4px;
-  padding: 8px;
-  background-color: #fafafc;
-}
-.array-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.array-badge {
-  font-size: 11px;
-  color: #666;
-  font-family: monospace;
-  background: #eee;
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-.array-items-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.array-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: 1px solid #efeff5;
-}
-.array-index {
-  font-size: 11px;
-  color: #999;
-  font-family: monospace;
-  min-width: 22px;
-}
-.array-control {
-  flex: 1;
-}
-.array-empty {
-  font-size: 12px;
-  color: #999;
-  text-align: center;
-  padding: 10px 0;
-}
-.array-footer {
-  margin-top: 4px;
-}
+.array-editor{width:100%;border:1px solid #8884;border-radius:4px;padding:8px;box-sizing:border-box}.array-header{margin-bottom:8px;font-size:12px;color:#888}.array-row{display:flex;align-items:flex-start;gap:8px;padding:6px 0}.array-row>:nth-child(2){flex:1;min-width:0}.array-index{font-size:12px;color:#888;padding-top:6px}.array-empty{padding:8px;color:#888;font-size:12px}
 </style>

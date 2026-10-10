@@ -73,6 +73,22 @@ public class PropertyCodecTests
         var name=FName.FromString(Asset(),text);
         Assert.Equal(value,name.Value.ToString());Assert.Equal(number,name.Number);Assert.Equal(text,name.ToString());
     }
+    [Fact] public void Array_shapes_preserve_element_types_and_struct_fields()
+    {
+        var asset=Asset();
+        var empty=new ArrayPropertyData(new FName(asset,"Ids")){ArrayType=new FName(asset,"IntProperty"),Value=[]};
+        Assert.Equal("IntPropertyData",PropertyCodec.Shape(empty,asset).Element!.Type);
+        var st=new StructPropertyData(new FName(asset,"Item")){StructType=new FName(asset,"SyntheticData"),Value=[new StrPropertyData(new FName(asset,"Text")){Value=new FString("before")},new BoolPropertyData(new FName(asset,"Enabled")){Value=true}]};
+        var array=new ArrayPropertyData(new FName(asset,"Items")){ArrayType=new FName(asset,"StructProperty"),Value=[st]};
+        var shape=PropertyCodec.Shape(array,asset);
+        Assert.Equal("BoolPropertyData",shape.Element!.Fields!["Enabled"].Type);
+        PropertyCodec.Set(array,JsonSerializer.SerializeToElement(new[]{new {Text="edited",Enabled=false},new {Text="added",Enabled=true}}),asset);
+        var imported=asset.DeserializeJsonObject<ArrayPropertyData>(asset.SerializeJsonObject(array));
+        Assert.Equal(JsonSerializer.Serialize(PropertyCodec.Value(array)),JsonSerializer.Serialize(PropertyCodec.Value(imported)));
+        Assert.Equal(2,imported.Value.Length);
+        PropertyCodec.Set(array,JsonSerializer.SerializeToElement(Array.Empty<object>()),asset);
+        Assert.Empty(array.Value);
+    }
     [Fact] public void Numeric_overflow_is_rejected()
     {
         var value=new BytePropertyData(new FName(Asset(),"Byte")){ByteType=BytePropertyType.Byte};

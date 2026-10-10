@@ -114,8 +114,7 @@ const enumOptions = computed(() => {
 // 结构化 Array 判断
 const isStructuredArray = computed(() => {
   if (props.fieldSchema?.type !== 'array' && props.field.type !== 'ArrayPropertyData') return false
-  const itemType = props.fieldSchema?.itemType
-  return itemType === 'number' || itemType === 'string' || itemType === 'boolean'
+  return true
 })
 
 const isTextarea = computed(() => {
@@ -197,9 +196,10 @@ function toggleNull(checked: boolean) {
 
     <!-- 一维简单类型数组（支持 +- 列表项编辑与类型保护） -->
     <array-editor
-      v-else-if="isStructuredArray && fieldSchema?.itemType"
+      v-else-if="isStructuredArray"
       :value="field.value"
-      :item-type="fieldSchema.itemType"
+      :item-type="fieldSchema?.itemType"
+      :shape="field.shape"
       :disabled="field.readOnly || fieldSchema?.readOnly"
       @update:value="field.value = $event"
     />

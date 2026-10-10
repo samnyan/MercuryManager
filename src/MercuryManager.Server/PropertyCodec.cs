@@ -8,6 +8,16 @@ namespace MercuryManager.Server;
 
 public static class PropertyCodec
 {
+    public static PropertyShape Shape(PropertyData p,UAsset asset)
+    {
+        if(p is StructPropertyData st)return new(p.GetType().Name,Fields:st.Value.ToDictionary(f=>f.Name.ToString(),f=>Shape(f,asset)));
+        if(p is ArrayPropertyData a)
+        {
+            var donor=a.Value.FirstOrDefault()??asset.Exports?.OfType<DataTableExport>().SelectMany(t=>t.Table.Data).SelectMany(r=>r.Value).OfType<ArrayPropertyData>().Where(other=>other.Name.ToString()==a.Name.ToString()).SelectMany(other=>other.Value).FirstOrDefault();
+            return new(p.GetType().Name,donor is null?new(a.ArrayType+"Data"):Shape(donor,asset));
+        }
+        return new(p.GetType().Name);
+    }
     public static object? Value(PropertyData p) => p switch
     {
         StrPropertyData s => s.Value?.ToString(),
@@ -77,6 +87,9 @@ public static class PropertyCodec
     private static PropertyData CreateElement(FName type,UAsset? asset,FName name) => type.ToString() switch
     {
         "IntProperty"=>new IntPropertyData(name), "StrProperty"=>new StrPropertyData(name), "BoolProperty"=>new BoolPropertyData(name),
+        "Int8Property"=>new Int8PropertyData(name), "Int16Property"=>new Int16PropertyData(name),
+        "UInt32Property"=>new UInt32PropertyData(name), "Int64Property"=>new Int64PropertyData(name), "UInt64Property"=>new UInt64PropertyData(name),
+        "FloatProperty"=>new FloatPropertyData(name), "ByteProperty"=>new BytePropertyData(name){ByteType=BytePropertyType.Byte},
         _=>throw new ArgumentException("Unsupported empty container element: "+type)
     };
     private static PropertyData CreateArrayElement(ArrayPropertyData array,UAsset? asset)

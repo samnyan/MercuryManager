@@ -62,7 +62,7 @@ public sealed class MessageWorkspaceStore(MusicWorkspaceStore projects)
         }
         foreach(var pair in changes) PropertyCodec.Set(row.Value.SingleOrDefault(p=>p.Name.ToString()==pair.Key) ?? throw new ArgumentException("Unknown field."),pair.Value,asset);
     }
-    private static MusicRow[] Rows(UAsset a) => a.Exports.OfType<DataTableExport>().Single().Table.Data.Select(r=>new MusicRow(r.Name.ToString(),r.Value.Select(p=>new MusicField(p.Name.ToString(),p.GetType().Name,PropertyCodec.Value(p),false)).ToArray())).ToArray();
+    private static MusicRow[] Rows(UAsset a) => a.Exports.OfType<DataTableExport>().Single().Table.Data.Select(r=>new MusicRow(r.Name.ToString(),r.Value.Select(p=>new MusicField(p.Name.ToString(),p.GetType().Name,PropertyCodec.Value(p),false,PropertyCodec.Shape(p,a))).ToArray())).ToArray();
     public MusicRow[] Read(string id,string name)=>Rows(Load(id,name));
     public void Edit(string id,string name,string rowName,Dictionary<string,JsonElement> changes,bool add)
     {

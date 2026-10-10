@@ -99,9 +99,7 @@ function select(key: string) {
   rowName.value = key
   fields.value = row.fields.map(f => ({
     ...f,
-    value: ['ArrayPropertyData', 'MapPropertyData'].includes(f.type)
-      ? JSON.stringify(f.value)
-      : f.value
+    value: f.type === 'MapPropertyData' ? JSON.stringify(f.value) : JSON.parse(JSON.stringify(f.value))
   }))
   editor.value = true
 }
@@ -112,7 +110,7 @@ function add() {
   rowName.value = ''
   fields.value = rows.value[0]!.fields.map(f => ({
     ...f,
-    value: ['ArrayPropertyData', 'MapPropertyData'].includes(f.type)
+    value: f.type === 'ArrayPropertyData' ? [] : f.type === 'MapPropertyData'
       ? '[]'
       : f.type === 'Int64PropertyData' || f.type === 'UInt64PropertyData'
       ? '0'
@@ -135,7 +133,7 @@ async function save() {
     const values = Object.fromEntries(
       fields.value.map(f => [
         f.name,
-        ['ArrayPropertyData', 'MapPropertyData'].includes(f.type)
+        f.type === 'MapPropertyData'
           ? JSON.parse(String(f.value))
           : f.value
       ])
