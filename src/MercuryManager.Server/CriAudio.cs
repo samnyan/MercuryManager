@@ -58,6 +58,11 @@ public static class CriAudio
         var name=cue.Data.OfType<UAssetAPI.PropertyTypes.Objects.StrPropertyData>().Single(p=>p.Name.ToString()=="CueName").Value.ToString();
         return (resolve(package[6..]+".uasset"),name);
     }
+    public static string[] Banks(string path)
+    {
+        var (provider,acb)=OpenAcb(path);using(provider)using(acb)
+            return acb.AtomCueSheetData["StreamAwb"].Select(r=>Convert.ToString(r["Name"])+".awb").ToArray();
+    }
     public static object DescribeSheet(string path)
     {
         var (provider,acb)=OpenAcb(path);using(provider)using(acb)

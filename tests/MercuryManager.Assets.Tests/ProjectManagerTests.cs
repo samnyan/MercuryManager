@@ -6,7 +6,7 @@ namespace MercuryManager.Assets.Tests;
 public sealed class ProjectManagerTests : IDisposable
 {
     private readonly string root=Path.Combine(Path.GetTempPath(),"mercury-project-tests-"+Guid.NewGuid().ToString("N"));
-    private ProjectManager Manager()=>new(new MusicWorkspaceStore(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"workspace-root",root}}).Build()));
+    private ProjectManager Manager()=>new(new MusicWorkspaceStore(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"workspace-root",root}}).Build()),new GameContent());
     private static JsonElement Json(object value)=>JsonSerializer.SerializeToElement(value,new JsonSerializerOptions(JsonSerializerDefaults.Web));
     [Fact] public void NewSaveReopenAndDraftDirty()
     {

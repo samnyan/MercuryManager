@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 namespace MercuryManager.Server;
 
-public sealed class ProjectManager(MusicWorkspaceStore assets)
+public sealed class ProjectManager(MusicWorkspaceStore assets,GameContent content)
 {
     public sealed record Project(string Id, string Name, string? ContentRoot, string? SavedHash = null);
     private string Root => assets.ProjectRoot;
@@ -50,7 +50,7 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
     }
     public string[] ExportBase(string id,string mode,string? output)
     {
-        RequireSaved(id);if(mode=="overwrite")return [];
+        RequireSaved(id);if(mode=="overwrite"){if(GameContent.IsPacked(Read(id).ContentRoot!))throw new InvalidOperationException("PAK projects support directory export only; patch PAK export is not implemented.");return [];}
         if(mode!="directory"||string.IsNullOrWhiteSpace(output)||!Path.IsPathFullyQualified(output))throw new ArgumentException("Absolute output directory required.");
         if(Path.GetFullPath(output)==Read(id).ContentRoot)throw new ArgumentException("Use overwrite mode.");
         var source=Path.Combine(DirectoryFor(id),"working","Imported");var written=new List<string>();
@@ -62,15 +62,14 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
     {
         lock(assets)
         {
-            var p=Read(id);path=Path.GetFullPath(path);if(!Directory.Exists(Path.Combine(path,"Table")))throw new ArgumentException("Select the game Content directory.");
+            var p=Read(id);path=Path.GetFullPath(path);if(!content.Exists(path,"Table/MusicParameterTable.uasset"))throw new ArgumentException("Select the game Content directory.");
             var dir=DirectoryFor(id);var staging=Path.Combine(dir,"import-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(staging);
             try
             {
                 foreach(var folder in new[]{"Table","Message"})
                 {
-                    var source=Path.Combine(path,folder);if(!Directory.Exists(source))continue;
-                    var dest=Path.Combine(staging,"Imported",folder);Directory.CreateDirectory(dest);
-                    foreach(var file in Directory.GetFiles(source).Where(f=>Path.GetExtension(f) is ".uasset" or ".uexp")){MusicWorkspaceStore.RejectLinks(file);File.Copy(file,Path.Combine(dest,Path.GetFileName(file)));}
+                    foreach(var relative in content.Files(path,folder).Where(f=>Path.GetExtension(f) is ".uasset" or ".uexp" or ".ubulk"))
+                        content.Copy(path,relative,Path.Combine(staging,"Imported",relative));
                 }
                 var music=Path.Combine(staging,"Imported","Table","MusicParameterTable.uasset");
                 var asset=new UAssetAPI.UAsset(music,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
@@ -83,5 +82,5 @@ public sealed class ProjectManager(MusicWorkspaceStore assets)
             finally{if(Directory.Exists(staging))Directory.Delete(staging,true);}
         }
     }
-    private static void Copy(string source,string target) {Directory.CreateDirectory(target);foreach(var f in Directory.GetFiles(source)){MusicWorkspaceStore.RejectLinks(f);File.Copy(f,Path.Combine(target,Path.GetFileName(f)));}foreach(var d in Directory.GetDirectories(source)){MusicWorkspaceStore.RejectLinks(d);Copy(d,Path.Combine(target,Path.GetFileName(d)));}}
+    private static void Copy(string source,string target) {Directory.CreateDirectory(target);foreach(var f in Directory.GetFiles(source)){MusicWorkspaceStore.RejectLinks(f);File.Copy(f,Path.Combine(target,Path.GetFileName(f)));}foreach(var d in Directory.GetDirectories(source)){if(Path.GetFileName(d)=="SourceCache")continue;MusicWorkspaceStore.RejectLinks(d);Copy(d,Path.Combine(target,Path.GetFileName(d)));}}
 }

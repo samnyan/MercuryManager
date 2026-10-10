@@ -28,7 +28,7 @@ public sealed class ResourceResolutionTests
             var working=Path.Combine(store.ProjectRoot,id,"working");Directory.CreateDirectory(working);
             File.WriteAllText(Path.Combine(store.ProjectRoot,id,"project-info.json"),"{}");
             File.WriteAllText(Path.Combine(working,"manifest.json"),JsonSerializer.Serialize(new Workspace(id,"ue4.19","","",0,content)));
-            var service=new ResourceService(store);const string path="Sound/Bgm/MER_BGM.awb";
+            var service=new ResourceService(store,new GameContent());const string path="Sound/Bgm/MER_BGM.awb";
             var game=Path.Combine(content,path);Directory.CreateDirectory(Path.GetDirectoryName(game)!);File.WriteAllText(game,"original");
             Assert.Equal(game,service.Resolve(id,path));Assert.Equal(new ResourceService.ResourceSources("game",false,true),service.Sources(id,path));
             var draft=Path.Combine(service.DraftRoot(id),path);Directory.CreateDirectory(Path.GetDirectoryName(draft)!);File.WriteAllText(draft,"edited");

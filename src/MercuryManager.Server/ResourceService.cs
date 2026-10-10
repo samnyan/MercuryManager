@@ -1,5 +1,5 @@
 namespace MercuryManager.Server;
-public sealed class ResourceService(MusicWorkspaceStore assets)
+public sealed class ResourceService(MusicWorkspaceStore assets,GameContent content)
 {
     public string DraftRoot(string id)=>Path.Combine(assets.WorkspaceDirectory(id),"Resources");
     public static string Validate(string relative)
@@ -19,7 +19,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         Validate(path);var draft=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(draft);
         var root=assets.Get(id).ContentRoot;var original=root is null?null:Path.Combine(root,path);
         if(original is not null)MusicWorkspaceStore.RejectLinks(original);
-        bool project=File.Exists(draft),game=original is not null&&File.Exists(original);
+        bool project=File.Exists(draft),game=root is not null&&content.Exists(root,path);
         return new(project?"project":"game",project,game);
     }
     public sealed record AudioResource(string Path,string? CueName,string Relative);
@@ -34,16 +34,23 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
         if(source is not (null or "project" or "game"))throw new ArgumentException("Invalid resource source.");
         Validate(path);var draft=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(draft);
         if(source!="game"&&File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
-        var original=Path.Combine(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path);MusicWorkspaceStore.RejectLinks(original);
-        foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(original,ext));
-        if(!File.Exists(original))throw new FileNotFoundException("Resource missing.");return original;
+        return content.Resolve(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path,Path.Combine(assets.WorkspaceDirectory(id),"SourceCache"));
     }
     public object[] List(string id,string directory)
     {
         if(directory.Length>0)Validate(directory+"/folder.uasset");
-        var roots=new[]{assets.Get(id).ContentRoot!,DraftRoot(id)};var items=new Dictionary<string,bool>(StringComparer.Ordinal);
-        foreach(var root in roots){var dir=Path.Combine(root,directory);MusicWorkspaceStore.RejectLinks(dir);if(!Directory.Exists(dir))continue;
-        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)||entry.EndsWith(".awb",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');items[relative]=folder;}}}
+        var draftRoot=DraftRoot(id);var items=new Dictionary<string,bool>(StringComparer.Ordinal);
+        foreach(var root in new[]{assets.Get(id).ContentRoot!,draftRoot}){var dir=Path.Combine(root,directory);MusicWorkspaceStore.RejectLinks(dir);if(!Directory.Exists(dir))continue;
+        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)||entry.EndsWith(".awb",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');if(root==draftRoot)items[relative]=folder;else items.TryAdd(relative,folder);}}}
+        var prefix=directory.Length==0?"":directory+"/";
+        var originalRoot=assets.Get(id).ContentRoot!;
+        if(GameContent.IsPacked(originalRoot))foreach(var relative in content.Files(originalRoot,directory))
+        {
+            if(!relative.StartsWith(prefix,StringComparison.Ordinal))continue;
+            var rest=relative[prefix.Length..];var slash=rest.IndexOf('/');
+            if(slash>=0)items.TryAdd(prefix+rest[..slash],true);
+            else if(relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.EndsWith(".awb",StringComparison.Ordinal))items.TryAdd(relative,false);
+        }
         return items.OrderByDescending(x=>x.Value).ThenBy(x=>x.Key,StringComparer.Ordinal).Select(x=>(object)new{path=x.Key,name=Path.GetFileName(x.Key),directory=x.Value}).ToArray();
     }
     public object ImportJson(string id,string path,string json)
@@ -94,7 +101,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets)
     {
         lock(assets){Validate(target);if(!target.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Texture output must be uasset.");if(!target.StartsWith("UI/Textures/",StringComparison.Ordinal))throw new ArgumentException("Output must be under UI/Textures/.");if(image.Length>16*1024*1024)throw new ArgumentException("Upload too large.");
         var source=Resolve(id,template);var root=DraftRoot(id);var dest=Path.Combine(root,target);MusicWorkspaceStore.RejectLinks(dest);
-        if(new[]{".uasset",".uexp",".ubulk"}.Any(ext=>File.Exists(Path.ChangeExtension(dest,ext))||File.Exists(Path.ChangeExtension(Path.Combine(assets.Get(id).ContentRoot!,target),ext))))throw new IOException("Target already exists; choose a new resource path.");
+        if(new[]{".uasset",".uexp",".ubulk"}.Any(ext=>File.Exists(Path.ChangeExtension(dest,ext))||content.Exists(assets.Get(id).ContentRoot!,Path.ChangeExtension(target,ext))))throw new IOException("Target already exists; choose a new resource path.");
         var staging=Path.Combine(assets.WorkspaceDirectory(id),"texture-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(staging);
         try{var output=Path.Combine(staging,Path.GetFileName(target));TextureAuthoring.Build(source,image,target,output);Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         var created=new List<string>();try{foreach(var file in Directory.GetFiles(staging)){var targetFile=Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(file));MusicWorkspaceStore.RejectLinks(targetFile);File.Copy(file,targetFile,false);created.Add(targetFile);}}catch{foreach(var file in created)File.Delete(file);throw;}

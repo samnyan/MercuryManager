@@ -7,7 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace MercuryManager.Server;
 
-public sealed class TexturePreviewService(MusicWorkspaceStore projects) : IDisposable
+public sealed class TexturePreviewService(ResourceService resources) : IDisposable
 {
     private readonly MemoryCache cache = new(new MemoryCacheOptions { SizeLimit = 32 * 1024 * 1024 });
     private readonly object gate = new();
@@ -25,12 +25,9 @@ public sealed class TexturePreviewService(MusicWorkspaceStore projects) : IDispo
     public byte[] Load(string id,string table,string field,string value)
     {
         var relative=ResolveRelativePath(table,field,value);
-        var root=projects.Get(id).ContentRoot ?? throw new InvalidOperationException("Import game tables first.");
-        var draft=Path.Combine(projects.WorkspaceDirectory(id),"Resources",relative);MusicWorkspaceStore.RejectLinks(draft);
-        var path=File.Exists(draft)?draft:Path.Combine(root,relative);MusicWorkspaceStore.RejectLinks(path);
-        // Monitor references omit the three-digit expression index; preview its first frame only.
-        if(!File.Exists(path)&&table=="NavigateCharacterTable"&&field=="MonitorTextureName"){path=Path.Combine(root,relative[..^7]+"000.uasset");MusicWorkspaceStore.RejectLinks(path);}
-        if(!File.Exists(path))throw new FileNotFoundException("Texture not found.");
+        string path;
+        try{path=resources.Resolve(id,relative);}
+        catch(FileNotFoundException)when(table=="NavigateCharacterTable"&&field=="MonitorTextureName"){path=resources.Resolve(id,relative[..^7]+"000.uasset");}
         var stamps=new List<string>();
         foreach(var ext in new[]{".uasset",".uexp",".ubulk"})
         {

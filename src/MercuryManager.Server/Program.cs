@@ -7,6 +7,7 @@ builder.WebHost.UseUrls(startup.ListenUrl);
 builder.WebHost.ConfigureKestrel(options=>options.Limits.MaxRequestBodySize=360L*1024*1024);
 builder.Services.AddSingleton<MusicWorkspaceStore>();
 builder.Services.AddSingleton<MessageWorkspaceStore>();
+builder.Services.AddSingleton<GameContent>();
 builder.Services.AddSingleton<ProjectManager>();
 builder.Services.AddSingleton<TexturePreviewService>();
 builder.Services.AddSingleton<ResourceService>();
@@ -47,7 +48,7 @@ app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,Resource
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
-app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:AudioBanks.List(target.Path);});
+app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:CriAudio.Banks(target.Path);});
 app.MapGet("/api/projects/{id}/audio-wave-info",(string id,string path,string? source,string bank,ushort waveId,ResourceService r)=>{AudioBanks.ValidateName(bank);var target=r.AudioTarget(id,path,source);return CueMetadataEditor.Inspect(r.Resolve(id,ResourceService.Sibling(target.Relative,bank),source),waveId);});
 app.MapGet("/api/projects/{id}/audio-metadata",(string id,string path,string? source,int cueId,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return CueMetadataEditor.Describe(target.Path,cueId);});
 app.MapGet("/api/projects/{id}/audio-extension",(string id,string path,string? source,string bank,ushort waveId,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return WaveformExtensions.Describe(target.Path,bank,waveId);});
