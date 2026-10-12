@@ -47,7 +47,8 @@ export function computeTreeLayout(nodes: UMGNode[], rootNodeId: string, viewport
       }
     }
     if (n.preview.layout === 'unsupported') issues.push('Unsupported layout; outline is allocated space, not a reconstructed widget.')
-    if (n.visual.RenderTransform) issues.push('RenderTransform is not applied; bounds are layout-only.')
+    if (n.visual.RenderTransform?.Shear) issues.push('Shear is not supported; preview applies translation, scale and rotation only.')
+    if (n.visual.RenderTransform && !n.visual.RenderTransformPivot) issues.push('Unknown pivot; preview uses the center.')
     result.set(n.id, { rect, visible, collapsed, issues })
     if (collapsed) return
     const supportedContainers = ['CanvasPanel','Overlay','Border','SizeBox','HorizontalBox','VerticalBox']

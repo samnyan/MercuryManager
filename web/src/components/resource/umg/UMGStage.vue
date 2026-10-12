@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { NButton, NSelect } from 'naive-ui'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject } from '../../../project'
+import { computeRenderTransforms, elementMatrix, polygon } from './transforms'
 
 const props = defineProps<{
   nodes: UMGNode[]
@@ -46,9 +47,11 @@ const renderedNodes = computed(() => {
     }))
 })
 
-const selectedRect = computed(() => {
-  if (!props.selectedId) return null
-  return props.layouts.get(props.selectedId)?.rect || null
+const transforms = computed(() => computeRenderTransforms(props.nodes, props.layouts, props.layouts.keys().next().value ?? ''))
+const selectedPolygon = computed(() => {
+  const layout = props.selectedId ? props.layouts.get(props.selectedId) : null
+  const matrix = props.selectedId ? transforms.value.get(props.selectedId) : null
+  return layout && matrix ? polygon(matrix, layout.rect) : null
 })
 
 function effectiveOpacity(node: UMGNode) {
@@ -101,8 +104,10 @@ function getImageUrl(node: UMGNode) {
             'is-hidden': !layout.visible
           }"
           :style="{
-            left: `${layout.rect.x}px`,
-            top: `${layout.rect.y}px`,
+            left: '0px',
+            top: '0px',
+            transformOrigin: '0 0',
+            transform: elementMatrix(transforms.get(node.id) ?? [1,0,0,1,0,0], layout.rect.x, layout.rect.y),
             width: `${layout.rect.width}px`,
             height: `${layout.rect.height}px`,
             opacity: viewMode === 'structure' ? 1 : effectiveOpacity(node),
@@ -130,12 +135,9 @@ function getImageUrl(node: UMGNode) {
           :width="viewport.width"
           :height="viewport.height"
         >
-          <rect
-            v-if="selectedRect"
-            :x="selectedRect.x"
-            :y="selectedRect.y"
-            :width="selectedRect.width"
-            :height="selectedRect.height"
+          <polygon
+            v-if="selectedPolygon"
+            :points="selectedPolygon"
             fill="none"
             stroke="#2080f0"
             stroke-width="3"
