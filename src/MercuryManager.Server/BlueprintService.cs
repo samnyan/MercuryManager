@@ -15,11 +15,12 @@ public sealed class BlueprintService
     private string? cachedPath;
     private string? stamp;
     private UAsset? cached;
+    private UMGDocument? cachedModel;
     private UAsset Load(string path)
     {
         var files=new[]{path,Path.ChangeExtension(path,".uexp"),Path.ChangeExtension(path,".ubulk")};
         var signature=string.Join("|",files.Select(p=>File.Exists(p)?$"{new FileInfo(p).Length}:{File.GetLastWriteTimeUtc(p).Ticks}":"missing"));
-        if(cachedPath!=path||stamp!=signature){cached=null;cachedPath=null;var asset=new UAsset(path,EngineVersion.VER_UE4_19);cached=asset;cachedPath=path;stamp=signature;}
+        if(cachedPath!=path||stamp!=signature){cached=null;cachedModel=null;cachedPath=null;var asset=new UAsset(path,EngineVersion.VER_UE4_19);cached=asset;cachedPath=path;stamp=signature;}
         return cached!;
     }
     private static int ObjectIndex(NormalExport e,string name)=>e.Data.OfType<ObjectPropertyData>().FirstOrDefault(p=>p.Name.ToString()==name)?.Value.Index??0;
@@ -91,6 +92,16 @@ public sealed class BlueprintService
         }
         msInfo["widgetBindings"]=bindings;
         return msInfo;
+    }
+    public UMGDocument UMG(string path,string assetPath)
+    {
+        lock(gate)
+        {
+            var asset=Load(path);
+            var revision=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(path+"|"+stamp)));
+            if(cachedModel==null||cachedModel.AssetPath!=assetPath)cachedModel=UMGModelBuilder.Build(asset,assetPath,revision);
+            return cachedModel;
+        }
     }
     public object Read(string path)
     {
