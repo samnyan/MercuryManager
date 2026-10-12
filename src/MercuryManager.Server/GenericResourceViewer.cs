@@ -258,6 +258,52 @@ public static class GenericResourceViewer
                 data["MaterialError"]=ex.Message;
             }
         }
+        var mpcExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="MaterialParameterCollection");
+        if(mpcExport is not null)
+        {
+            try
+            {
+                var scalarParams=new JArray();
+                var vectorParams=new JArray();
+
+                if(mpcExport.Data.FirstOrDefault(p=>p.Name.ToString()=="ScalarParameters") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData sArray)
+                {
+                    foreach(var item in sArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                    {
+                        var pName=item.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterName")?.RawValue?.ToString();
+                        var defVal=(item.Value.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0f;
+                        var idVal=item.Value.FirstOrDefault(p=>p.Name.ToString()=="Id")?.RawValue?.ToString();
+                        scalarParams.Add(new JObject{["ParameterName"]=pName??"Unnamed",["DefaultValue"]=defVal,["Id"]=idVal});
+                    }
+                }
+
+                if(mpcExport.Data.FirstOrDefault(p=>p.Name.ToString()=="VectorParameters") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData vArray)
+                {
+                    foreach(var item in vArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                    {
+                        var pName=item.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterName")?.RawValue?.ToString();
+                        var idVal=item.Value.FirstOrDefault(p=>p.Name.ToString()=="Id")?.RawValue?.ToString();
+                        float r=0,g=0,b=0,a=1;
+                        if(item.Value.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Structs.StructPropertyData colStruct && colStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.LinearColorPropertyData linCol)
+                        {
+                            r=linCol.Value.R;g=linCol.Value.G;b=linCol.Value.B;a=linCol.Value.A;
+                        }
+                        vectorParams.Add(new JObject{["ParameterName"]=pName??"Unnamed",["R"]=r,["G"]=g,["B"]=b,["A"]=a,["Id"]=idVal});
+                    }
+                }
+
+                data["MpcInfo"]=new JObject
+                {
+                    ["Name"]=mpcExport.ObjectName.ToString(),
+                    ["ScalarParameters"]=scalarParams,
+                    ["VectorParameters"]=vectorParams
+                };
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                data["MpcError"]=ex.Message;
+            }
+        }
         if(asset.Exports.Any(e=>e.GetExportClassType().ToString()=="SoundAtomCueSheet"))
         {
             try

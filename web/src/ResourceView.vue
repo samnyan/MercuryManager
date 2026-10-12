@@ -11,6 +11,7 @@ import GenericResourceViewer from './components/resource/GenericResourceViewer.v
 import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
 import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
+import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -36,6 +37,7 @@ const blueprint = ref<any>()
 watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){const request=generation;busy.value=true;try{const result=await api<{data:any}>(`/projects/${project.id}/resource-data?`+new URLSearchParams({path:path.value}));if(request===generation)data.value=result.data}catch(e){if(request===generation)error.value=String(e)}finally{if(request===generation)busy.value=false}}})
 const isMaterialInstance = ref(false)
 const isMaterial = ref(false)
+const isMpc = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
 const showTexModal = ref(false)
@@ -186,6 +188,7 @@ watch(
     blueprint.value = undefined
     isMaterialInstance.value = false
     isMaterial.value = false
+    isMpc.value = false
     selectedMip.value = 0
     mipCount.value = 1
     mode.value = 'generic'
@@ -214,6 +217,11 @@ watch(
       isTexture.value = result.isTexture
       isMaterialInstance.value = !!result.data?.MaterialInstanceInfo
       isMaterial.value = !!result.data?.MaterialInfo
+      isMpc.value = !!result.data?.MpcInfo
+
+      if (isMpc.value) {
+        mode.value = 'mpc'
+      }
 
       if (isMaterial.value) {
         mode.value = 'material'
@@ -341,8 +349,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMpc || isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
+      <n-tab v-if="isMpc" name="mpc">材质参数集 (MPC)</n-tab>
       <n-tab v-if="isMaterial" name="material">材质属性 (Material)</n-tab>
       <n-tab v-if="isMaterialInstance" name="sprite">Sprite 预览</n-tab>
       <n-tab v-if="isTexture" name="texture">
@@ -364,6 +373,11 @@ onBeforeUnmount(() => {
         <div v-if="error" class="error-banner">{{ error }}</div>
 
         <blueprint-viewer v-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
+        <mpc-resource-viewer
+          v-if="data?.MpcInfo && mode === 'mpc'"
+          :info="data.MpcInfo"
+          :path="path"
+        />
         <material-resource-viewer
           v-if="data?.MaterialInfo && mode === 'material'"
           :info="data.MaterialInfo"
