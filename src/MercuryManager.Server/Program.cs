@@ -51,7 +51,30 @@ app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,st
 app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,ResourceService r)=>r.Sources(id,path));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
 app.MapGet("/api/projects/{id}/resource-font",(string id,string path,ResourceService r,BlueprintService b)=>b.Font(r.Resolve(id,path)));
-app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>UMGDependencyBuilder.Expand(b.UMG(r.Resolve(id,path),path),dependency=>b.UMG(r.Resolve(id,dependency),dependency)));
+app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>
+{
+    var doc = UMGDependencyBuilder.Expand(b.UMG(r.Resolve(id,path),path),dependency=>b.UMG(r.Resolve(id,dependency),dependency));
+    var matPaths = doc.Nodes.SelectMany(n => n.Resources)
+        .Where(res => res.ClassName is "Material" or "MaterialInstanceConstant" or "MaterialInstance")
+        .Select(res => res.AssetPath)
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+    var matDict = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.OrdinalIgnoreCase);
+    foreach (var mp in matPaths)
+    {
+        try
+        {
+            var resolved = r.Resolve(id, mp);
+            var mData = GenericResourceViewer.ReadMaterialData(resolved, p => r.Resolve(id, p));
+            if (mData != null)
+            {
+                var elem = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(mData.ToString(Newtonsoft.Json.Formatting.None));
+                matDict[mp] = elem;
+            }
+        }
+        catch {}
+    }
+    return doc with { Materials = matDict };
+});
 app.MapGet("/api/projects/{id}/resource-blueprint",(string id,string path,ResourceService r,BlueprintService b)=>b.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-blueprint-node",(string id,string path,int index,ResourceService r,BlueprintService b)=>b.Node(r.Resolve(id,path),index));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p)));
@@ -76,6 +99,7 @@ app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,R
 app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
 app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
 app.MapPost("/api/projects/{id}/resource-material-params",(string id,string path,SaveMaterialParamsRequest request,ResourceService r)=>r.SaveMaterialParams(id,path,request));
+app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
 app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path),mip),"image/png"));
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));

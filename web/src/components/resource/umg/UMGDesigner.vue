@@ -177,6 +177,7 @@ const selectedLayout = computed(() => {
       <UMGStage
         :nodes="doc.nodes"
         :layouts="layouts"
+        :materials="doc.materials"
         :selected-id="selectedNodeId"
         :hidden-ids="hiddenIds"
         :viewport="viewport"
@@ -187,8 +188,11 @@ const selectedLayout = computed(() => {
       <UMGInspector
         :node="selectedNode"
         :layout="selectedLayout"
+        :materials="doc.materials"
+        :asset-path="path"
         @navigate-path="p => emit('navigate-path', p)"
         @preview-texture="p => (previewPath = p)"
+        @node-updated="loadDocument"
       />
     </div>
 

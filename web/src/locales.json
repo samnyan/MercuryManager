@@ -328,7 +328,19 @@
       "invalidApiResult": "服务器响应格式不符合 ApiResult，请刷新页面或检查服务版本",
       "dialogOpenNewTab": "在新标签页中打开",
       "resourceDialogTitle": "资源资产查看器",
-      "close": "关闭"
+      "close": "关闭",
+      "umgPropTransform": "变换与锚点 (RenderTransform)",
+      "umgPropBrush": "笔刷与图像 (Brush / Style)",
+      "umgPropColor": "颜色与不透明度 (Color & Opacity)",
+      "umgPropFont": "字体与排版 (Font & Text)",
+      "umgPropSlot": "布局槽位参数 (Slot Layout)",
+      "umgVisibilityVisible": "显示 (Visible)",
+      "umgVisibilityCollapsed": "折叠隐藏 (Collapsed)",
+      "umgVisibilityHidden": "隐藏占位 (Hidden)",
+      "umgVisibilityHitTestInvisible": "穿透不可点 (HitTestInvisible)",
+      "umgVisibilitySelfHitTestInvisible": "仅自身穿透 (SelfHitTestInvisible)",
+      "umgSaveProps": "保存控件属性到草稿",
+      "umgPropsSaved": "控件属性已保存到工程草稿 ✓"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -1236,7 +1248,19 @@
       "invalidApiResult": "Server response does not match ApiResult format. Refresh or check server version.",
       "dialogOpenNewTab": "Open in New Tab",
       "resourceDialogTitle": "Resource Asset Viewer",
-      "close": "Close"
+      "close": "Close",
+      "umgPropTransform": "Transform & Anchor (RenderTransform)",
+      "umgPropBrush": "Brush & Image Style",
+      "umgPropColor": "Color & Opacity",
+      "umgPropFont": "Font & Text Layout",
+      "umgPropSlot": "Slot Layout Parameters",
+      "umgVisibilityVisible": "Visible",
+      "umgVisibilityCollapsed": "Collapsed",
+      "umgVisibilityHidden": "Hidden",
+      "umgVisibilityHitTestInvisible": "HitTestInvisible",
+      "umgVisibilitySelfHitTestInvisible": "SelfHitTestInvisible",
+      "umgSaveProps": "Save Widget Properties to Draft",
+      "umgPropsSaved": "Widget properties saved to project draft ✓"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",

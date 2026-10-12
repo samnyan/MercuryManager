@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { NInput, NTree, NSelect, NTag, NButton, type TreeOption } from 'naive-ui'
 import type { UMGNode, UMGTreeRoot } from './types'
 
@@ -143,6 +143,17 @@ watch(search, q => {
   expandedKeys.value = Array.from(toExpand)
 })
 
+function renderLabel({ option }: { option: TreeOption }) {
+  const n = option.rawNode as UMGNode | undefined
+  const isHidden = n ? props.hiddenIds.has(n.id) : false
+  const isChild = !!n?.childWidget
+  return h('div', { class: ['tree-node-row', isHidden ? 'is-node-hidden' : ''] }, [
+    h('span', { class: 'node-label-name' }, option.label as string),
+    isChild ? h(NTag, { size: 'tiny', type: 'info', bordered: false, style: 'margin-left: 4px;' }, { default: () => 'Sub' }) : null,
+    isHidden ? h(NTag, { size: 'tiny', type: 'warning', bordered: false, style: 'margin-left: 4px;' }, { default: () => '隐藏' }) : null
+  ])
+}
+
 function handleSelectKeys(keys: Array<string | number>) {
   if (keys.length > 0) {
     emit('select-node', String(keys[0]))
@@ -187,6 +198,7 @@ function handleSelectKeys(keys: Array<string | number>) {
         cascade
         show-line
         :data="treeData"
+        :render-label="renderLabel"
         :pattern="search"
         :filter="(pattern, option) => String(option.label ?? '').toLowerCase().includes(pattern.toLowerCase())"
         :selected-keys="selectedId ? [selectedId] : []"
@@ -234,6 +246,18 @@ function handleSelectKeys(keys: Array<string | number>) {
   flex: 1;
   overflow-y: auto;
   padding: 6px;
+}
+.tree-node-row {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+}
+.tree-node-row.is-node-hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.node-label-name {
+  word-break: break-all;
 }
 /* 叶子节点隐藏展开图标，但保留 switcher 的宽度占位，维持原有的缩进层级 */
 .hierarchy-body :deep(.n-tree-node-switcher--hide) {

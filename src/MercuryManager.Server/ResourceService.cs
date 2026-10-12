@@ -252,7 +252,67 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         FileTransaction.Copy(files,backup);written.AddRange(files.Select(f=>f.Destination));
         return written.ToArray();}
     }
+    public object SaveWidgetProperty(string id,string path,SaveWidgetPropertyRequest request)
+    {
+        lock(assets)
+        {
+            Validate(path);
+            if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Only .uasset files are supported.");
+            var source=Resolve(id,path);var dest=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(dest);
+            var stage=Path.Combine(assets.WorkspaceDirectory(id),"umg-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+            try
+            {
+                var asset=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+                if(request.ExportIndex<0||request.ExportIndex>=asset.Exports.Count)
+                    throw new ArgumentException($"ExportIndex {request.ExportIndex} is out of bounds.");
+                if(asset.Exports[request.ExportIndex] is not UAssetAPI.ExportTypes.NormalExport normal)
+                    throw new ArgumentException($"Export #{request.ExportIndex} is not a NormalExport.");
+
+                if(!string.IsNullOrEmpty(request.Visibility))
+                {
+                    var visProp=normal.Data.OfType<UAssetAPI.PropertyTypes.Objects.BytePropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Visibility");
+                    var visName=request.Visibility.StartsWith("ESlateVisibility::",StringComparison.Ordinal)?request.Visibility:("ESlateVisibility::"+request.Visibility);
+                    if(visProp!=null)
+                    {
+                        visProp.EnumValue=new UAssetAPI.UnrealTypes.FName(asset,visName);
+                    }
+                    else
+                    {
+                        var newByte=new UAssetAPI.PropertyTypes.Objects.BytePropertyData(new UAssetAPI.UnrealTypes.FName(asset,"Visibility"));
+                        newByte.ByteType=UAssetAPI.PropertyTypes.Objects.BytePropertyType.FName;
+                        newByte.EnumType=new UAssetAPI.UnrealTypes.FName(asset,"ESlateVisibility");
+                        newByte.EnumValue=new UAssetAPI.UnrealTypes.FName(asset,visName);
+                        normal.Data.Add(newByte);
+                    }
+                }
+
+                if(request.RenderOpacity.HasValue)
+                {
+                    var opProp=normal.Data.OfType<UAssetAPI.PropertyTypes.Objects.FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="RenderOpacity");
+                    if(opProp!=null)
+                    {
+                        opProp.Value=(float)request.RenderOpacity.Value;
+                    }
+                    else
+                    {
+                        var newOp=new UAssetAPI.PropertyTypes.Objects.FloatPropertyData(new UAssetAPI.UnrealTypes.FName(asset,"RenderOpacity"));
+                        newOp.Value=(float)request.RenderOpacity.Value;
+                        normal.Data.Add(newOp);
+                    }
+                }
+
+                var output=Path.Combine(stage,Path.GetFileName(path));
+                asset.Write(output);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                var files=Directory.GetFiles(stage).Select(f=>(Source:f,Destination:Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(f)))).ToArray();
+                FileTransaction.Copy(files,false);
+                return new{path,exportIndex=request.ExportIndex,verified=true,sources=Sources(id,path)};
+            }
+            finally{Directory.Delete(stage,true);}
+        }
+    }
 }
+public sealed record SaveWidgetPropertyRequest(int ExportIndex,string? Visibility=null,double? RenderOpacity=null);
 public sealed record CueEditRequest(string Operation,string Bank,int CueId,int TemplateId=88,string? Name=null,string? SpeakerBase64=null,string? HeadphoneBase64=null);
 public sealed record ReplaceAudioRequest(string Bank,ushort WaveId,string HcaBase64);
 public sealed record BuildTextureRequest(string Template,string Target,string ImageBase64);
