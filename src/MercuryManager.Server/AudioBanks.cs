@@ -34,7 +34,8 @@ public static class AudioBanks
     }
     public static byte[] Header(string path,int count)
     {
-        var bytes=new byte[checked(16+count*2+(count+1)*4+2)];using var f=File.OpenRead(path);f.ReadExactly(bytes.AsSpan(0,bytes.Length-2));return bytes;
+        var layout=AwbIndex.Read(path);if(layout.Entries.Count!=count)throw new InvalidDataException("AWB entry count differs from requested header.");
+        return layout.CacheHeader;
     }
     public static void Create(string donor,string destination)
     {

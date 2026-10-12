@@ -21,6 +21,10 @@ dotnet run --project src/MercuryManager.Server --no-launch-profile
 
 Once the server is listening, it automatically opens your default browser at http://127.0.0.1:5087.
 
+## Audio inspection and repair
+
+The audio editor includes **Inspect / repair**, with fast table/index checks, optional HCA CRC/decode checks, managed stream-work capacity, and selected draft-only repairs. Normal audio writing automatically maintains CueName ordering, stream slot/port mapping, work capacity and paired AWB indexes. Passing inspection is not a guarantee of in-game playback. See [workflow and API](docs/audio-inspection.md).
+
 ## Startup options
 
 ```sh

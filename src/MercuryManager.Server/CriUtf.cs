@@ -11,6 +11,7 @@ public sealed class CriUtf
     public List<Dictionary<string,byte[]>> Rows{get;}=[];
     private byte[] strings=[],data=[];
     private ushort version;
+    private int dataStartOffset;
     static int Width(byte type)=>type switch{0 or 1=>1,2 or 3=>2,4 or 5 or 8 or 10=>4,6 or 7 or 9 or 11=>8,12=>16,_=>throw new InvalidDataException("Unsupported UTF column type.")};
     public static CriUtf Read(byte[] bytes)
     {
@@ -19,7 +20,7 @@ public sealed class CriUtf
         ushort U16(int p)=>BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(p,2));
         int size=checked((int)U32(4)+8),rowsOffset=U16(10)+8,str=checked((int)U32(12)+8),blob=checked((int)U32(16)+8);
         if(size>bytes.Length||rowsOffset<32||str<rowsOffset||blob<str||blob>size)throw new InvalidDataException("Invalid UTF offsets.");
-        var table=new CriUtf{version=U16(8),strings=bytes[str..blob],data=bytes[blob..size]};
+        var table=new CriUtf{version=U16(8),strings=bytes[str..blob],data=bytes[blob..size],dataStartOffset=blob};
         string Text(uint offset){if(offset>=table.strings.Length)throw new InvalidDataException("Invalid UTF string.");int end=Array.IndexOf(table.strings,(byte)0,(int)offset);if(end<0)throw new InvalidDataException("Unterminated string.");return Encoding.UTF8.GetString(table.strings,(int)offset,end-(int)offset);}
         table.Name=Text(U32(20));int pos=32,rowWidth=U16(26),rowCount=checked((int)U32(28));
         if((long)rowsOffset+(long)rowWidth*rowCount>str)throw new InvalidDataException("Invalid UTF rows.");
@@ -32,6 +33,18 @@ public sealed class CriUtf
         return table;
     }
     public byte[] Blob(int row,string column){var v=Rows[row][column];int offset=checked((int)BinaryPrimitives.ReadUInt32BigEndian(v)),length=checked((int)BinaryPrimitives.ReadUInt32BigEndian(v.AsSpan(4)));return data.AsSpan(offset,length).ToArray();}
+    public int BlobOffset(int row,string column)
+    {
+        return checked(dataStartOffset+(int)BinaryPrimitives.ReadUInt32BigEndian(Rows[row][column]));
+    }
+    public string Text(int row,string column)
+    {
+        var c=Columns.Single(c=>c.Name==column);if(c.Type!=10)throw new InvalidDataException("Not a string column.");
+        int offset=checked((int)BinaryPrimitives.ReadUInt32BigEndian(Rows[row][column]));
+        if(offset<0||offset>=strings.Length)throw new InvalidDataException("Invalid UTF string offset.");
+        int end=Array.IndexOf(strings,(byte)0,offset);if(end<0)throw new InvalidDataException("Unterminated UTF string.");
+        return new UTF8Encoding(false,true).GetString(strings,offset,end-offset);
+    }
     public void SetBlob(int row,string column,byte[] value)
     {
         var c=Columns.Single(c=>c.Name==column);if(c.Type!=11)throw new InvalidDataException("Not a blob column.");
@@ -56,6 +69,7 @@ public sealed class CriUtf
         int rowsOffset=checked((int)stream.Position),rowWidth=Columns.Where(c=>(c.Flags&0x40)!=0).Sum(c=>Width(c.Type));
         foreach(var row in Rows)foreach(var c in Columns.Where(c=>(c.Flags&0x40)!=0)){var value=row[c.Name];if(value.Length!=Width(c.Type))throw new InvalidDataException("Invalid cell width.");writer.Write(value);}
         uint str=(uint)stream.Position;writer.Write(strings);uint blob=(uint)stream.Position;writer.Write(data);uint size=(uint)stream.Length;
+        dataStartOffset=checked((int)blob);
         stream.Position=0;writer.Write("@UTF"u8);U32(size-8);U16(version);U16(rowsOffset-8);U32(str-8);U32(blob-8);U32(nameOffset);U16(Columns.Count);U16(rowWidth);U32((uint)Rows.Count);return stream.ToArray();
     }
 }

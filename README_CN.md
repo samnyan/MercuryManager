@@ -21,6 +21,10 @@ dotnet run --project src/MercuryManager.Server --no-launch-profile
 
 启动成功后会自动打开默认浏览器，默认地址为 http://127.0.0.1:5087。
 
+## 音频检查与修复
+
+音频编辑器提供“检查与修复”：快速检查表和索引，按需检查 HCA CRC / 解码，管理 stream 工作区容量，并将勾选的修复写入项目草稿。正常音频写出会自动维护 CueName 排序、bank slot / Waveform port 对应关系、工作区容量及配对 AWB 缓存索引。检查通过不等于已验证实机出声。参见[操作与 API 说明](docs/audio-inspection.md)。
+
 ## 启动选项
 
 ```sh

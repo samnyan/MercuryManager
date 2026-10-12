@@ -8,6 +8,7 @@ import {api,useProject} from '../../project'
 import {tr} from '../../i18n'
 import AudioTrackUpload from './AudioTrackUpload.vue'
 import AudioDetailsDialog from './AudioDetailsDialog.vue'
+import AudioInspectionDialog from './AudioInspectionDialog.vue'
 import VoiceMatchesPopover from './VoiceMatchesPopover.vue'
 const detailShow=ref(false),detailData=ref<unknown>()
 async function showDetails(row:AudioRow){detailData.value={cue:row.cue.name,track:row.track,loading:true};detailShow.value=true;try{const audio=await api<unknown>(`/projects/${project.id}/resource-audio-details?`+new URLSearchParams({path:props.path,source:source.value,index:String(row.cue.index),part:String(row.part)}));detailData.value={cue:row.cue.name,track:row.track,audio}}catch(e){detailData.value={track:row.track,error:String(e)}}}
@@ -65,6 +66,7 @@ async function apply(){if(busy.value||!pending.value.length)return;stop();progre
 function selectionChanged(e:any){selectedCues.value=[...new Map<number,Cue>(e.api.getSelectedRows().map((r:AudioRow)=>[r.cue.cueId,r.cue] as [number,Cue])).values()]}
 
 let generation=0
+async function repaired(){await project.status();project.revision++;source.value='project';await load(false)}
 function stop(){player.value?.pause();src.value='';player.value?.removeAttribute('src');player.value?.load()}
 async function load(resetSource=true){const g=++generation;stop();selectedCues.value=[];cues.value=[];bankNames.value=[];error.value='';sourceReady.value=false;try{const available=await api<{selected:ResourceSource;project:boolean;game:boolean}>(`/projects/${project.id}/resource-sources?`+new URLSearchParams({path:props.path}));if(g!==generation)return;sources.value=available;if(resetSource)source.value='project';sourceReady.value=true;const names=await api<string[]>(`/projects/${project.id}/audio-banks?`+new URLSearchParams({path:props.path,source:source.value}));if(g===generation)bankNames.value=names;const result=await api<Cue[]>(`/projects/${project.id}/resource-cues?`+new URLSearchParams({path:props.path,source:source.value}));if(g===generation)cues.value=result}catch(e){if(g===generation)error.value=String(e)}}
 watch(()=>[props.path,project.id],()=>load(),{immediate:true})
@@ -97,6 +99,7 @@ onBeforeUnmount(()=>{generation++;stop();events?.close()})
 
 <div class="audio-toolbar view-header-fixed">
 <div v-if="path.endsWith('.uasset')" class="audio-actions"><n-dropdown v-if="sourceReady" :options="sourceOptions" trigger="click" :disabled="busy || !!pending.length || !(sources.project && sources.game)" @select="switchSource"><n-tag v-if="sourceReady" size="small" :type="source==='project'?'warning':'info'" :class="{'audio-source-switch':sources.project && sources.game}">{{sourceLabel}}<span v-if="sources.project && sources.game"> ▾</span></n-tag></n-dropdown><n-button size="small" :disabled="busy" @click="bankDonor=banks[0]?.value || '';bankName='';bankDialog=true">{{tr('ui.audioCreateBank')}}</n-button><n-button size="small" :disabled="busy" @click="openAdd">{{tr('ui.audioAddCue')}}</n-button><n-button size="small" :disabled="busy" @click="batchMode=!batchMode">{{tr('ui.audioBatch')}} {{batchMode?'‹':'›'}}</n-button><n-button size="small" v-if="batchMode" type="error" :disabled="busy || !selectedCues.length" @click="deleteCue">{{tr('ui.audioDeleteCue')}}</n-button><n-tag size="small">{{tr('ui.audioPending')}}: {{pending.length}}</n-tag><n-button size="small" type="primary" :disabled="busy || !pending.length" @click="applyDialog=true">{{tr('ui.audioApply')}}</n-button></div>
+<audio-inspection-dialog :path="path" :source="source" :disabled="busy || !!pending.length" @working="busy=$event" @repaired="repaired" />
 <div class="audio-player"><span>{{selected}}</span><audio ref="player" :src="src || undefined" controls preload="none" @error="error=tr('ui.audioFailed')" /></div></div>
 <n-modal v-model:show="bankDialog"><n-card :title="tr('ui.audioCreateBank')" style="width:min(600px,95vw)" :bordered="false">
 <n-form-item :label="tr('ui.audioBankFormat')"><n-select v-model:value="bankDonor" :options="banks" /></n-form-item>
