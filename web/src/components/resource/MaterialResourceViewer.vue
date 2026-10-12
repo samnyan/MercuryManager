@@ -330,6 +330,16 @@ const simTextures = computed(() => {
       })
     }
   }
+  for (const fn of inlineFunctions.value) {
+    for (const tn of fn.info?.TextureNodes || []) {
+      if (tn.ContentFile && tn.ContentFile.endsWith('.uasset')) {
+        res.push({
+          name: `[${fn.functionName}] ${tn.ParameterName || tn.TextureName || tn.NodeName}`,
+          path: tn.ContentFile
+        })
+      }
+    }
+  }
   return res
 })
 
