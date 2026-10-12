@@ -93,6 +93,18 @@ public sealed class BlueprintService
         msInfo["widgetBindings"]=bindings;
         return msInfo;
     }
+    public object Font(string path)
+    {
+        lock(gate)
+        {
+            var asset=Load(path);
+            var font=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="Font")
+                ??throw new ArgumentException("Resource is not a Font asset.");
+            var resources=new List<UMGResource>();var diagnostics=new List<string>();
+            var properties=new UMGPropertyReader(asset).Read(font,new[]{"FontCacheType","LegacyFontSize","CompositeFont"},resources,diagnostics);
+            return new { schemaVersion=1, properties, resources=resources.Distinct().ToList(), diagnostics, preview="metadata-only" };
+        }
+    }
     public UMGDocument UMG(string path,string assetPath)
     {
         lock(gate)

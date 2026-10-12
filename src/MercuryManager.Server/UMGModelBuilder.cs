@@ -55,8 +55,26 @@ internal static class UMGModelBuilder
                 UMGChildWidget? child=null;
                 if(Valid(e.ClassIndex.Index))issues.Add("Local custom class defaults are not merged.");
                 else if(e.ClassIndex.Index<0){var r=GenericResourceViewer.ResolveReference(e.ClassIndex.Index,asset);if(r["ContentFile"]!=null)child=new(r["ContentFile"]!.ToString(),null);}
+                if(resources.Any(r=>r.ClassName is "Material" or "MaterialInstanceConstant"))issues.Add("Brush uses a UI material; shader evaluation is required, not an arbitrary imported texture.");
+                if(resources.Any(r=>r.ClassName is "Font" or "FontFace"))issues.Add("Game font has not been loaded; browser font metrics are approximate.");
+                if(visual.ContainsKey("Clipping"))issues.Add("Serialized clipping requires renderer support; do not infer full clipping from layout bounds.");
                 nodes.Add(new(Id(i),i,Id(t),e.ObjectName.ToString(),cls,parentId,children,slot,visual,sources,resources.Distinct().ToList(),child,new(Supported.Contains(cls)?"partial":"unsupported",Supported.Contains(cls)?"partial":"unsupported",issues)));
             }
+        }
+        // A cooked WidgetTree directly owned by a widget instance is its local subtree.
+        // Match the outer export identity, never a potentially duplicated widget name.
+        for(var index=0;index<nodes.Count;index++)
+        {
+            var node=nodes[index];
+            var nested=roots.Where(r=>asset.Exports[int.Parse(r.TreeId[7..])].OuterIndex.Index==node.ExportIndex+1&&r.RootNodeId!=null).ToList();
+            if(nested.Count==1)
+            {
+                var tree=nested[0];
+                nodes[index]=node with { ChildWidget=new(node.ChildWidget?.AssetPath,tree.Id), Children=node.Children.Concat(new[]{tree.RootNodeId!}).Distinct().ToList(), Preview=new("partial","partial",node.Preview.Issues.Where(i=>i!="Class is not supported by the initial static renderer.").ToList()) };
+                var rootIndex=nodes.FindIndex(n=>n.Id==tree.RootNodeId);
+                if(rootIndex>=0)nodes[rootIndex]=nodes[rootIndex] with { ParentId=node.Id };
+            }
+            else if(nested.Count>1)diagnostics.Add(new("ambiguous-local-tree","warning",node.Id,"Multiple WidgetTrees are owned by this widget instance."));
         }
         var byId=nodes.ToDictionary(n=>n.Id);
         foreach(var n in nodes)

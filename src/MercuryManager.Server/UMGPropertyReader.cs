@@ -18,7 +18,16 @@ internal sealed class UMGPropertyReader(UAsset asset)
         {
             var property=export.Data.FirstOrDefault(p=>p.Name.ToString()==name);
             if(property==null)continue;
-            try{result[name]=Value(JToken.Parse(asset.SerializeJsonObject(property)),name,resources);}
+            try
+            {
+                var token=JToken.Parse(asset.SerializeJsonObject(property));
+                result[name]=Value(token,name,resources);
+                if(token["$type"]?.ToString().Contains("TextPropertyData")==true)
+                {
+                    result[name+"Metadata"]=new { historyType=token["HistoryType"]?.ToString(), localizationNamespace=token["Namespace"]?.ToString(), localizationKey=token["Value"]?.ToString(), displaySource=result[name]!=null?"serialized-source":"unresolved" };
+                    if(result[name]==null)issues.Add($"{name} has no decoded display string; runtime text history is not evaluated.");
+                }
+            }
             catch(Exception ex) when(ex is Newtonsoft.Json.JsonException or ArgumentNullException or NotSupportedException){issues.Add($"Cannot decode {name}: {ex.GetType().Name}");}
         }
         return result;
@@ -43,6 +52,21 @@ internal sealed class UMGPropertyReader(UAsset asset)
             }
         }
         var type=obj["$type"]?.ToString()??"";
+        if(type.Contains("ArrayPropertyData")&&obj["Value"] is JArray elements)
+            return elements.Select(element=>Value(element,role,resources)).ToArray();
+        if(type.Contains("FFontData")&&obj["LocalFontFaceAsset"]?.Type==JTokenType.Integer)
+        {
+            var reference=GenericResourceViewer.ResolveReference(obj["LocalFontFaceAsset"]!.Value<int>(),asset);
+            var fontPath=reference["ContentFile"]?.ToString();
+            if(fontPath!=null)resources.Add(new("FontFace",fontPath,"FontFace"));
+            return new { assetPath=fontPath, hinting=obj["Hinting"]?.ToString(), loadingPolicy=obj["LoadingPolicy"]?.ToString(), subFaceIndex=obj["SubFaceIndex"]?.Value<int>() };
+        }
+        if(type.Contains("TextPropertyData"))
+        {
+            // Base FText.Value is a localization key, not the display string.
+            var display=obj["CultureInvariantString"];
+            return display?.Type==JTokenType.String?display.ToString():null;
+        }
         if(type.Contains("ObjectPropertyData")&&obj["Value"]?.Type==JTokenType.Integer)
         {
             var index=obj["Value"]!.Value<int>();var reference=GenericResourceViewer.ResolveReference(index,asset);
