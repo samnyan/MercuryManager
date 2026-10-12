@@ -51,7 +51,7 @@ app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,st
 app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,ResourceService r)=>r.Sources(id,path));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
 app.MapGet("/api/projects/{id}/resource-font",(string id,string path,ResourceService r,BlueprintService b)=>b.Font(r.Resolve(id,path)));
-app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>b.UMG(r.Resolve(id,path),path));
+app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>UMGDependencyBuilder.Expand(b.UMG(r.Resolve(id,path),path),dependency=>b.UMG(r.Resolve(id,dependency),dependency)));
 app.MapGet("/api/projects/{id}/resource-blueprint",(string id,string path,ResourceService r,BlueprintService b)=>b.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-blueprint-node",(string id,string path,int index,ResourceService r,BlueprintService b)=>b.Node(r.Resolve(id,path),index));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p)));

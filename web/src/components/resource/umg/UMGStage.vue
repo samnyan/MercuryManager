@@ -2,10 +2,11 @@
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton } from 'naive-ui'
-import { Canvas, Rect, Circle, FabricImage, FabricText, Point, util, type FabricObject } from 'fabric'
+import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
+import { widgetClip } from './clipping'
 
 const props = defineProps<{
   nodes: UMGNode[]
@@ -263,6 +264,9 @@ async function rebuildScene() {
     if (gen !== renderGeneration) return
     if (props.viewMode === 'appearance' && !layout.visible) continue
 
+    const clipPoints = widgetClip(node, nodesMap, props.layouts, worldTransforms, props.viewport)
+    if (props.viewMode === 'appearance' && clipPoints.length < 3) continue
+    const nodeClip = props.viewMode === 'appearance' ? new Polygon(clipPoints, { absolutePositioned: true, fill: '#000', strokeWidth: 0 }) : undefined
     const { rect } = layout
     const w = Math.max(1, rect.width)
     const h = Math.max(1, rect.height)
@@ -302,7 +306,7 @@ async function rebuildScene() {
           flipY,
           angle: tf.angle,
           opacity,
-          clipPath: clipRect
+          clipPath: nodeClip
         })
       }
     }
@@ -330,7 +334,7 @@ async function rebuildScene() {
         flipY,
         angle: tf.angle,
         opacity,
-        clipPath: clipRect
+        clipPath: nodeClip
       })
     }
 
@@ -372,7 +376,7 @@ async function rebuildScene() {
         // 外观模式下纯容器不拦截底层图片点击
         evented: props.viewMode === 'structure' || !isContainer || props.selectedId === node.id,
         selectable: props.viewMode === 'structure' || !isContainer || props.selectedId === node.id,
-        clipPath: clipRect
+        clipPath: nodeClip
       })
     }
 
@@ -385,6 +389,7 @@ async function rebuildScene() {
       rect.x+(isText ? intrinsicWidth : w)/2,rect.y+(isText ? intrinsicHeight : h)/2]
     util.applyTransformToObject(fabricObj, multiply(world,local))
     fabricObj.setCoords()
+    fabricObj.set({ perPixelTargetFind: props.viewMode === 'appearance' })
     applySelectionStyle(fabricObj)
     objectByNodeId.set(node.id, fabricObj)
     nodeIdByObject.set(fabricObj, node.id)
