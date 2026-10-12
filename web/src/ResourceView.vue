@@ -65,12 +65,20 @@ const isMaterial = ref(false)
 const isMaterialFunction = ref(false)
 const isMpc = ref(false)
 const isMovie = ref(false)
+const isParticleSystem = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
 const texBgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
 const showTexModal = ref(false)
 const modalTexPath = ref('')
 const modalTexTitle = ref('')
+const particleFilter = ref('system')
+const particleExports = computed(() => {
+  const entries = (data.value?.exports || []) as Array<any>
+  if (particleFilter.value === 'all') return entries
+  if (particleFilter.value === 'modules') return entries.filter(e => /ParticleModule|Distribution/.test(e.Class))
+  return entries.filter(e => /ParticleSystem|ParticleSpriteEmitter|ParticleLODLevel/.test(e.Class))
+})
 
 function openExternalTexPreview(targetPath: string, label: string) {
   if (!project.id || !targetPath) return
@@ -206,6 +214,7 @@ watch(
     isMaterial.value = false
     isMpc.value = false
     isMovie.value = false
+    isParticleSystem.value = false
     selectedMip.value = 0
     mipCount.value = 1
     mode.value = 'generic'
@@ -232,6 +241,7 @@ watch(
       )
       if (request !== generation) return
       data.value = result.data
+      isParticleSystem.value = result.data?.type === 'ParticleSystem'
       isAudio.value = (result.data as any)?.Exports?.some((e:any)=>['SoundAtomCueSheet','SoundAtomCue'].includes(e.Class)) ?? false
       if(isAudio.value)mode.value='awb'
       isTexture.value = result.isTexture
@@ -380,7 +390,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialFunction || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialFunction || isMaterialInstance || isTexture || isAudio || isParticleSystem) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
       <n-tab v-if="isMovie" name="movie">{{ tr('ui.movieTab') }}</n-tab>
       <n-tab v-if="isMpc" name="mpc">{{ tr('ui.mpcTab') }}</n-tab>
@@ -392,6 +402,7 @@ onBeforeUnmount(() => {
         {{ tr('ui.textureMode') }}
       </n-tab>
       <n-tab v-if="isAudio" name="awb">AWB</n-tab>
+      <n-tab v-if="isParticleSystem" name="particle">Particle System</n-tab>
       <n-tab name="generic">
         {{ tr('ui.genericMode') }}
       </n-tab>
@@ -440,7 +451,7 @@ onBeforeUnmount(() => {
           @preview-texture="openExternalTexPreview"
         />
         <generic-resource-viewer
-          v-if="data && mode === 'generic'"
+          v-if="data && mode === 'generic' && !isParticleSystem"
           :data="data"
           :path="path"
           :preview-src="src"
@@ -448,6 +459,18 @@ onBeforeUnmount(() => {
           :raw-url="rawUrl"
           @navigate-path="jumpToResource"
         />
+        <div v-if="data && mode === 'particle' && isParticleSystem" class="particle-panel">
+          <n-tabs v-model:value="particleFilter" type="segment" size="small">
+            <n-tab-pane name="system" tab="系统与发射器" />
+            <n-tab-pane name="modules" tab="模块" />
+            <n-tab-pane name="all" tab="全部导出" />
+          </n-tabs>
+          <div v-for="entry in particleExports" :key="entry.Index" class="particle-export">
+            <strong>#{{ entry.Index }} {{ entry.Name }}</strong><n-tag size="small">{{ entry.Class }}</n-tag>
+            <div v-for="(val,key) in entry.Properties" :key="key" class="particle-property"><span>{{ key }}</span><code>{{ JSON.stringify(val) }}</code></div>
+          </div>
+          <p class="particle-note">几何顶点缓冲区等专有数据保持只读摘要，不在此面板中编辑。</p>
+        </div>
 
         <!-- Material Instance Sprite 裁切预览面板 -->
         <div v-if="mode === 'sprite' && isMaterialInstance" class="sprite-pane">
@@ -719,6 +742,12 @@ onBeforeUnmount(() => {
   cursor: pointer;
   word-break: break-all;
 }
+.particle-panel { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px; }
+.particle-export { border: 1px solid #e0e0e6; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.particle-export > strong { word-break: break-word; }
+.particle-property { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 8px; font-size: 12px; }
+.particle-property code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.particle-note { color: #777; font-size: 12px; }
 .tex-toolbar-row {
   display: flex;
   align-items: center;
