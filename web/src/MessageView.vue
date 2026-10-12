@@ -9,13 +9,14 @@ import {
   NCard,
   NFormItem,
   NSpace,
+  NSelect,
   NCheckbox,
   useMessage
 } from 'naive-ui'
 import AssetGrid from './AssetGrid.vue'
 import AssetForm from './AssetForm.vue'
 import { api, useProject, type Row, type Field } from './project'
-import { useReferenceStore } from './referenceStore'
+import { useReferenceStore, MESSAGE_LANGUAGES } from './referenceStore'
 import { getTableSchema } from './tableSchema'
 import { useResponsive } from './composables/useResponsive'
 
@@ -32,6 +33,13 @@ const editor = ref(false)
 const adding = ref(false)
 const busy = ref(false)
 const search = ref('')
+
+const refLangOptions = computed(() =>
+  MESSAGE_LANGUAGES.map(l => ({
+    label: i18n.global.locale.value === 'zh' ? l.label : l.labelEn,
+    value: l.key
+  }))
+)
 
 const isTable = computed(() => route.path.startsWith('/table/'))
 const tableName = computed(() => (isTable.value ? String(route.params.name ?? '') : ''))
@@ -209,6 +217,14 @@ watch(
           >
             {{ tr('ui.resolveReferences') }}
           </n-checkbox>
+
+          <n-select
+            v-if="isTable && refStore.resolveEnabled"
+            v-model:value="refStore.language"
+            :options="refLangOptions"
+            size="small"
+            class="ref-lang-select"
+          />
         </div>
 
         <div class="toolbar-search">
@@ -306,6 +322,9 @@ watch(
 .ref-checkbox {
   font-size: 13px;
   user-select: none;
+}
+.ref-lang-select {
+  width: 175px;
 }
 .grid-wrapper {
   flex: 1;

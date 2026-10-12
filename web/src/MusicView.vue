@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import { tr } from './i18n'
+import { tr, i18n } from './i18n'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { NButton, NInput, useMessage } from 'naive-ui'
+import { NButton, NInput, NSelect, useMessage } from 'naive-ui'
 import { fieldTitle } from './fieldLabels'
 import SongEditor from './SongEditor.vue'
 import { AgGridVue } from 'ag-grid-vue3'
 import { themeQuartz, type ColDef, type RowClickedEvent } from 'ag-grid-community'
 import { useProject, api, type Row, type Field } from './project'
 import { useResponsive } from './composables/useResponsive'
+import { useReferenceStore, MESSAGE_LANGUAGES } from './referenceStore'
 
 const project = useProject()
 const message = useMessage()
+const refStore = useReferenceStore()
 const { isMobile } = useResponsive()
+
+const refLangOptions = computed(() =>
+  MESSAGE_LANGUAGES.map(l => ({
+    label: i18n.global.locale.value === 'zh' ? l.label : l.labelEn,
+    value: l.key
+  }))
+)
 
 const search = ref('')
 const busy = ref(false)
@@ -167,6 +176,12 @@ watch(
             {{ tr('ui.addSong') }}
           </n-button>
           <span class="count-badge">{{ project.rows.length }} {{ tr('ui.songs') }}</span>
+          <n-select
+            v-model:value="refStore.language"
+            :options="refLangOptions"
+            size="small"
+            class="ref-lang-select"
+          />
         </div>
 
         <div class="toolbar-search">
@@ -229,6 +244,9 @@ watch(
 .count-badge {
   font-size: 13px;
   color: #666;
+}
+.ref-lang-select {
+  width: 175px;
 }
 .toolbar-search {
   flex: 1;

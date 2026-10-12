@@ -23,7 +23,7 @@ function onGridReady(params: GridReadyEvent) {
 }
 
 watch(
-  [() => refStore.version, () => refStore.resolveEnabled, () => i18n.global.locale.value],
+  [() => refStore.version, () => refStore.resolveEnabled, () => i18n.global.locale.value, () => refStore.language],
   () => {
     gridApi.value?.refreshCells({ force: true })
   }

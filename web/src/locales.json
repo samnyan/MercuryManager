@@ -196,6 +196,7 @@
       "selectOrInputEnum": "选择或输入 {name}",
       "selectEnumValue": "选择枚举值",
       "associatedEnum": "关联枚举",
+      "previewLanguage": "预览语言",
       "networkError": "无法连接服务器，请检查网络或服务是否已启动",
       "invalidJsonResponse": "服务器响应不是有效 JSON（HTTP {status}），请检查服务日志",
       "invalidApiResult": "服务器响应格式不符合 ApiResult，请刷新页面或检查服务版本"
@@ -974,6 +975,7 @@
       "selectOrInputEnum": "Select or enter {name}",
       "selectEnumValue": "Select enum value",
       "associatedEnum": "Associated Enum",
+      "previewLanguage": "Preview Lang",
       "networkError": "Cannot connect to server. Check network or server status.",
       "invalidJsonResponse": "Server response is not valid JSON (HTTP {status}). Check server logs.",
       "invalidApiResult": "Server response does not match ApiResult format. Refresh or check server version."
