@@ -114,8 +114,12 @@ watch(
   }
 )
 
+function isLeafAsset(path: string) {
+  return path.endsWith('.uasset') || path.endsWith('.awb') || path.endsWith('.mer')
+}
+
 function select(keys: (string | number)[], options: (TreeOption | null)[]) {
-  if (keys[0] && options[0]?.isLeaf) {
+  if (keys[0] && (options[0]?.isLeaf || isLeafAsset(String(keys[0])))) {
     selectedKeys.value = [String(keys[0])]
     router.push('/resource?path=' + encodeURIComponent(String(keys[0])))
     emit('select')

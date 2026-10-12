@@ -8,6 +8,8 @@ import { tr } from './i18n'
 import TextureCreateDialog from './components/resource/TextureCreateDialog.vue'
 import AudioResourceViewer from './components/resource/AudioResourceViewer.vue'
 import GenericResourceViewer from './components/resource/GenericResourceViewer.vue'
+import BlueprintViewer from './components/resource/BlueprintViewer.vue'
+import MerResourceViewer from './components/resource/MerResourceViewer.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -28,6 +30,9 @@ const isTexture = ref(false)
 const busy = ref(false)
 const isAudio = ref(false)
 const isBlueprint = ref(false)
+const isMer = ref(false)
+const blueprint = ref<any>()
+watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){const request=generation;busy.value=true;try{const result=await api<{data:any}>(`/projects/${project.id}/resource-data?`+new URLSearchParams({path:path.value}));if(request===generation)data.value=result.data}catch(e){if(request===generation)error.value=String(e)}finally{if(request===generation)busy.value=false}}})
 const isMaterialInstance = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
@@ -129,6 +134,9 @@ watch(
     data.value = undefined
     isTexture.value = false
     isAudio.value = false
+    isBlueprint.value = false
+    isMer.value = false
+    blueprint.value = undefined
     isMaterialInstance.value = false
     selectedMip.value = 0
     mipCount.value = 1
@@ -141,7 +149,13 @@ watch(
     controller = current
 
     try {
-      if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';return}
+      if(path.value.endsWith('.mer')){isMer.value=true;mode.value='mer';busy.value=false;return}
+      if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';busy.value=false;return}
+      if(/(^|\/)BP_[^/]+\.uasset$/i.test(path.value)){
+        const summary=await api<any>(`/projects/${project.id}/resource-blueprint?`+new URLSearchParams({path:path.value}));
+        if(request!==generation)return;
+        blueprint.value=summary;isBlueprint.value=true;mode.value='blueprint';return;
+      }
       const result = await api<{ isTexture: boolean; data: any }>(
         `/projects/${project.id}/resource-data?` + new URLSearchParams({ path: path.value })
       )
@@ -254,7 +268,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="(isMaterialInstance || isTexture || isAudio) && data" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+      <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
       <n-tab v-if="isMaterialInstance" name="sprite">Sprite 预览</n-tab>
       <n-tab v-if="isTexture" name="texture">
         {{ tr('ui.textureMode') }}
@@ -266,13 +281,15 @@ onBeforeUnmount(() => {
     </n-tabs>
 
     <div class="resource-main-pane view-grid-fill">
-      <audio-resource-viewer v-if="isAudio && !busy && mode === 'awb'" :path="path" class="resource-fill-item" />
+      <mer-resource-viewer v-if="isMer && !busy" :path="path" class="resource-fill-item" />
+      <audio-resource-viewer v-else-if="isAudio && !busy && mode === 'awb'" :path="path" class="resource-fill-item" />
       <div v-else-if="busy" class="resource-loading-pane">
         <n-spin size="large" />
       </div>
       <div v-else class="resource-fill-item">
         <div v-if="error" class="error-banner">{{ error }}</div>
 
+        <blueprint-viewer v-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
         <generic-resource-viewer
           v-if="data && mode === 'generic'"
           :data="data"

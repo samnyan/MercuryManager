@@ -172,7 +172,7 @@ public static class GenericResourceViewer
         if(exportIndex<0||exportIndex>=asset.Exports.Count)throw new InvalidDataException("Invalid export index.");
         return asset.Exports[exportIndex].Extras??Array.Empty<byte>();
     }
-    private static JObject ResolveReference(int index,UAsset asset)
+    internal static JObject ResolveReference(int index,UAsset asset)
     {
         var result=new JObject{["Index"]=index,["ObjectName"]=ReferenceName(new FPackageIndex(index),asset)};
         if(index==0){result["Status"]="Null reference";return result;}
@@ -196,7 +196,7 @@ public static class GenericResourceViewer
         else if(index>0)result["Scope"]="Current asset export";
         return result;
     }
-    private static void AnnotateReferences(JToken token,UAsset asset)
+    internal static void AnnotateReferences(JToken token,UAsset asset)
     {
         if(token is JObject obj)
         {

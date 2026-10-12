@@ -2,9 +2,10 @@ namespace MercuryManager.Server;
 public sealed class ResourceService(MusicWorkspaceStore assets,GameContent content)
 {
     public string DraftRoot(string id)=>Path.Combine(assets.WorkspaceDirectory(id),"Resources");
+    private static bool IsSupportedExtension(string path)=>path.EndsWith(".uasset",StringComparison.Ordinal)||path.EndsWith(".awb",StringComparison.Ordinal)||path.EndsWith(".mer",StringComparison.Ordinal);
     public static string Validate(string relative)
     {
-        if(!(relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.EndsWith(".awb",StringComparison.Ordinal))||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
+        if(!IsSupportedExtension(relative)||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
         return relative;
     }
     // Content-relative paths always use '/', including on Windows.
@@ -41,7 +42,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         if(directory.Length>0)Validate(directory+"/folder.uasset");
         var draftRoot=DraftRoot(id);var items=new Dictionary<string,bool>(StringComparer.Ordinal);
         foreach(var root in new[]{assets.Get(id).ContentRoot!,draftRoot}){var dir=Path.Combine(root,directory);MusicWorkspaceStore.RejectLinks(dir);if(!Directory.Exists(dir))continue;
-        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||entry.EndsWith(".uasset",StringComparison.Ordinal)||entry.EndsWith(".awb",StringComparison.Ordinal)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');if(root==draftRoot)items[relative]=folder;else items.TryAdd(relative,folder);}}}
+        foreach(var entry in Directory.EnumerateFileSystemEntries(dir)){MusicWorkspaceStore.RejectLinks(entry);bool folder=Directory.Exists(entry);if(folder||IsSupportedExtension(entry)){var relative=Path.GetRelativePath(root,entry).Replace('\\','/');if(root==draftRoot)items[relative]=folder;else items.TryAdd(relative,folder);}}}
         var prefix=directory.Length==0?"":directory+"/";
         var originalRoot=assets.Get(id).ContentRoot!;
         if(GameContent.IsPacked(originalRoot))foreach(var relative in content.Files(originalRoot,directory))
@@ -49,7 +50,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
             if(!relative.StartsWith(prefix,StringComparison.Ordinal))continue;
             var rest=relative[prefix.Length..];var slash=rest.IndexOf('/');
             if(slash>=0)items.TryAdd(prefix+rest[..slash],true);
-            else if(relative.EndsWith(".uasset",StringComparison.Ordinal)||relative.EndsWith(".awb",StringComparison.Ordinal))items.TryAdd(relative,false);
+            else if(IsSupportedExtension(relative))items.TryAdd(relative,false);
         }
         return items.OrderByDescending(x=>x.Value).ThenBy(x=>x.Key,StringComparer.Ordinal).Select(x=>(object)new{path=x.Key,name=Path.GetFileName(x.Key),directory=x.Value}).ToArray();
     }
@@ -94,8 +95,47 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
     }
     public object Info(string id,string path)
     {
+        if(!path.EndsWith(".uasset",StringComparison.Ordinal))return new{width=0,height=0,mips=0,supported=false};
         var source=Resolve(id,path);var a=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
         try{var n=a.Exports.Single() as UAssetAPI.ExportTypes.NormalExport??throw new InvalidDataException();var layout=TextureAuthoring.Inspect(n.Extras);return new{width=layout.Width,height=layout.Height,mips=layout.Mips.Count,supported=true};}catch{return new{width=0,height=0,mips=0,supported=false};}
+    }
+    public object ReadText(string id,string path,string? source=null)
+    {
+        Validate(path);
+        if(!path.EndsWith(".mer",StringComparison.Ordinal))throw new ArgumentException("Only .mer text files are supported.");
+        var resolved=Resolve(id,path,source);
+        if(new FileInfo(resolved).Length>8*1024*1024)throw new InvalidDataException("Text file exceeds 8 MiB limit.");
+        var text=File.ReadAllText(resolved,System.Text.Encoding.UTF8);
+        var headers=new Dictionary<string,string>();
+        int bodyLines=0;bool inBody=false;
+        foreach(var rawLine in text.Split('\n'))
+        {
+            var line=rawLine.Trim();
+            if(line.Length==0)continue;
+            if(line.StartsWith("#BODY",StringComparison.OrdinalIgnoreCase)){inBody=true;continue;}
+            if(!inBody&&line.StartsWith('#'))
+            {
+                var space=line.IndexOfAny([' ','\t']);
+                if(space>1)headers[line[1..space].Trim()]=line[(space+1)..].Trim();
+                else headers[line[1..].Trim()]="";
+            }
+            else if(inBody)bodyLines++;
+        }
+        return new{path,content=text,headers,eventCount=bodyLines,sources=Sources(id,path)};
+    }
+    public object SaveText(string id,string path,string contentText)
+    {
+        lock(assets)
+        {
+            Validate(path);
+            if(!path.EndsWith(".mer",StringComparison.Ordinal))throw new ArgumentException("Only .mer text files are supported.");
+            if(contentText.Length>8*1024*1024)throw new ArgumentException("Text content exceeds 8 MiB limit.");
+            var dest=Path.Combine(DraftRoot(id),path);
+            MusicWorkspaceStore.RejectLinks(dest);
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            File.WriteAllText(dest,contentText,new System.Text.UTF8Encoding(false));
+            return new{path,verified=true,sources=Sources(id,path)};
+        }
     }
     public object Build(string id,string template,string target,byte[] image)
     {
@@ -129,3 +169,4 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
 public sealed record CueEditRequest(string Operation,string Bank,int CueId,int TemplateId=88,string? Name=null,string? SpeakerBase64=null,string? HeadphoneBase64=null);
 public sealed record ReplaceAudioRequest(string Bank,ushort WaveId,string HcaBase64);
 public sealed record BuildTextureRequest(string Template,string Target,string ImageBase64);
+public sealed record SaveTextRequest(string Content);

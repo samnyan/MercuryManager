@@ -11,11 +11,14 @@ builder.Services.AddSingleton<GameContent>();
 builder.Services.AddSingleton<ProjectManager>();
 builder.Services.AddSingleton<TexturePreviewService>();
 builder.Services.AddSingleton<ResourceService>();
+builder.Services.AddSingleton<BlueprintService>();
+builder.Services.AddResponseCompression(options=>{options.EnableForHttps=true;options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();});
 builder.Services.AddSingleton<AudioJobs>();
 builder.Services.AddSingleton<AudioIntegrityService>();
 builder.Services.AddSingleton<VoiceLookupService>();
 var accessPolicy = new LocalAccessPolicy(builder.Configuration);
 var app = builder.Build();
+app.UseResponseCompression();
 app.UseApiResults();
 app.Use(async (context, next) =>
 {
@@ -47,6 +50,8 @@ app.Use(async (context, next) =>
 app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
 app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,ResourceService r)=>r.Sources(id,path));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
+app.MapGet("/api/projects/{id}/resource-blueprint",(string id,string path,ResourceService r,BlueprintService b)=>b.Read(r.Resolve(id,path)));
+app.MapGet("/api/projects/{id}/resource-blueprint-node",(string id,string path,int index,ResourceService r,BlueprintService b)=>b.Node(r.Resolve(id,path),index));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p)));
 app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
 app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:CriAudio.Banks(target.Path);});
@@ -66,6 +71,8 @@ app.MapPost("/api/projects/{id}/audio-apply",(string id,string path,string? sour
 app.MapGet("/api/projects/{id}/audio-events",(string id,string jobId,HttpContext context,AudioJobs jobs)=>jobs.Events(id,jobId,context));
 app.MapPost("/api/projects/{id}/resource-cue-edit",(string id,string path,CueEditRequest request,ResourceService r)=>r.EditCue(id,path,request));
 app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,ReplaceAudioRequest request,ResourceService r)=>r.ReplaceAudio(id,path,request.Bank,request.WaveId,Convert.FromBase64String(request.HcaBase64)));
+app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
+app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
 app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path),mip),"image/png"));
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));
