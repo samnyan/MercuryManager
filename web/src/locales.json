@@ -2,6 +2,7 @@
   "zh": {
     "ui": {
       "addRow": "新增行",
+      "umgEngineDefault": "引擎默认值",
       "umgUnknownVisible": "未知（预览按 Visible）",
       "umgUnknownOpacity": "未知（预览按 1）",
       "umgCanvas": "画布分辨率",
@@ -902,6 +903,7 @@
   "en": {
     "ui": {
       "addRow": "Add row",
+      "umgEngineDefault": "Engine default",
       "umgUnknownVisible": "Unknown (preview: Visible)",
       "umgUnknownOpacity": "Unknown (preview: 1)",
       "umgCanvas": "Canvas resolution",

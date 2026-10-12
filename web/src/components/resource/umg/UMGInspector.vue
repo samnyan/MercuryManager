@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { tr } from "../../../i18n"
-import { NTag, NButton, NCollapse, NCollapseItem } from 'naive-ui'
+import { NTag, NButton, NCollapse, NCollapseItem, NImage } from 'naive-ui'
 import type { UMGNode, ComputedLayout } from './types'
+import { useProject } from '../../../project'
 
 const props = defineProps<{
   node: UMGNode | null
@@ -12,6 +13,33 @@ const emit = defineEmits<{
   'navigate-path': [path: string]
   'preview-texture': [path: string]
 }>()
+
+const project = useProject()
+
+function getTextureThumbnailUrl(assetPath: string): string {
+  if (!project.id) return ''
+  return `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: assetPath, mip: '0' })
+}
+
+function getVisibilityDisplay(node: UMGNode): string {
+  const vis = node.visual?.Visibility
+  if (!vis) return tr('ui.umgUnknownVisible')
+  const src = node.sources?.['visual.Visibility']
+  if (src === 'engine-default') {
+    return `${vis} (${tr('ui.umgEngineDefault')})`
+  }
+  return vis
+}
+
+function getOpacityDisplay(node: UMGNode): string {
+  const op = node.visual?.RenderOpacity
+  if (op === undefined || op === null) return tr('ui.umgUnknownOpacity')
+  const src = node.sources?.['visual.RenderOpacity']
+  if (src === 'engine-default') {
+    return `${op} (${tr('ui.umgEngineDefault')})`
+  }
+  return String(op)
+}
 </script>
 
 <template>
@@ -48,9 +76,9 @@ const emit = defineEmits<{
         <div class="section-title">外观与可见性</div>
         <div class="kv-grid">
           <span class="k">Visibility</span>
-          <span class="v">{{ node.visual?.Visibility || tr('ui.umgUnknownVisible') }}</span>
+          <span class="v">{{ getVisibilityDisplay(node) }}</span>
           <span class="k">RenderOpacity</span>
-          <span class="v">{{ node.visual?.RenderOpacity ?? tr('ui.umgUnknownOpacity') }}</span>
+          <span class="v">{{ getOpacityDisplay(node) }}</span>
           <template v-if="node.visual?.Text">
             <span class="k">Text</span>
             <span class="v">{{ node.visual.Text }}</span>
@@ -58,23 +86,37 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <!-- 3. 关联外部资源 -->
+      <!-- 3. 关联外部资源（卡片结构） -->
       <div class="inspector-section">
         <div class="section-title">关联资源 ({{ node.resources?.length || 0 }})</div>
-        <div v-if="node.resources?.length" class="resource-list">
-          <div v-for="r in node.resources" :key="r.assetPath" class="resource-item">
-            <div class="res-meta">
-              <n-tag size="tiny" :bordered="false">{{ r.className || r.role }}</n-tag>
-              <span class="res-path" @click="emit('navigate-path', r.assetPath)">{{ r.assetPath }}</span>
+        <div v-if="node.resources?.length" class="resource-card-list">
+          <div
+            v-for="r in node.resources"
+            :key="r.assetPath"
+            class="resource-card"
+            :class="{ 'clickable-card': true }"
+            @click="emit('navigate-path', r.assetPath)"
+          >
+            <!-- 缩略图：若是 Texture2D 则直接渲染小缩略图 -->
+            <div v-if="r.className === 'Texture2D'" class="card-thumb" @click.stop>
+              <n-image
+                :src="getTextureThumbnailUrl(r.assetPath)"
+                width="48"
+                height="48"
+                object-fit="cover"
+                preview-disabled
+              />
             </div>
-            <n-button
-              v-if="r.className === 'Texture2D'"
-              size="tiny"
-              secondary
-              @click="emit('preview-texture', r.assetPath)"
-            >
-              预览
-            </n-button>
+            <div v-else class="card-type-icon">
+              <span class="type-badge">{{ (r.className || r.role || 'RES').slice(0, 4) }}</span>
+            </div>
+
+            <div class="card-info">
+              <div class="card-top">
+                <n-tag size="tiny" :bordered="false" type="info">{{ r.className || r.role }}</n-tag>
+              </div>
+              <span class="card-path" :title="r.assetPath">{{ r.assetPath }}</span>
+            </div>
           </div>
         </div>
         <span v-else class="muted-note">无直接绑定的外部资源</span>
@@ -181,29 +223,73 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
 }
-.resource-list {
+
+/* 资源卡片列表样式 */
+.resource-card-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
-.resource-item {
+.resource-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: 12px;
-}
-.res-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.res-path {
-  color: #2080f0;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.08);
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  transition: all 0.2s ease;
   cursor: pointer;
-  text-decoration: underline;
+}
+.resource-card:hover {
+  background: rgba(128, 128, 128, 0.16);
+  border-color: rgba(64, 158, 255, 0.5);
+}
+.card-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.card-type-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.type-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aaa;
+  text-transform: uppercase;
+}
+.card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.card-top {
+  display: flex;
+  align-items: center;
+}
+.card-path {
+  font-size: 11px;
+  color: #2080f0;
   word-break: break-all;
+  line-height: 1.3;
 }
 .cap-tags {
   display: flex;

@@ -1,97 +1,204 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
-import { NTree, NInput, NSelect, NTag } from 'naive-ui'
-import type { UMGDocument, UMGNode, UMGTreeRoot } from './types'
+import { computed, ref, watch } from 'vue'
+import { NInput, NTree, NSelect, NTag, NButton, type TreeOption } from 'naive-ui'
+import type { UMGNode, UMGTreeRoot } from './types'
 
 const props = defineProps<{
-  document: UMGDocument
-  selectedId: string | null
+  roots: UMGTreeRoot[]
   activeRootId: string | null
+  nodes: UMGNode[]
+  selectedId: string | null
+  hiddenIds: Set<string>
 }>()
 
 const emit = defineEmits<{
-  'select-node': [id: string | null]
-  'select-root': [rootId: string]
+  'update:activeRootId': [id: string]
+  'select-node': [id: string]
+  'update:hiddenIds': [ids: Set<string>]
 }>()
 
+const search = ref('')
+const expandedKeys = ref<string[]>([])
+
 const rootOptions = computed(() =>
-  props.document.roots.map((r: UMGTreeRoot) => ({
+  props.roots.map(r => ({
     label: `${r.ownerName} (${r.kind})`,
     value: r.id
   }))
 )
 
 const activeRoot = computed(() =>
-  props.document.roots.find(r => r.id === props.activeRootId) || props.document.roots[0]
+  props.roots.find(r => r.id === props.activeRootId) || props.roots[0] || null
 )
 
-type TreeItem = {
-  key: string
-  label: string
-  node: UMGNode
-  children: TreeItem[]
-}
-
-const treeData = computed<TreeItem[]>(() => {
-  if (!activeRoot.value || !activeRoot.value.rootNodeId) return []
-  const nodeMap = new Map<string, UMGNode>(props.document.nodes.map(n => [n.id, n]))
-
-  const visited = new Set<string>()
-  function buildBranch(nodeId: string): TreeItem | null {
-    if (visited.has(nodeId)) return null
-    visited.add(nodeId)
-    const node = nodeMap.get(nodeId)
-    if (!node) return null
-    return {
-      key: node.id,
-      label: `${node.name} (${node.className})`,
-      node,
-      children: node.children.map(buildBranch).filter((c): c is TreeItem => c !== null)
-    }
-  }
-
-  const rootItem = buildBranch(activeRoot.value.rootNodeId)
-  return rootItem ? [rootItem] : []
+const nodeMap = computed(() => {
+  const m = new Map<string, UMGNode>()
+  for (const n of props.nodes) m.set(n.id, n)
+  return m
 })
 
-const expandedKeys = ref<string[]>([])
-const container = ref<HTMLElement | null>(null)
-watch(() => [props.selectedId, props.activeRootId, props.document] as const, async () => {
-  const chain = new Set<string>()
-  let node = props.document.nodes.find(n => n.id === props.selectedId)
-  while (node && !chain.has(node.id)) {
-    chain.add(node.id)
-    node = props.document.nodes.find(n => n.id === node!.parentId)
+// 收集当前子树的所有节点 ID
+const allTreeNodeIds = computed(() => {
+  const r = activeRoot.value
+  if (!r || !r.rootNodeId) return []
+  const ids: string[] = []
+  const visited = new Set<string>()
+  const walk = (id: string) => {
+    if (visited.has(id)) return
+    visited.add(id)
+    const n = nodeMap.value.get(id)
+    if (!n) return
+    ids.push(n.id)
+    for (const cid of n.children) walk(cid)
   }
-  if (activeRoot.value?.rootNodeId) chain.add(activeRoot.value.rootNodeId)
-  expandedKeys.value = [...new Set([...expandedKeys.value, ...chain])]
-  await nextTick()
-  container.value?.querySelector('.n-tree-node--selected')?.scrollIntoView({ block: 'nearest' })
-}, { immediate: true })
-const selectedKeys = computed(() => (props.selectedId ? [props.selectedId] : []))
+  walk(r.rootNodeId)
+  return ids
+})
+
+// 勾选的节点 = 未隐藏的节点
+const checkedKeys = computed(() =>
+  allTreeNodeIds.value.filter(id => !props.hiddenIds.has(id))
+)
+
+function handleUpdateCheckedKeys(keys: Array<string | number>) {
+  const checkedSet = new Set(keys.map(String))
+  const nextHidden = new Set(props.hiddenIds)
+  for (const id of allTreeNodeIds.value) {
+    if (checkedSet.has(id)) {
+      nextHidden.delete(id)
+    } else {
+      nextHidden.add(id)
+    }
+  }
+  emit('update:hiddenIds', nextHidden)
+}
+
+function showAll() {
+  const nextHidden = new Set(props.hiddenIds)
+  for (const id of allTreeNodeIds.value) nextHidden.delete(id)
+  emit('update:hiddenIds', nextHidden)
+}
+
+function buildOption(nodeId: string, visited = new Set<string>()): TreeOption | null {
+  if (visited.has(nodeId)) return null
+  const n = nodeMap.value.get(nodeId)
+  if (!n) return null
+  const nextVisited = new Set(visited)
+  nextVisited.add(nodeId)
+
+  const children: TreeOption[] = []
+  for (const cid of n.children) {
+    const childOpt = buildOption(cid, nextVisited)
+    if (childOpt) children.push(childOpt)
+  }
+
+  return {
+    key: n.id,
+    label: `${n.name} (${n.className})`,
+    isLeaf: children.length === 0,
+    children: children.length > 0 ? children : undefined,
+    rawNode: n
+  }
+}
+
+const treeData = computed<TreeOption[]>(() => {
+  const r = activeRoot.value
+  if (!r || !r.rootNodeId) return []
+  const rootOpt = buildOption(r.rootNodeId)
+  return rootOpt ? [rootOpt] : []
+})
+
+// 默认展开前两层
+watch(
+  () => activeRoot.value?.rootNodeId,
+  rootNodeId => {
+    if (!rootNodeId) {
+      expandedKeys.value = []
+      return
+    }
+    const keys: string[] = [rootNodeId]
+    const rNode = nodeMap.value.get(rootNodeId)
+    if (rNode) {
+      keys.push(...rNode.children)
+    }
+    expandedKeys.value = keys
+  },
+  { immediate: true }
+)
+
+// 搜索时自动展开匹配的祖先节点
+watch(search, q => {
+  const query = q.trim().toLowerCase()
+  if (!query) return
+  const toExpand = new Set<string>(expandedKeys.value)
+  for (const n of props.nodes) {
+    if (n.name.toLowerCase().includes(query) || n.className.toLowerCase().includes(query)) {
+      let curr: UMGNode | undefined = n
+      while (curr?.parentId) {
+        toExpand.add(curr.parentId)
+        curr = nodeMap.value.get(curr.parentId)
+      }
+    }
+  }
+  expandedKeys.value = Array.from(toExpand)
+})
+
+function handleSelectKeys(keys: Array<string | number>) {
+  if (keys.length > 0) {
+    emit('select-node', String(keys[0]))
+  }
+}
 </script>
 
 <template>
   <div class="umg-hierarchy">
     <div class="hierarchy-header">
-      <span class="header-title">Widget 层次树</span>
+      <div class="section-row">
+        <span class="section-title">Widget 层次树</span>
+        <n-button
+          v-if="hiddenIds.size > 0"
+          size="tiny"
+          quaternary
+          type="primary"
+          @click="showAll"
+        >
+          全部显示 ({{ hiddenIds.size }} 已隐藏)
+        </n-button>
+      </div>
       <n-select
-        :value="activeRootId"
+        v-if="rootOptions.length > 1"
+        size="small"
+        :value="activeRoot?.id"
         :options="rootOptions"
-        size="tiny"
-        style="width: 160px"
-        @update:value="val => emit('select-root', val)"
+        @update:value="val => emit('update:activeRootId', val)"
+      />
+      <n-input
+        v-model:value="search"
+        size="small"
+        clearable
+        placeholder="搜索控件名称或类型..."
       />
     </div>
-    <div ref="container" class="tree-container">
+
+    <div class="hierarchy-body">
       <n-tree
         block-line
-        :expanded-keys="expandedKeys"
-        @update:expanded-keys="keys => expandedKeys = keys as string[]"
+        checkable
+        cascade
+        show-line
         :data="treeData"
-        :selected-keys="selectedKeys"
-        @update:selected-keys="keys => emit('select-node', (keys[0] as string) || null)"
+        :pattern="search"
+        :filter="(pattern, option) => String(option.label ?? '').toLowerCase().includes(pattern.toLowerCase())"
+        :selected-keys="selectedId ? [selectedId] : []"
+        :checked-keys="checkedKeys"
+        v-model:expanded-keys="expandedKeys"
+        @update:selected-keys="handleSelectKeys"
+        @update:checked-keys="handleUpdateCheckedKeys"
       />
+    </div>
+
+    <div class="hierarchy-footer">
+      <n-tag size="small" :bordered="false">共 {{ allTreeNodeIds.length }} 个节点</n-tag>
     </div>
   </div>
 </template>
@@ -100,24 +207,42 @@ const selectedKeys = computed(() => (props.selectedId ? [props.selectedId] : [])
 .umg-hierarchy {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: var(--n-color);
+  width: 280px;
+  flex-shrink: 0;
   border-right: 1px solid var(--n-border-color);
+  height: 100%;
+  overflow: hidden;
 }
 .hierarchy-header {
-  padding: 8px 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+}
+.section-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--n-border-color);
 }
-.header-title {
+.section-title {
+  font-size: 12px;
   font-weight: 600;
-  font-size: 13px;
+  color: #888;
 }
-.tree-container {
+.hierarchy-body {
   flex: 1;
-  overflow: auto;
-  padding: 8px;
+  overflow-y: auto;
+  padding: 6px;
+}
+/* 叶子节点隐藏展开图标，但保留 switcher 的宽度占位，维持原有的缩进层级 */
+.hierarchy-body :deep(.n-tree-node-switcher--hide) {
+  visibility: hidden;
+  display: inline-block;
+}
+.hierarchy-footer {
+  padding: 6px 10px;
+  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  font-size: 12px;
 }
 </style>

@@ -48,7 +48,10 @@ internal static class UMGModelBuilder
                     if(Valid(content)&&!children.Contains(Id(content-1)))children.Add(Id(content-1));else issues.Add("Unresolved or duplicate Slot.Content.");
                 }
                 if(children.Count==0){var content=UMGPropertyReader.Index(normal,"Content");if(Valid(content))children.Add(Id(content-1));}
-                foreach(var key in new[]{"Visibility","RenderOpacity","RenderTransform","RenderTransformPivot"})if(!visual.ContainsKey(key))sources["visual."+key]="unknown";
+                if(!visual.ContainsKey("Visibility")){visual["Visibility"]="Visible";sources["visual.Visibility"]="engine-default";}
+                if(!visual.ContainsKey("RenderOpacity")){visual["RenderOpacity"]=1d;sources["visual.RenderOpacity"]="engine-default";}
+                if(!visual.ContainsKey("RenderTransformPivot")){visual["RenderTransformPivot"]=new Dictionary<string,object?>{["X"]=0.5d,["Y"]=0.5d};sources["visual.RenderTransformPivot"]="engine-default";}
+                if(!visual.ContainsKey("RenderTransform"))sources["visual.RenderTransform"]="engine-default";
                 if(!Supported.Contains(cls))issues.Add("Class is not supported by the initial static renderer.");
                 if(e.Extras is {Length:>0})issues.Add("Opaque custom serialization is not evaluated.");
                 if(normal?.Data.Any(p=>p.Name.ToString().Contains("Binding",StringComparison.Ordinal))==true)issues.Add("Runtime bindings are not evaluated.");

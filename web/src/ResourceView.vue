@@ -384,7 +384,7 @@ onBeforeUnmount(() => {
       <div v-else class="resource-fill-item">
         <div v-if="error" class="error-banner">{{ error }}</div>
 
-        <u-m-g-designer v-if="isBlueprint && umgDoc && mode === 'blueprint'" :path="path" :document="umgDoc" @navigate-path="jumpToResource" />
+        <u-m-g-designer v-if="isBlueprint && umgDoc && mode === 'blueprint'" :path="path" :revision="umgDoc?.revision ?? ''" @navigate-path="jumpToResource" @fallback-generic="mode = 'generic'" />
         <blueprint-viewer v-else-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
         <movie-resource-viewer
           v-if="data?.MovieInfo && mode === 'movie'"

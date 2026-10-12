@@ -12,6 +12,7 @@ const props = defineProps<{
   nodes: UMGNode[]
   layouts: Map<string, ComputedLayout>
   selectedId: string | null
+  hiddenIds: Set<string>
   viewport: { width: number; height: number }
   viewMode: 'appearance' | 'structure'
 }>()
@@ -262,6 +263,7 @@ async function rebuildScene() {
 
   for (const { node, layout } of entries) {
     if (gen !== renderGeneration) return
+    if (props.hiddenIds.has(node.id)) continue
     if (props.viewMode === 'appearance' && !layout.visible) continue
 
     const clipPoints = widgetClip(node, nodesMap, props.layouts, worldTransforms, props.viewport)
@@ -455,18 +457,35 @@ onMounted(async () => {
     selection: false
   })
 
-  const onSelect = (e: any) => {
-    if (syncingSelection) return
-    const target = e.selected?.[0] as FabricObject | undefined
-    if (!target) return
-    const id = nodeIdByObject.get(target)
-    if (id && id !== props.selectedId) {
-      emit('select-node', id)
-    }
-  }
+  // 多层穿透点击命中逻辑：若在同一位置重叠多个组件，连续点击可循环向下选取底层元素
+  fabricCanvas.on('mouse:down', opt => {
+    const evt = opt.e as MouseEvent
+    if (evt.button !== 0 || evt.shiftKey || evt.altKey) return
+    if (!fabricCanvas) return
 
-  fabricCanvas.on('selection:created', onSelect)
-  fabricCanvas.on('selection:updated', onSelect)
+    const pointer = fabricCanvas.getScenePoint(opt.e)
+    const hitObjects: { id: string; obj: FabricObject }[] = []
+
+    for (const obj of fabricCanvas.getObjects()) {
+      const id = nodeIdByObject.get(obj)
+      if (!id) continue
+      if (obj.containsPoint(pointer)) {
+        hitObjects.push({ id, obj })
+      }
+    }
+
+    if (hitObjects.length === 0) return
+
+    const currentIndex = hitObjects.findIndex(h => h.id === props.selectedId)
+    const nextTarget =
+      currentIndex === -1
+        ? hitObjects[hitObjects.length - 1]
+        : hitObjects[(currentIndex - 1 + hitObjects.length) % hitObjects.length]
+
+    if (nextTarget && nextTarget.id !== props.selectedId) {
+      emit('select-node', nextTarget.id)
+    }
+  })
 
   // 滚轮缩放
   fabricCanvas.on('mouse:wheel', opt => {
@@ -527,7 +546,7 @@ onMounted(async () => {
 })
 
 watch(
-  [() => props.nodes, () => props.layouts, () => props.viewMode, () => props.viewport],
+  [() => props.nodes, () => props.layouts, () => props.viewMode, () => props.viewport, () => props.hiddenIds],
   () => {
     rebuildScene()
   }
