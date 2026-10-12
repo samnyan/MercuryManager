@@ -4,6 +4,7 @@ using UAssetAPI;
 using UAssetAPI.ExportTypes;
 using UAssetAPI.UnrealTypes;
 using UAssetAPI.PropertyTypes.Objects;
+using UAssetAPI.PropertyTypes.Structs;
 
 namespace MercuryManager.Server;
 
@@ -23,6 +24,74 @@ public sealed class BlueprintService
     }
     private static int ObjectIndex(NormalExport e,string name)=>e.Data.OfType<ObjectPropertyData>().FirstOrDefault(p=>p.Name.ToString()==name)?.Value.Index??0;
     private static JsonElement Json(JToken token)=>JsonSerializer.Deserialize<JsonElement>(token.ToString(Newtonsoft.Json.Formatting.None));
+    private static JObject? ResolveAnimationTracks(int movieSceneIndex,UAsset asset)
+    {
+        if(movieSceneIndex<=0||movieSceneIndex>asset.Exports.Count)return null;
+        if(asset.Exports[movieSceneIndex-1] is not NormalExport ms)return null;
+        var info=new JObject();
+        var playbackRange=ms.Data.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="PlaybackRange");
+        if(playbackRange!=null)
+        {
+            var upper=playbackRange.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="UpperBound");
+            var val=upper?.Value.OfType<FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Value")?.Value;
+            if(val!=null)info["duration"]=val.Value;
+        }
+        var bindingsArray=ms.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="ObjectBindings");
+        var bindingsList=new JArray();
+        if(bindingsArray!=null)
+        {
+            foreach(var elem in bindingsArray.Value.OfType<StructPropertyData>())
+            {
+                var bindingName=elem.Value.OfType<StrPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="BindingName")?.Value?.ToString();
+                var guidProp=elem.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="ObjectGuid");
+                var guid=guidProp?.Value.OfType<GuidPropertyData>().FirstOrDefault()?.Value.ToString();
+                var tracksProp=elem.Value.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Tracks");
+                var trackList=new JArray();
+                if(tracksProp!=null)
+                {
+                    foreach(var trackObj in tracksProp.Value.OfType<ObjectPropertyData>())
+                    {
+                        var trackIdx=trackObj.Value.Index;
+                        if(trackIdx>0&&trackIdx<=asset.Exports.Count&&asset.Exports[trackIdx-1] is NormalExport trackExport)
+                        {
+                            var propName=trackExport.Data.OfType<NamePropertyData>().FirstOrDefault(p=>p.Name.ToString()=="PropertyName")?.Value?.ToString();
+                            var propPath=trackExport.Data.OfType<StrPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="PropertyPath")?.Value?.ToString();
+                            var trackItem=new JObject{["trackName"]=trackExport.ObjectName.ToString(),["trackType"]=trackExport.GetExportClassType().ToString()};
+                            if(!string.IsNullOrEmpty(propName))trackItem["property"]=propName;
+                            if(!string.IsNullOrEmpty(propPath))trackItem["propertyPath"]=propPath;
+                            trackList.Add(trackItem);
+                        }
+                    }
+                }
+                var bindingItem=new JObject{["name"]=bindingName??string.Empty,["guid"]=guid??string.Empty,["tracks"]=trackList};
+                bindingsList.Add(bindingItem);
+            }
+        }
+        info["bindings"]=bindingsList;
+        return info;
+    }
+    private static JObject? ResolveWidgetAnimation(NormalExport wa,UAsset asset)
+    {
+        var msIdx=ObjectIndex(wa,"MovieScene");
+        var msInfo=ResolveAnimationTracks(msIdx,asset)??new JObject();
+        var bindings=new JArray();
+        var animBindings=wa.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="AnimationBindings");
+        if(animBindings!=null)
+        {
+            foreach(var item in animBindings.Value.OfType<StructPropertyData>())
+            {
+                var wName=(item.Value.FirstOrDefault(p=>p.Name.ToString()=="WidgetName") as NamePropertyData)?.Value?.ToString();
+                var slotWName=(item.Value.FirstOrDefault(p=>p.Name.ToString()=="SlotWidgetName") as NamePropertyData)?.Value?.ToString();
+                var isRoot=(item.Value.FirstOrDefault(p=>p.Name.ToString()=="bIsRootWidget") as BoolPropertyData)?.Value??false;
+                var guid=(item.Value.FirstOrDefault(p=>p.Name.ToString()=="AnimationGuid") as StructPropertyData)?.Value.OfType<GuidPropertyData>().FirstOrDefault()?.Value.ToString();
+                var bObj=new JObject{["widgetName"]=wName??string.Empty,["slotWidgetName"]=slotWName??string.Empty,["bIsRootWidget"]=isRoot};
+                if(!string.IsNullOrEmpty(guid))bObj["guid"]=guid;
+                bindings.Add(bObj);
+            }
+        }
+        msInfo["widgetBindings"]=bindings;
+        return msInfo;
+    }
     public object Read(string path)
     {
         lock(gate)
@@ -55,7 +124,7 @@ public sealed class BlueprintService
         {
             var asset=Load(path);
             if(index<0||index>=asset.Exports.Count)throw new ArgumentException("Invalid Blueprint export index.");
-            var export=asset.Exports[index];var properties=new JObject();var references=new JArray();
+            var export=asset.Exports[index];var properties=new JObject();var references=new JArray();var internalReferences=new JArray();var seenInternal=new HashSet<int>();
             if(export is NormalExport normal)foreach(var p in normal.Data)
             {
                 JToken value;
@@ -63,9 +132,26 @@ public sealed class BlueprintService
                 catch(ArgumentNullException){value=new JObject{["Status"]="Property serializer unavailable",["Type"]=p.GetType().Name};}
                 GenericResourceViewer.AnnotateReferences(value,asset);
                 properties[$"{p.Name}[{p.ArrayIndex}]"]=value;
-                foreach(var reference in (value is JContainer container?container.DescendantsAndSelf():Enumerable.Empty<JToken>()).OfType<JObject>().Where(o=>o["ContentFile"]!=null))references.Add(reference.DeepClone());
+                foreach(var obj in (value is JContainer container?container.DescendantsAndSelf():Enumerable.Empty<JToken>()).OfType<JObject>())
+                {
+                    if(obj["ContentFile"]!=null)references.Add(obj.DeepClone());
+                    if(obj["[Reference]"] is JObject reference&&reference["Index"]?.Value<int>() is int target&&target>0&&target<=asset.Exports.Count&&seenInternal.Add(target))
+                    {
+                        var linked=asset.Exports[target-1];
+                        internalReferences.Add(new JObject{["index"]=target-1,["name"]=linked.ObjectName.ToString(),["type"]=linked.GetExportClassType().ToString(),["property"]=p.Name.ToString()});
+                    }
+                }
             }
-            return new{name=export.ObjectName.ToString(),type=export.GetExportClassType().ToString(),properties=Json(properties),references=Json(references),opaqueBytes=export.Extras?.Length??0};
+            JObject? animationDetails = null;
+            if (export.GetExportClassType().ToString() == "WidgetAnimation" && export is NormalExport wa)
+            {
+                animationDetails = ResolveWidgetAnimation(wa, asset);
+            }
+            else if (export.GetExportClassType().ToString() == "MovieScene")
+            {
+                animationDetails = ResolveAnimationTracks(index + 1, asset);
+            }
+            return new{name=export.ObjectName.ToString(),type=export.GetExportClassType().ToString(),properties=Json(properties),references=Json(references),internalReferences=Json(internalReferences),animation=animationDetails!=null?Json(animationDetails):(object?)null,opaqueBytes=export.Extras?.Length??0};
         }
     }
 }

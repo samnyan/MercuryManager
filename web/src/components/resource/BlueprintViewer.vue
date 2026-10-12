@@ -2,11 +2,12 @@
 import { computed, ref, watch } from 'vue'
 import { NTree, NInput, NSpin, NButton, NSelect } from 'naive-ui'
 import GenericResourceViewer from './GenericResourceViewer.vue'
+import TexturePreviewModal from './TexturePreviewModal.vue'
 import { api, useProject } from '../../project'
 type Node={index:number;name:string;type:string;group:string;outerIndex:number;parentIndex:number|null;slotIndex:number|null}
 type Reference={ContentFile:string;Class?:string;ObjectName?:string}
 type Summary={nodes:Node[];references:Reference[]}
-type Detail={name:string;type:string;properties:Record<string,unknown>;references:Reference[];opaqueBytes:number}
+type Detail={name:string;type:string;properties:Record<string,unknown>;references:Reference[];internalReferences?:{index:number;name:string;type:string;property:string}[];animation?:{duration?:number;bindings?:{name:string;guid:string;tracks:{trackName:string;trackType:string;property?:string;propertyPath?:string}[]}[];widgetBindings?:{widgetName:string;slotWidgetName:string;bIsRootWidget:boolean;guid?:string}[]};opaqueBytes:number}
 type Tree={key:number;label:string;children:Tree[]}
 const props=defineProps<{path:string;summary:Summary}>()
 const emit=defineEmits<{(e:'navigate-path',path:string):void}>()
@@ -30,12 +31,20 @@ const tree=computed(()=>{
  return roots
 })
 const active=computed(()=>props.summary.nodes.find(n=>n.index===selected.value[0]))
-const refs=computed(()=>Array.from(new Map((detail.value?.references||props.summary.references).map(r=>[r.ContentFile,r])).values()))
+const resourceQuery=ref(''),resourceType=ref('all'),referenceScope=ref('node'),previewPath=ref('')
+const category=(r:Reference)=>r.Class==='Texture2D'?'texture':r.Class?.includes('Material')?'material':r.Class?.includes('Font')?'font':r.Class?.includes('Blueprint')?'blueprint':'other'
+const resourceOptions=[{label:'全部资源',value:'all'},{label:'贴图',value:'texture'},{label:'材质',value:'material'},{label:'字体',value:'font'},{label:'蓝图',value:'blueprint'},{label:'其他',value:'other'}]
+const refs=computed(()=>{
+ const source=referenceScope.value==='asset'||!selected.value.length?props.summary.references:detail.value?.references||[]
+ const unique=new Map<string,Reference>();for(const r of source){const prior=unique.get(r.ContentFile);if(!prior||prior.Class==='Package')unique.set(r.ContentFile,r)}
+ return [...unique.values()].filter(r=>(resourceType.value==='all'||category(r)===resourceType.value)&&`${r.ContentFile} ${r.Class||''}`.toLowerCase().includes(resourceQuery.value.toLowerCase()))
+})
+const previewUrl=computed(()=>`/api/projects/${project.id}/resource-image?`+new URLSearchParams({path:previewPath.value}))
 const rawUrl=computed(()=>`/api/projects/${project.id}/resource-raw?`+new URLSearchParams({path:props.path}))
 async function select(keys:number[]){selected.value=keys;detail.value=undefined;error.value='';const id=++generation;if(keys[0]==null)return;busy.value=true
  try{const d=await api<Detail>(`/projects/${project.id}/resource-blueprint-node?`+new URLSearchParams({path:props.path,index:String(keys[0])}));if(id===generation)detail.value=d}catch(e){if(id===generation)error.value=String(e)}finally{if(id===generation)busy.value=false}
 }
-watch(()=>props.path,()=>{generation++;selected.value=[];detail.value=undefined;busy.value=false})
+watch(()=>props.path,()=>{generation++;selected.value=[];detail.value=undefined;busy.value=false;previewPath.value=''})
 </script>
 <template>
  <div class="blueprint-viewer">
@@ -43,12 +52,36 @@ watch(()=>props.path,()=>{generation++;selected.value=[];detail.value=undefined;
   <main><p class="note">只读结构与默认属性；不执行运行时绑定、材质或动画。</p>
    <h3>{{active ? `${active.name} · ${active.type}` : '选择组件查看属性；下方列出资产依赖'}}</h3>
    <n-button v-if="active?.slotIndex!=null" size="small" @click="select([active.slotIndex])">查看布局 Slot</n-button>
-   <div class="references"><n-button v-for="r in refs" :key="r.ContentFile" text type="primary" @click="emit('navigate-path',r.ContentFile)">{{r.Class}} · {{r.ContentFile}}</n-button></div>
+   <div class="resource-filters">
+    <n-select v-model:value="referenceScope" :options="[{label:'当前节点引用',value:'node'},{label:'整个蓝图依赖',value:'asset'}]"/>
+    <n-select v-model:value="resourceType" :options="resourceOptions"/>
+    <n-input v-model:value="resourceQuery" placeholder="筛选资源路径 / 类型" clearable/>
+   </div>
+   <div class="references"><div v-for="r in refs" :key="r.ContentFile" class="reference-row"><n-button text type="primary" @click="emit('navigate-path',r.ContentFile)">{{r.Class}} · {{r.ContentFile}}</n-button><n-button v-if="r.Class==='Texture2D'" size="tiny" @click="previewPath=r.ContentFile">预览贴图</n-button></div><span v-if="!refs.length && !busy" class="note">没有匹配的外部资源引用</span></div>
+   <div v-if="detail?.animation" class="animation-summary">
+    <div class="anim-header"><span class="anim-title">动画绑定与轨道 (只读解析)</span><span v-if="detail.animation.duration!=null" class="anim-duration">时长: {{detail.animation.duration.toFixed(2)}}s</span></div>
+    <div v-if="detail.animation.widgetBindings?.length" class="anim-section"><span class="section-label">关联控件:</span><div class="widget-tags"><n-button v-for="wb in detail.animation.widgetBindings" :key="wb.widgetName+wb.slotWidgetName" size="tiny" tertiary @click="query=wb.widgetName;group='widgets'">{{wb.widgetName}}{{wb.slotWidgetName&&wb.slotWidgetName!=='None'?` (${wb.slotWidgetName})`:''}}{{wb.bIsRootWidget?' [Root]':''}}</n-button></div></div>
+    <div v-if="detail.animation.bindings?.length" class="anim-section"><span class="section-label">轨道列表:</span><div class="tracks-list"><div v-for="b in detail.animation.bindings" :key="b.guid" class="track-group"><span class="track-binding-name">{{b.name}}:</span><span v-for="t in b.tracks" :key="t.trackName" class="track-pill">{{t.property || t.trackType}}</span><span v-if="!b.tracks.length" class="note">无独立轨道</span></div></div></div>
+   </div>
+   <div v-if="detail?.internalReferences?.length" class="internal-links"><span class="note">关联内部对象（序列化引用）</span><n-button v-for="r in detail.internalReferences" :key="r.index" size="small" @click="group='all';select([r.index])">{{r.property}} → {{r.name}} · {{r.type}}</n-button></div>
+   <texture-preview-modal :show="!!previewPath" :title="previewPath" :src="previewUrl" :asset-path="previewPath" @update:show="show=>{if(!show)previewPath=''}" @navigate-path="emit('navigate-path',$event)"/>
    <n-spin v-if="busy"/><p v-if="error" class="error">{{error}}</p>
    <generic-resource-viewer v-if="detail" :key="selected[0]" :data="{Properties:detail.properties,OpaqueBytes:detail.opaqueBytes}" :path="path" :preview-src="''" :preview-error="''" :raw-url="rawUrl" @navigate-path="emit('navigate-path',$event)"/>
   </main>
  </div>
 </template>
 <style scoped>
+.animation-summary{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:12px;margin:12px 0;display:flex;flex-direction:column;gap:8px}
+.anim-header{display:flex;justify-content:space-between;align-items:center}
+.anim-title{font-weight:600;font-size:13px;color:#2080f0}
+.anim-duration{font-size:12px;color:#f0a020;font-family:monospace}
+.anim-section{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.section-label{color:#888;font-weight:500}
+.widget-tags{display:flex;flex-wrap:wrap;gap:6px}
+.tracks-list{display:flex;flex-direction:column;gap:4px}
+.track-group{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:12px}
+.track-binding-name{color:#aaa;font-family:monospace}
+.track-pill{background:rgba(32,128,240,0.12);color:#2080f0;padding:1px 6px;border-radius:4px;font-size:11px}
+.resource-filters{display:grid;grid-template-columns:180px 140px minmax(160px,1fr);gap:8px;margin-top:12px}.reference-row{display:flex;align-items:center;gap:12px;max-width:100%}.internal-links{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.internal-links .note{width:100%}@media(max-width:800px){.resource-filters{grid-template-columns:1fr}}
 .blueprint-viewer{display:flex;gap:16px;height:100%;min-height:520px}aside{width:340px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:auto}main{flex:1;min-width:0;overflow:auto}.note{color:#888;font-size:12px}.references{display:flex;flex-direction:column;align-items:flex-start;max-height:180px;overflow:auto;margin:10px 0}.references :deep(button){white-space:normal;text-align:left;height:auto;margin:3px 0}.error{color:#d03050}@media(max-width:800px){.blueprint-viewer{flex-direction:column}aside{width:100%}}
 </style>
