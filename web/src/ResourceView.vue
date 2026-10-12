@@ -17,10 +17,29 @@ import MaterialInstanceViewer from './components/resource/MaterialInstanceViewer
 import MaterialFunctionViewer from './components/resource/MaterialFunctionViewer.vue'
 import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
 import MovieResourceViewer from './components/resource/MovieResourceViewer.vue'
+import ResourceViewerModal from './components/resource/ResourceViewerModal.vue'
+
+const props = withDefaults(
+  defineProps<{
+    initialPath?: string
+    inDialog?: boolean
+  }>(),
+  {
+    initialPath: '',
+    inDialog: false
+  }
+)
+
+const emit = defineEmits<{
+  'open-dialog': [path: string]
+}>()
 
 const router = useRouter()
 const route = useRoute()
 const project = useProject()
+
+const showResourceDialog = ref(false)
+const dialogTargetPath = ref('')
 
 const src = ref('')
 const selectedMip = ref<number>(0)
@@ -139,19 +158,22 @@ function cleanup() {
 const miInfo = computed(() => data.value?.MaterialInstanceInfo)
 
 const historyStack = ref<string[]>(
-  route.query.from === 'link'
+  !props.inDialog && route.query.from === 'link'
     ? JSON.parse(sessionStorage.getItem('mercury-resource-history') || '[]')
     : []
 )
-if (route.query.from !== 'link') {
+if (!props.inDialog && route.query.from !== 'link') {
   sessionStorage.removeItem('mercury-resource-history')
 }
 
 function jumpToResource(targetPath: string) {
   if (!targetPath || targetPath === path.value) return
-  historyStack.value.push(path.value)
-  sessionStorage.setItem('mercury-resource-history', JSON.stringify(historyStack.value))
-  router.push({ path: '/resource', query: { path: targetPath, from: 'link' } })
+  if (props.inDialog) {
+    emit('open-dialog', targetPath)
+    return
+  }
+  dialogTargetPath.value = targetPath
+  showResourceDialog.value = true
 }
 
 function goBackResource() {
@@ -166,7 +188,7 @@ function goBackResource() {
 }
 
 watch(
-  () => [route.query.path, project.id,reload.value],
+  () => [props.inDialog ? props.initialPath : route.query.path, project.id, reload.value],
   async () => {
     cleanup()
     const request = ++generation
@@ -187,7 +209,7 @@ watch(
     selectedMip.value = 0
     mipCount.value = 1
     mode.value = 'generic'
-    path.value = String(route.query.path ?? '')
+    path.value = String((props.inDialog ? props.initialPath : route.query.path) ?? '')
     if (!path.value || !project.id) return
 
     busy.value = true
@@ -539,6 +561,13 @@ onBeforeUnmount(() => {
       :title="modalTexTitle"
       :asset-path="modalTexPath"
       @navigate-path="jumpToResource"
+    />
+
+    <resource-viewer-modal
+      v-if="!inDialog && showResourceDialog"
+      v-model:show="showResourceDialog"
+      :asset-path="dialogTargetPath"
+      :depth="1"
     />
   </div>
 </template>

@@ -10,9 +10,10 @@ import {
   NSlider,
   NSelect
 } from 'naive-ui'
-import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles } from '@lucide/vue'
+import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles, Layers, Cpu } from '@lucide/vue'
 import { useProject } from '../../project'
 import { tr } from '../../i18n'
+import { MaterialWebGLRenderer } from '../../utils/material-shader/MaterialWebGLRenderer'
 
 export interface SimTextureItem {
   name: string
@@ -29,11 +30,17 @@ const props = defineProps<{
 
 const project = useProject()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const webglCanvasRef = ref<HTMLCanvasElement | null>(null)
 
 const playing = ref(false)
 const simTime = ref(0)
 const bgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
 const simPreset = ref<string>('auto')
+const renderBackend = ref<'canvas' | 'webgl'>('webgl')
+
+// WebGL 着色器运行器
+const webglRenderer = new MaterialWebGLRenderer()
+let isWebGLReady = false
 
 // 贴图缓存: path -> HTMLImageElement
 const loadedImages = new Map<string, HTMLImageElement>()
@@ -115,10 +122,11 @@ const uniqueTextures = computed(() => {
   return out
 })
 
-// 多图层选择: 主图、副图、遮罩图
+// 多图层选择: 主图、副图、遮罩图、物件图
 const primaryTexPath = ref<string>('')
 const secondaryTexPath = ref<string>('')
 const maskTexPath = ref<string>('')
+const objTexPath = ref<string>('')
 
 watch(
   uniqueTextures,
@@ -127,6 +135,7 @@ watch(
       primaryTexPath.value = ''
       secondaryTexPath.value = ''
       maskTexPath.value = ''
+      objTexPath.value = ''
       return
     }
 
@@ -136,17 +145,21 @@ watch(
     // 遮罩图
     maskTexPath.value = masks.length > 0 ? masks[0].path : ''
 
+    // 物件图 (如 uT_CM_obj05)
+    const obj = nonMasks.find(t => /obj|ring|shape|star/i.test(t.name) || /obj/i.test(t.path))
+    objTexPath.value = obj ? obj.path : ''
+
     // 主底图: 优先角色立绘、ApplyTo、主纹理 (applyto, chara, bg, tex01, tex_h)
     const pri =
-      nonMasks.find(t => /applyto|chara|bg|main|tex01/i.test(t.name) || /chara|bg/i.test(t.path)) ||
-      nonMasks[0] ||
+      nonMasks.find(t => t.path !== objTexPath.value && (/applyto|chara|bg|main|tex01/i.test(t.name) || /chara|bg/i.test(t.path))) ||
+      nonMasks.find(t => t.path !== objTexPath.value) ||
       list[0]
     primaryTexPath.value = pri ? pri.path : ''
 
     // 叠层图: 优先 Logo、装饰文字、次级纹理 (logo, icon, tex_v)
     const sec =
-      nonMasks.find(t => t.path !== primaryTexPath.value && (/logo|title|icon|tex_v|tex02/i.test(t.name) || /logo|title/i.test(t.path))) ||
-      nonMasks.find(t => t.path !== primaryTexPath.value)
+      nonMasks.find(t => t.path !== primaryTexPath.value && t.path !== objTexPath.value && (/logo|title|icon|tex_v|tex02/i.test(t.name) || /logo|title/i.test(t.path))) ||
+      nonMasks.find(t => t.path !== primaryTexPath.value && t.path !== objTexPath.value)
     secondaryTexPath.value = sec ? sec.path : ''
 
     // 预加载所有关联贴图
@@ -205,6 +218,9 @@ async function loadTextureImage(path: string) {
     img.onload = () => {
       loadedImages.set(path, img)
       buildMaskLumaTable(path, img)
+      if (webglRenderer) {
+        webglRenderer.updateTexture(path, img)
+      }
     }
     img.src = url
   } catch {
@@ -291,6 +307,45 @@ function drawAspectFit(
 }
 
 function drawCanvas() {
+  const t = simTime.value
+
+  // 若处于 WebGL 模式，调用 WebGL 管线进行像素级物理着色渲染
+  if (renderBackend.value === 'webgl') {
+    const glCanvas = webglCanvasRef.value
+    if (!glCanvas) return
+    const W = glCanvas.width
+    const H = glCanvas.height
+
+    if (!isWebGLReady) {
+      isWebGLReady = webglRenderer.init(glCanvas)
+      // 同步当前所有已载入的贴图至 WebGL 纹理单元
+      for (const [path, img] of loadedImages.entries()) {
+        webglRenderer.updateTexture(path, img)
+      }
+    }
+    if (isWebGLReady) {
+      webglRenderer.render(
+        W,
+        H,
+        {
+          time: t,
+          resolution: [W, H],
+          scalars: props.scalars,
+          vectors: props.vectors
+        },
+        {
+          primary: primaryTexPath.value,
+          secondary: secondaryTexPath.value,
+          mask: maskTexPath.value,
+          obj: objTexPath.value
+        },
+        props.blendMode
+      )
+      return
+    }
+  }
+
+  // Fallback: Canvas 2D 模拟渲染
   const canvas = canvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')
@@ -300,7 +355,6 @@ function drawCanvas() {
   const H = canvas.height
   ctx.clearRect(0, 0, W, H)
 
-  const t = simTime.value
   const mode = activeMode.value
   const imgPrimary = primaryTexPath.value ? loadedImages.get(primaryTexPath.value) : undefined
   const imgSecondary = secondaryTexPath.value ? loadedImages.get(secondaryTexPath.value) : undefined
@@ -326,7 +380,7 @@ function drawCanvas() {
       ctx.fillRect(24, 24, W - 48, H - 48)
     }
   } else if (mode === 'composite') {
-    // 多图层复合渲染 (如 uM_Title008: 背景色彩 + 角色立绘缩放 + Logo 叠层 + 局部 Glitch)
+    // 多图层复合渲染 (如 uM_Title008: 背景色彩 + 几何物件展开 + 角色立绘缩放/旋转 + Logo 叠层 + 局部 Glitch)
     const pad = 10
     const dstW = W - pad * 2
     const dstH = H - pad * 2
@@ -341,7 +395,20 @@ function drawCanvas() {
       ctx.fillRect(pad, pad, dstW, dstH)
     }
 
-    // 2. 主图层（如 uT_Chara000_EV000 角色立绘），支持 uMF_TexCropRotate 呼吸放大动画
+    // 1.5. 几何物件层 (如 uT_CM_obj05)，受 uMF_TexCropRotate 与 move_1 / Rotator 驱动旋转缩放
+    const imgObj = objTexPath.value ? loadedImages.get(objTexPath.value) : undefined
+    if (imgObj) {
+      ctx.save()
+      const moveSpeed = Math.max(0.1, getScalar(/move_1|speed_1/i, 0.2))
+      const objScale = 1.0 + (playing.value ? (t * moveSpeed) % 0.35 : 0)
+      ctx.translate(W / 2, H / 2)
+      ctx.scale(objScale, objScale)
+      ctx.globalAlpha = opacity * 0.55
+      ctx.drawImage(imgObj, -dstW / 2, -dstH / 2, dstW, dstH)
+      ctx.restore()
+    }
+
+    // 2. 主图层（如 uT_Chara000_EV000 角色立绘），支持 uMF_TexCropRotate 呼吸放大动画与 CustomRotator
     if (imgPrimary) {
       ctx.save()
       const hasCropRotate = (props.functionNames || []).some(f => /texcroprotate/i.test(f))
@@ -598,6 +665,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId)
+  if (webglRenderer) {
+    webglRenderer.destroy()
+  }
   for (const url of imageUrls.values()) {
     URL.revokeObjectURL(url)
   }
@@ -613,18 +683,51 @@ onUnmounted(() => {
           <n-icon :component="Sparkles" color="#18a058" />
           <span>{{ tr('ui.umgShaderSimulator') }}</span>
         </div>
-        <n-select
-          v-model:value="simPreset"
-          :options="presetOptions"
-          size="tiny"
-          style="width: 175px"
-        />
+        <n-space size="small" align="center">
+          <n-button-group size="tiny">
+            <n-button
+              :type="renderBackend === 'webgl' ? 'primary' : 'default'"
+              :secondary="renderBackend !== 'webgl'"
+              @click="renderBackend = 'webgl'"
+            >
+              <template #icon><n-icon :component="Cpu" /></template>
+              WebGL
+            </n-button>
+            <n-button
+              :type="renderBackend === 'canvas' ? 'primary' : 'default'"
+              :secondary="renderBackend !== 'canvas'"
+              @click="renderBackend = 'canvas'"
+            >
+              <template #icon><n-icon :component="Layers" /></template>
+              Canvas
+            </n-button>
+          </n-button-group>
+          <n-select
+            v-model:value="simPreset"
+            :options="presetOptions"
+            size="tiny"
+            style="width: 160px"
+          />
+        </n-space>
       </div>
     </template>
 
     <div class="sim-body">
       <div class="canvas-stage" :class="`bg-${bgMode}`">
-        <canvas ref="canvasRef" width="240" height="240" class="sim-canvas" />
+        <canvas
+          v-show="renderBackend === 'canvas'"
+          ref="canvasRef"
+          width="240"
+          height="240"
+          class="sim-canvas"
+        />
+        <canvas
+          v-show="renderBackend === 'webgl'"
+          ref="webglCanvasRef"
+          width="240"
+          height="240"
+          class="sim-canvas"
+        />
       </div>
 
       <div class="sim-controls">
@@ -700,6 +803,16 @@ onUnmounted(() => {
             <span class="t-label">{{ tr('ui.simMaskLayer') }}:</span>
             <n-select
               v-model:value="maskTexPath"
+              :options="[{ label: tr('ui.viewerEmpty'), value: '' }, ...uniqueTextures.map(t => ({ label: t.name || t.path.split('/').pop(), value: t.path }))]"
+              size="tiny"
+              style="flex: 1"
+            />
+          </div>
+
+          <div v-if="uniqueTextures.length > 2" class="layer-row">
+            <span class="t-label">{{ tr('ui.simObjLayer') }}:</span>
+            <n-select
+              v-model:value="objTexPath"
               :options="[{ label: tr('ui.viewerEmpty'), value: '' }, ...uniqueTextures.map(t => ({ label: t.name || t.path.split('/').pop(), value: t.path }))]"
               size="tiny"
               style="flex: 1"

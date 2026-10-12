@@ -280,6 +280,10 @@
       "simPrimaryLayer": "主层",
       "simSecondaryLayer": "叠层",
       "simMaskLayer": "遮罩层",
+      "simObjLayer": "物件层",
+      "simRendererBackend": "渲染后端",
+      "simRendererCanvas": "Canvas 2D (轻量模拟)",
+      "simRendererWebGL": "WebGL (着色器模拟)",
       "play": "播放",
       "pause": "暂停",
       "expressionsListTitle": "材质表达式节点清单 (Expressions)",
@@ -321,7 +325,10 @@
       "previewLanguage": "预览语言",
       "networkError": "无法连接服务器，请检查网络或服务是否已启动",
       "invalidJsonResponse": "服务器响应不是有效 JSON（HTTP {status}），请检查服务日志",
-      "invalidApiResult": "服务器响应格式不符合 ApiResult，请刷新页面或检查服务版本"
+      "invalidApiResult": "服务器响应格式不符合 ApiResult，请刷新页面或检查服务版本",
+      "dialogOpenNewTab": "在新标签页中打开",
+      "resourceDialogTitle": "资源资产查看器",
+      "close": "关闭"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -1181,6 +1188,10 @@
       "simPrimaryLayer": "Base",
       "simSecondaryLayer": "Overlay",
       "simMaskLayer": "Mask",
+      "simObjLayer": "Object",
+      "simRendererBackend": "Backend",
+      "simRendererCanvas": "Canvas 2D (Fallback)",
+      "simRendererWebGL": "WebGL (Shader Pipeline)",
       "play": "Play",
       "pause": "Pause",
       "expressionsListTitle": "Material Expressions List",
@@ -1222,7 +1233,10 @@
       "previewLanguage": "Preview Lang",
       "networkError": "Cannot connect to server. Check network or server status.",
       "invalidJsonResponse": "Server response is not valid JSON (HTTP {status}). Check server logs.",
-      "invalidApiResult": "Server response does not match ApiResult format. Refresh or check server version."
+      "invalidApiResult": "Server response does not match ApiResult format. Refresh or check server version.",
+      "dialogOpenNewTab": "Open in New Tab",
+      "resourceDialogTitle": "Resource Asset Viewer",
+      "close": "Close"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",
