@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NImage, NButton, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon, NModal } from 'naive-ui'
-import { ArrowLeft } from '@lucide/vue'
+import { NImage, NButton, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon, NModal, NTag } from 'naive-ui'
+import { ArrowLeft, ExternalLink } from '@lucide/vue'
 import { api, useProject } from './project'
 import { tr } from './i18n'
 import TextureCreateDialog from './components/resource/TextureCreateDialog.vue'
@@ -63,6 +63,26 @@ async function openExternalTexPreview(targetPath: string, label: string) {
     modalTexLoading.value = false
   }
 }
+const isDataTable = computed(() => {
+  if (!data.value?.Exports) return false
+  return data.value.Exports.some((e: any) => e.Class === 'DataTable')
+})
+
+const matchedTableRoute = computed(() => {
+  if (!isDataTable.value || !path.value) return null
+  const filename = path.value.split('/').pop()?.replace('.uasset', '') || ''
+  if (path.value.startsWith('Table/')) {
+    if (filename === 'MusicParameterTable') {
+      return { path: '/table/MusicParameterTable', label: '打开音乐参数表 (MusicParameterTable)', type: 'music' }
+    }
+    return { path: `/table/${filename}`, label: `打开表格数据编辑器 (${filename})`, type: 'table' }
+  }
+  if (path.value.startsWith('Message/')) {
+    return { path: `/message/${filename}`, label: `打开本地化文本编辑器 (${filename})`, type: 'message' }
+  }
+  return null
+})
+
 const jsonInput=ref<HTMLInputElement>()
 const jsonBusy=ref(false)
 const jsonUrl=computed(()=>'/api/projects/'+project.id+'/resource-json?'+new URLSearchParams({path:path.value}))
@@ -294,10 +314,30 @@ onBeforeUnmount(() => {
         <h2 class="page-title resource-path-title">{{ path || tr('ui.selectResource') }}</h2>
       </div>
       <n-space v-if="project.id && path.endsWith('.uasset')" :wrap="false">
+        <n-button
+          v-if="matchedTableRoute"
+          type="primary"
+          secondary
+          @click="router.push(matchedTableRoute.path)"
+        >
+          <template #icon><n-icon :component="ExternalLink" /></template>
+          {{ matchedTableRoute.label }}
+        </n-button>
         <n-button tag="a" :href="jsonUrl" download :disabled="busy || jsonBusy">{{tr('ui.jsonExport')}}</n-button>
         <n-button :loading="jsonBusy" :disabled="busy" @click="jsonInput?.click()">{{tr('ui.jsonImport')}}</n-button>
       </n-space>
       <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="uploadJson" />
+    </div>
+
+    <div v-if="matchedTableRoute" class="datatable-route-banner view-header-fixed">
+      <div class="banner-left">
+        <n-tag type="success" size="small" :bordered="false">DataTable 专用编辑器</n-tag>
+        <span>该资产拥有专门的结构化表格管理与字段关联页面，支持多语言预览、筛选与直接编辑保存。</span>
+      </div>
+      <n-button size="small" type="primary" @click="router.push(matchedTableRoute.path)">
+        <template #icon><n-icon :component="ExternalLink" /></template>
+        前往 {{ matchedTableRoute.path }}
+      </n-button>
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
@@ -427,6 +467,23 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex: 1;
   min-width: 0;
+}
+.datatable-route-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #166534;
+}
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .back-history-btn {
   font-weight: 500;
