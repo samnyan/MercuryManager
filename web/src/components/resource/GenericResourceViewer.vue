@@ -100,6 +100,7 @@ function navigate(parts: string[]) {
   segments.value = parts
   selected.value = value
   search.value = ''
+  ensureExpanded(parts)
   nextTick(() => {
     gridApi.value?.resetColumnState()
     gridApi.value?.sizeColumnsToFit()
@@ -197,16 +198,66 @@ function children(value: unknown, path: string): TreeOption[] {
 }
 
 const tree = ref<TreeOption[]>([])
+const expandedKeys = ref<string[]>([])
+const genericTreeContainer = ref<HTMLElement | null>(null)
+
 watch(
   () => props.data,
   value => {
     tree.value = children(value, '')
     selected.value = value
     segments.value = []
+    expandedKeys.value = []
     search.value = ''
   },
   { immediate: true }
 )
+
+function ensureExpanded(parts: string[]) {
+  const newExpanded = new Set(expandedKeys.value)
+  let currentList = tree.value
+  let currentPath = ''
+  let curVal: any = props.data
+
+  for (let i = 0; i < parts.length; i++) {
+    const seg = parts[i]
+    currentPath = currentPath + '/' + encodeURIComponent(seg)
+    newExpanded.add(currentPath)
+    if (curVal && typeof curVal === 'object') {
+      curVal = curVal[seg]
+    }
+    const node = currentList.find(n => n.key === currentPath)
+    if (node) {
+      if (!node.children || node.children.length === 0) {
+        node.children = children(curVal, currentPath)
+      }
+      currentList = node.children
+    }
+  }
+
+  // 如果目标节点本身也有子属性（比如进入了某个物件，它是 Object 或 Array），同时自动展开它下一级
+  if (parts.length > 0 && curVal && typeof curVal === 'object') {
+    const targetKey = '/' + parts.map(encodeURIComponent).join('/')
+    const targetNode = currentList.find(n => n.key === targetKey) || tree.value.find(n => n.key === targetKey)
+    if (targetNode) {
+      if (!targetNode.children || targetNode.children.length === 0) {
+        targetNode.children = children(curVal, targetKey)
+      }
+      if (targetNode.children.length > 0 && !targetNode.isLeaf) {
+        newExpanded.add(targetKey)
+      }
+    }
+  }
+
+  expandedKeys.value = Array.from(newExpanded)
+
+  nextTick(() => {
+    setTimeout(() => {
+      const selectedEl = genericTreeContainer.value?.querySelector('.n-tree-node--selected')
+      selectedEl?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 60)
+  })
+}
 
 function load(node: TreeOption) {
   const items = children(node.value, String(node.key))
@@ -214,6 +265,10 @@ function load(node: TreeOption) {
     ? items
     : [{ key: String(node.key) + '/__empty__', label: tr('ui.viewerEmpty'), isLeaf: true, disabled: true }]
   return Promise.resolve()
+}
+
+function onUpdateGenericExpanded(keys: string[]) {
+  expandedKeys.value = keys
 }
 
 function select(keys: (string | number)[], nodes: (TreeOption | null)[]) {
@@ -674,14 +729,16 @@ watch(columns, () => {
 
   <div class="generic-viewer">
     <!-- 左侧树状目录导航 -->
-    <div class="generic-tree">
+    <div ref="genericTreeContainer" class="generic-tree">
       <n-tree
         :data="tree"
         :on-load="load"
         expand-on-click
         :selected-keys="segments.length ? [location] : []"
+        :expanded-keys="expandedKeys"
         block-line
         @update:selected-keys="select"
+        @update:expanded-keys="onUpdateGenericExpanded"
       />
     </div>
 
@@ -783,6 +840,10 @@ watch(columns, () => {
   overflow-y: auto;
   border-right: 1px solid #e0e0e6;
   padding-right: 6px;
+}
+.generic-tree :deep(.n-tree-node-content__text) {
+  word-break: break-all;
+  line-height: 1.35;
 }
 .generic-details {
   flex: 1;
