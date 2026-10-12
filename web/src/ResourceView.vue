@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NImage, NButton, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon } from 'naive-ui'
+import { NImage, NButton, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon, NModal } from 'naive-ui'
 import { ArrowLeft } from '@lucide/vue'
 import { api, useProject } from './project'
 import { tr } from './i18n'
@@ -10,6 +10,7 @@ import AudioResourceViewer from './components/resource/AudioResourceViewer.vue'
 import GenericResourceViewer from './components/resource/GenericResourceViewer.vue'
 import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
+import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -34,8 +35,34 @@ const isMer = ref(false)
 const blueprint = ref<any>()
 watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){const request=generation;busy.value=true;try{const result=await api<{data:any}>(`/projects/${project.id}/resource-data?`+new URLSearchParams({path:path.value}));if(request===generation)data.value=result.data}catch(e){if(request===generation)error.value=String(e)}finally{if(request===generation)busy.value=false}}})
 const isMaterialInstance = ref(false)
+const isMaterial = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
+const showTexModal = ref(false)
+const modalTexSrc = ref('')
+const modalTexTitle = ref('')
+const modalTexLoading = ref(false)
+
+async function openExternalTexPreview(targetPath: string, label: string) {
+  if (!project.id || !targetPath) return
+  showTexModal.value = true
+  modalTexTitle.value = `${label} (${targetPath})`
+  modalTexLoading.value = true
+  if (modalTexSrc.value) {
+    URL.revokeObjectURL(modalTexSrc.value)
+    modalTexSrc.value = ''
+  }
+  try {
+    const res = await fetch(`/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: targetPath, mip: '0' }))
+    if (!res.ok) throw new Error((await res.json()).message)
+    const blob = await res.blob()
+    modalTexSrc.value = URL.createObjectURL(blob)
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    modalTexLoading.value = false
+  }
+}
 const jsonInput=ref<HTMLInputElement>()
 const jsonBusy=ref(false)
 const jsonUrl=computed(()=>'/api/projects/'+project.id+'/resource-json?'+new URLSearchParams({path:path.value}))
@@ -138,6 +165,7 @@ watch(
     isMer.value = false
     blueprint.value = undefined
     isMaterialInstance.value = false
+    isMaterial.value = false
     selectedMip.value = 0
     mipCount.value = 1
     mode.value = 'generic'
@@ -165,6 +193,11 @@ watch(
       if(isAudio.value)mode.value='awb'
       isTexture.value = result.isTexture
       isMaterialInstance.value = !!result.data?.MaterialInstanceInfo
+      isMaterial.value = !!result.data?.MaterialInfo
+
+      if (isMaterial.value) {
+        mode.value = 'material'
+      }
 
       if (isMaterialInstance.value) {
         mode.value = 'sprite'
@@ -268,8 +301,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
+      <n-tab v-if="isMaterial" name="material">材质属性 (Material)</n-tab>
       <n-tab v-if="isMaterialInstance" name="sprite">Sprite 预览</n-tab>
       <n-tab v-if="isTexture" name="texture">
         {{ tr('ui.textureMode') }}
@@ -290,6 +324,13 @@ onBeforeUnmount(() => {
         <div v-if="error" class="error-banner">{{ error }}</div>
 
         <blueprint-viewer v-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
+        <material-resource-viewer
+          v-if="data?.MaterialInfo && mode === 'material'"
+          :info="data.MaterialInfo"
+          :path="path"
+          @navigate-path="jumpToResource"
+          @preview-texture="openExternalTexPreview"
+        />
         <generic-resource-viewer
           v-if="data && mode === 'generic'"
           :data="data"
@@ -368,6 +409,13 @@ onBeforeUnmount(() => {
       :base="path"
       @created="project.revision++"
     />
+
+    <n-modal v-model:show="showTexModal" preset="card" :title="modalTexTitle" style="width: 600px; max-width: 90vw">
+      <div style="display: flex; justify-content: center; align-items: center; min-height: 200px; background: #18181c; padding: 16px; border-radius: 6px">
+        <n-spin v-if="modalTexLoading" />
+        <n-image v-else-if="modalTexSrc" :src="modalTexSrc" style="max-width: 100%; max-height: 500px; image-rendering: pixelated" />
+      </div>
+    </n-modal>
   </div>
 </template>
 
