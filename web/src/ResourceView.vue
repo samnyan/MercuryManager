@@ -12,6 +12,7 @@ import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
 import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
 import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
+import MovieResourceViewer from './components/resource/MovieResourceViewer.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -38,6 +39,7 @@ watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){c
 const isMaterialInstance = ref(false)
 const isMaterial = ref(false)
 const isMpc = ref(false)
+const isMovie = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
 const showTexModal = ref(false)
@@ -189,6 +191,7 @@ watch(
     isMaterialInstance.value = false
     isMaterial.value = false
     isMpc.value = false
+    isMovie.value = false
     selectedMip.value = 0
     mipCount.value = 1
     mode.value = 'generic'
@@ -218,6 +221,11 @@ watch(
       isMaterialInstance.value = !!result.data?.MaterialInstanceInfo
       isMaterial.value = !!result.data?.MaterialInfo
       isMpc.value = !!result.data?.MpcInfo
+      isMovie.value = !!result.data?.MovieInfo
+
+      if (isMovie.value) {
+        mode.value = 'movie'
+      }
 
       if (isMpc.value) {
         mode.value = 'mpc'
@@ -349,8 +357,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMpc || isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
+      <n-tab v-if="isMovie" name="movie">视频元数据 (Movie)</n-tab>
       <n-tab v-if="isMpc" name="mpc">材质参数集 (MPC)</n-tab>
       <n-tab v-if="isMaterial" name="material">材质属性 (Material)</n-tab>
       <n-tab v-if="isMaterialInstance" name="sprite">Sprite 预览</n-tab>
@@ -373,6 +382,11 @@ onBeforeUnmount(() => {
         <div v-if="error" class="error-banner">{{ error }}</div>
 
         <blueprint-viewer v-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
+        <movie-resource-viewer
+          v-if="data?.MovieInfo && mode === 'movie'"
+          :info="data.MovieInfo"
+          :path="path"
+        />
         <mpc-resource-viewer
           v-if="data?.MpcInfo && mode === 'mpc'"
           :info="data.MpcInfo"

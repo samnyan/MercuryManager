@@ -304,6 +304,65 @@ public static class GenericResourceViewer
                 data["MpcError"]=ex.Message;
             }
         }
+        var movieExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="FileManaMovie");
+        if(movieExport is not null)
+        {
+            try
+            {
+                var filePath=(movieExport.Data.FirstOrDefault(p=>p.Name.ToString()=="FilePath") as UAssetAPI.PropertyTypes.Objects.StrPropertyData)?.Value?.ToString();
+                int width=0,height=0,totalFrames=0;float frameRate=0f;bool isAlpha=false;string? movieType=null;
+                if(movieExport.Data.FirstOrDefault(p=>p.Name.ToString()=="VideoTracks") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData vTracks && vTracks.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.StructPropertyData track)
+                {
+                    if(track.Value.FirstOrDefault(p=>p.Name.ToString()=="DisplayDimensions") is UAssetAPI.PropertyTypes.Structs.StructPropertyData dim && dim.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.IntPointPropertyData pt)
+                    {
+                        width=pt.Value[0];height=pt.Value[1];
+                    }
+                    else if(track.Value.FirstOrDefault(p=>p.Name.ToString()=="TextureDimensions") is UAssetAPI.PropertyTypes.Structs.StructPropertyData tDim && tDim.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.IntPointPropertyData tPt)
+                    {
+                        width=tPt.Value[0];height=tPt.Value[1];
+                    }
+                    frameRate=(track.Value.FirstOrDefault(p=>p.Name.ToString()=="FrameRate") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0f;
+                    totalFrames=(track.Value.FirstOrDefault(p=>p.Name.ToString()=="TotalFrames") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??0;
+                    isAlpha=(track.Value.FirstOrDefault(p=>p.Name.ToString()=="bIsAlpha") as UAssetAPI.PropertyTypes.Objects.BoolPropertyData)?.Value??false;
+                    movieType=(track.Value.FirstOrDefault(p=>p.Name.ToString()=="Type") as UAssetAPI.PropertyTypes.Objects.EnumPropertyData)?.Value?.ToString();
+                }
+
+                long usmBytes=0;bool usmExists=false;string? resolvedUsm=null;
+                if(!string.IsNullOrEmpty(filePath)&&resolve!=null)
+                {
+                    try
+                    {
+                        resolvedUsm=resolve(filePath);
+                        if(File.Exists(resolvedUsm))
+                        {
+                            usmExists=true;
+                            usmBytes=new FileInfo(resolvedUsm).Length;
+                        }
+                    }
+                    catch{}
+                }
+
+                float durationSec=frameRate>0?totalFrames/frameRate:0;
+                data["MovieInfo"]=new JObject
+                {
+                    ["Name"]=movieExport.ObjectName.ToString(),
+                    ["FilePath"]=filePath,
+                    ["Width"]=width,
+                    ["Height"]=height,
+                    ["FrameRate"]=frameRate,
+                    ["TotalFrames"]=totalFrames,
+                    ["DurationSec"]=durationSec,
+                    ["IsAlpha"]=isAlpha,
+                    ["MovieType"]=movieType,
+                    ["UsmExists"]=usmExists,
+                    ["UsmBytes"]=usmBytes
+                };
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                data["MovieError"]=ex.Message;
+            }
+        }
         if(asset.Exports.Any(e=>e.GetExportClassType().ToString()=="SoundAtomCueSheet"))
         {
             try

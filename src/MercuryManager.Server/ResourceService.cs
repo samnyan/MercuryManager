@@ -5,7 +5,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
     private static bool IsSupportedExtension(string path)=>path.EndsWith(".uasset",StringComparison.Ordinal)||path.EndsWith(".awb",StringComparison.Ordinal)||path.EndsWith(".mer",StringComparison.Ordinal);
     public static string Validate(string relative)
     {
-        if(!IsSupportedExtension(relative)||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
+        if(!(IsSupportedExtension(relative)||relative.EndsWith(".usm",StringComparison.Ordinal))||relative.Length>256||relative.Contains('\\')||relative.Split('/').Any(s=>s.Length==0||s is "." or ".."||s.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.'))||Path.IsPathRooted(relative))throw new ArgumentException("Invalid Content-relative asset path.");
         return relative;
     }
     // Content-relative paths always use '/', including on Windows.
