@@ -31,6 +31,7 @@ const image = ref('')
 const preview = ref('')
 const width = ref(0)
 const height = ref(0)
+const mips = ref(1)
 
 const output = computed(() => `workspace/${project.id}/working/Resources/${target.value}`)
 
@@ -52,15 +53,30 @@ watch(
   }
 )
 
+const mipSummary = computed(() => {
+  if (mips.value <= 1) return `${width.value} × ${height.value} (1 Mip)`
+  const list: string[] = []
+  let w = width.value
+  let h = height.value
+  for (let i = 0; i < mips.value; i++) {
+    list.push(`${w}×${h}`)
+    w = Math.max(1, Math.floor(w / 2))
+    h = Math.max(1, Math.floor(h / 2))
+  }
+  return `${width.value} × ${height.value} · ${mips.value} Mips (${list.join(' → ')})`
+})
+
 async function next() {
   busy.value = true
   try {
-    const info = await api<{ width: number; height: number; supported: boolean }>(
+    const info = await api<{ width: number; height: number; mips?: number; supported: boolean }>(
       `/projects/${project.id}/resource-info?` + new URLSearchParams({ path: base.value })
     )
     if (!info.supported) throw new Error(tr('ui.unsupportedTexture'))
     width.value = info.width
     height.value = info.height
+    mips.value = info.mips || 1
+    if (!target.value) target.value = base.value
     step.value = 2
   } catch (e) {
     message.error(String(e))
@@ -158,7 +174,10 @@ onBeforeUnmount(clean)
         </template>
 
         <template v-else>
-          <div>{{ tr('ui.textureSize') }}: {{ width }} × {{ height }}</div>
+          <div style="font-weight: 500; font-size: 14px">{{ tr('ui.textureSize') }}: {{ mipSummary }}</div>
+          <div v-if="mips > 1" style="font-size: 12px; color: #18a058; margin-top: -6px">
+            ✨ 上传图片将自动缩放生成全部 {{ mips }} 级渐远纹理 (Mipmaps)
+          </div>
           <input
             type="file"
             accept="image/png,image/jpeg"

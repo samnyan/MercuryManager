@@ -22,7 +22,10 @@ import {
   type ColDef
 } from 'ag-grid-community'
 import { tr } from '../../i18n'
+import { useProject } from '../../project'
 import VoiceMatchesPopover from './VoiceMatchesPopover.vue'
+
+const project = useProject()
 
 const props = defineProps<{
   data: unknown
@@ -32,8 +35,30 @@ const props = defineProps<{
   rawUrl?: string
 }>()
 
+const emit = defineEmits<{
+  navigatePath: [path: string]
+}>()
+
 const gridApi = ref<GridApi | null>(null)
 const previewOpen = ref(false)
+const mipPreviewOpen = ref(false)
+const mipPreviewSrc = ref('')
+const mipPreviewTitle = ref('')
+
+function openMipPreview(mipIndex: number, label: string, targetPath?: string) {
+  const p = targetPath || props.path
+  if (!p || !project.id) return
+  mipPreviewTitle.value = label
+  mipPreviewSrc.value = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: p, mip: String(mipIndex) })
+  mipPreviewOpen.value = true
+}
+
+const isMipsList = computed(() =>
+  segments.value.length === 4 &&
+  segments.value[0] === 'Exports' &&
+  segments.value[2] === 'CustomSerialization' &&
+  segments.value[3] === 'Mips'
+)
 const selected = ref<unknown>()
 const search = ref('')
 const segments = ref<string[]>([])
@@ -212,6 +237,7 @@ const canTableView = computed(() => {
 })
 
 const isTableDisplayActive = computed(() => {
+  if (importMode.value) return false
   return (canTableView.value && asTable.value) || acbTableMode.value
 })
 
@@ -309,6 +335,8 @@ function onGridReady(params: GridReadyEvent) {
 }
 
 function onRowDoubleClicked(event: RowDoubleClickedEvent) {
+  const target = event.event?.target as HTMLElement | null
+  if (target?.closest('[data-action="link-resource"]') || target?.closest('[data-action="mip-preview"]')) return
   if (event.data?.isNavigable) {
     openRow(event.data)
   }
@@ -317,6 +345,24 @@ function onRowDoubleClicked(event: RowDoubleClickedEvent) {
 function onCellClicked(event: CellClickedEvent) {
   const target = event.event?.target as HTMLElement | null
   if (!target) return
+
+  if (target.closest('[data-action="mip-preview"]')) {
+    const btn = target.closest('[data-action="mip-preview"]') as HTMLElement
+    const idx = Number(btn.dataset.mip)
+    const label = btn.dataset.label || `Mip ${idx}`
+    const targetFile = btn.dataset.target
+    openMipPreview(idx, label, targetFile)
+    return
+  }
+
+  if (target.closest('[data-action="link-resource"]')) {
+    const link = target.closest('[data-action="link-resource"]') as HTMLElement
+    const targetFile = link.dataset.target
+    if (targetFile) {
+      emit('navigatePath', targetFile)
+    }
+    return
+  }
 
   if (target.closest('[data-action="preview"]')) {
     previewOpen.value = true
@@ -331,7 +377,60 @@ function onCellClicked(event: CellClickedEvent) {
 }
 
 const columns = computed<ColDef[]>(() => {
-  // 1. 表格形式展示（对象数组 / ACB Table）
+  // 1. 依赖导入列表模式（优先于对象数组表格模式）
+  if (importMode.value) {
+    return [
+      { colId: 'import_index', field: 'Index', headerName: 'Index', width: 70, pinned: 'left' as const, sortable: true },
+      { field: 'ObjectName', headerName: 'Object Name', minWidth: 160, flex: 1.2 },
+      { field: 'ClassName', headerName: 'Class Name', minWidth: 120, flex: 1 },
+      { field: 'ClassPackage', headerName: 'Class Package', minWidth: 140, flex: 1 },
+      {
+        field: 'OuterName',
+        headerName: 'Outer Name / Path',
+        minWidth: 240,
+        flex: 2,
+        cellRenderer: (params: any) => {
+          const row = params.data
+          const contentFile = row?.ContentFile
+          const outerName = row?.OuterName || ''
+          const pkg = row?.Package || ''
+          const display = contentFile || pkg || outerName
+          if (contentFile) {
+            return `<span class="ref-link" data-action="link-resource" data-target="${escapeHtml(
+              String(contentFile)
+            )}" title="打开资产 ${escapeHtml(contentFile)}">🔗 ${escapeHtml(display)}</span>`
+          }
+          return `<span>${escapeHtml(display)}</span>`
+        }
+      },
+      { field: 'OuterIndex', headerName: 'Outer', width: 75 },
+      { field: 'Optional', headerName: 'Opt', width: 65 },
+      {
+        colId: 'import_action',
+        headerName: '操作',
+        width: 120,
+        pinned: 'right' as const,
+        cellRenderer: (params: any) => {
+          const row = params.data
+          const isTex = row?.ClassName === 'Texture2D'
+          const contentFile = row?.ContentFile
+          if (isTex && contentFile) {
+            return `<button type="button" class="ag-btn-naive ag-btn-primary" data-action="mip-preview" data-mip="0" data-label="${escapeHtml(
+              String(row?.ObjectName || 'Texture')
+            )}" data-target="${escapeHtml(String(contentFile))}"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>预览贴图</button>`
+          }
+          if (contentFile) {
+            return `<button type="button" class="ag-btn-naive ag-btn-default" data-action="link-resource" data-target="${escapeHtml(
+              String(contentFile)
+            )}">打开<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>`
+          }
+          return ''
+        }
+      }
+    ]
+  }
+
+  // 2. 表格形式展示（对象数组 / ACB Table）
   if (isTableDisplayActive.value) {
     return [
       {
@@ -344,7 +443,7 @@ const columns = computed<ColDef[]>(() => {
         cellRenderer: (params: any) => {
           const row = params.data
           if (row?.isNavigable) {
-            return `<span class="ag-index-nav" data-action="drill" title="${escapeHtml(tr('ui.drillDownHint'))}">${escapeHtml(
+            return `<span class="ag-index-nav" data-action="drill" title="${escapeHtml(tr('ui.drillDownHint'))}\">${escapeHtml(
               String(params.value ?? '')
             )}</span>`
           }
@@ -366,6 +465,15 @@ const columns = computed<ColDef[]>(() => {
           const preview = formatHoverPreview(val)
           if (typeof val === 'object') {
             const isArr = Array.isArray(val)
+            if (!isArr && val) {
+              const contentFile = (val as any).ContentFile || (val as any)['[Reference]']?.ContentFile
+              if (contentFile) {
+                const text = `${(val as any).ObjectName || (val as any)['[Reference]']?.ObjectName || ''} · ${contentFile}`
+                return `<span class="ref-link" data-action="link-resource" data-target="${escapeHtml(
+                  String(contentFile)
+                )}" title="打开资产 ${escapeHtml(contentFile)}">🔗 ${escapeHtml(text)}</span>`
+              }
+            }
             const icon = isArr ? '🗂️' : '📁'
             const text = summary(val)
             return `<span class="ag-cell-obj" title="${escapeHtml(preview)}">${icon} ${escapeHtml(
@@ -375,20 +483,24 @@ const columns = computed<ColDef[]>(() => {
           const str = String(val)
           return `<span class="ag-val-text" title="${escapeHtml(preview)}">${escapeHtml(str)}</span>`
         }
-      }))
-    ]
-  }
-
-  // 2. 依赖导入列表模式
-  if (importMode.value) {
-    return [
-      { colId: 'import_index', field: 'name', headerName: 'Index', width: 85, pinned: 'left', sortable: true },
-      { field: 'ObjectName', headerName: 'Object Name', minWidth: 220, flex: 1.5 },
-      { field: 'ClassPackage', headerName: 'Class Package', minWidth: 180, flex: 1 },
-      { field: 'ClassName', headerName: 'Class Name', minWidth: 160, flex: 1 },
-      { field: 'OuterName', headerName: 'Outer Name', width: 160 },
-      { field: 'OuterIndex', headerName: 'Outer Index', width: 110 },
-      { field: 'Optional', headerName: 'Optional', width: 100 }
+      })),
+      ...(isMipsList.value
+        ? [
+            {
+              colId: 'mip_preview_action',
+              headerName: '预览',
+              width: 95,
+              pinned: 'right' as const,
+              cellRenderer: (params: any) => {
+                const mipIdx = params.data?._index ?? params.data?.name ?? 0
+                const label = params.data?.Name || `Mip ${mipIdx}`
+                return `<button type="button" class="ag-btn-naive ag-btn-primary" data-action="mip-preview" data-mip="${escapeHtml(
+                  String(mipIdx)
+                )}" data-label="${escapeHtml(String(label))}"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>查看</button>`
+              }
+            }
+          ]
+        : [])
     ]
   }
 
@@ -470,12 +582,12 @@ const columns = computed<ColDef[]>(() => {
         if (row.name === '[RawData]' && rawMode.value) {
           let html = '<div class="ag-raw-actions ag-virtual-val">'
           if (props.previewSrc || props.previewError) {
-            html += `<button type="button" class="ag-btn-preview" data-action="preview">🔍 ${escapeHtml(
+            html += `<button type="button" class="ag-btn-naive ag-btn-primary" data-action="preview"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>${escapeHtml(
               tr('ui.rawPreview')
             )}</button>`
           }
           if (rawDownload.value) {
-            html += `<a class="ag-btn-download" href="${rawDownload.value}" download>⬇️ ${escapeHtml(
+            html += `<a class="ag-btn-naive ag-btn-default" href="${rawDownload.value}" download><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>${escapeHtml(
               tr('ui.rawDownload')
             )}</a>`
           }
@@ -483,17 +595,28 @@ const columns = computed<ColDef[]>(() => {
           return html
         }
 
-        if (row.isNavigable) {
-          const summaryStr = escapeHtml(row.value)
-          const hoverText = escapeHtml(formatHoverPreview(row.item))
-          return `<button type="button" class="ag-drill-btn ${isVirtual ? 'ag-virtual-val' : ''}" data-action="drill" title="${hoverText}">
-            <span>${summaryStr}</span>
-            <span class="drill-arrow">➔</span>
-          </button>`
-        }
-
         const safeVal = escapeHtml(String(row.value ?? ''))
         const hoverText = escapeHtml(formatHoverPreview(row.item ?? row.value))
+
+        if (row.name === '[Reference]' && row.item && typeof row.item === 'object') {
+          const refObj = row.item as any
+          const targetFile = refObj.ContentFile
+          const display = `${refObj.ObjectName ?? ''} · ${targetFile || refObj.Package || refObj.Scope || ''}`
+          if (targetFile) {
+            return `<span class="ref-link ag-virtual-val" data-action="link-resource" data-target="${escapeHtml(
+              String(targetFile)
+            )}" title="打开资产 ${escapeHtml(targetFile)}">🔗 ${escapeHtml(display)}</span>`
+          }
+          return `<span class="ag-val-text ag-virtual-val" title="${hoverText}">${escapeHtml(display)}</span>`
+        }
+
+        if (row.isNavigable) {
+          const summaryStr = escapeHtml(row.value)
+          return `<button type="button" class="ag-drill-btn ${isVirtual ? 'ag-virtual-val' : ''}" data-action="drill" title="${hoverText}">
+            <span>${summaryStr}</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>`
+        }
 
         if (typeof row.value === 'string' && isVoiceDirectory.value && /^MER_VO_\w+$/i.test(row.value)) {
           return h(VoiceMatchesPopover, { cueName: row.value })
@@ -514,6 +637,23 @@ watch(columns, () => {
 </script>
 
 <template>
+  <n-modal
+    v-model:show="mipPreviewOpen"
+    preset="card"
+    :title="'Mip 预览 · ' + mipPreviewTitle"
+    style="width: min(90vw, 800px)"
+  >
+    <div v-if="mipPreviewSrc" class="raw-preview">
+      <n-image
+        :src="mipPreviewSrc"
+        :img-props="{
+          style:
+            'max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;display:block;image-rendering:pixelated'
+        }"
+      />
+    </div>
+  </n-modal>
+
   <n-modal
     v-model:show="previewOpen"
     preset="card"
@@ -859,26 +999,90 @@ watch(columns, () => {
   white-space: nowrap;
 }
 .ag-raw-actions {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.ag-btn-preview {
-  background: #2080f0;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
+.ag-btn-naive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 500;
+  border-radius: 3px;
+  border: 1px solid transparent;
   cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: color 0.2s, background-color 0.2s, border-color 0.2s;
+  white-space: nowrap;
 }
-.ag-btn-preview:hover {
-  background: #4098fc;
+.btn-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
-.ag-btn-download {
+.ag-btn-primary {
+  background-color: #18a058;
+  color: #fff;
+  border-color: #18a058;
+}
+.ag-btn-primary:hover {
+  background-color: #36ad6a;
+  border-color: #36ad6a;
+}
+.ag-btn-primary:active {
+  background-color: #0c7a43;
+  border-color: #0c7a43;
+}
+.ag-btn-default {
+  background-color: #fff;
+  color: #333639;
+  border-color: #e0e0e6;
+}
+.ag-btn-default:hover {
+  color: #18a058;
+  border-color: #36ad6a;
+}
+.ag-btn-default:active {
+  color: #0c7a43;
+  border-color: #0c7a43;
+}
+.ag-btn-info {
+  background-color: #2080f0;
+  color: #fff;
+  border-color: #2080f0;
+}
+.ag-btn-info:hover {
+  background-color: #4098fc;
+  border-color: #4098fc;
+}
+.resource-link {
   color: #2080f0;
   text-decoration: underline;
-  font-size: 12px;
   cursor: pointer;
+  word-break: break-all;
+}
+.resource-link:hover {
+  color: #4098fc;
+}
+.ref-link {
+  color: #18a058;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  cursor: pointer;
+  font-weight: 500;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ref-link:hover {
+  color: #36ad6a;
 }
 </style>

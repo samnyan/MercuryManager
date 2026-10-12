@@ -47,7 +47,7 @@ app.Use(async (context, next) =>
 app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
 app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,ResourceService r)=>r.Sources(id,path));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
-app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path)));
+app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p)));
 app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
 app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:CriAudio.Banks(target.Path);});
 app.MapGet("/api/projects/{id}/audio-inspection",(string id,string path,string? source,bool? deep,HttpContext context,AudioIntegrityService inspection)=>Task.Run(()=>inspection.Inspect(id,path,source,deep==true,context.RequestAborted),context.RequestAborted));
@@ -67,7 +67,8 @@ app.MapGet("/api/projects/{id}/audio-events",(string id,string jobId,HttpContext
 app.MapPost("/api/projects/{id}/resource-cue-edit",(string id,string path,CueEditRequest request,ResourceService r)=>r.EditCue(id,path,request));
 app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,ReplaceAudioRequest request,ResourceService r)=>r.ReplaceAudio(id,path,request.Bank,request.WaveId,Convert.FromBase64String(request.HcaBase64)));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
-app.MapGet("/api/projects/{id}/resource-image",(string id,string path,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path)),"image/png"));
+app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path),mip),"image/png"));
+app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));
 app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });
 app.MapGet("/api/projects", (ProjectManager p)=>p.List());

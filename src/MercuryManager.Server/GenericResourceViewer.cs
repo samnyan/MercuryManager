@@ -28,7 +28,7 @@ public static class GenericResourceViewer
     {
         var result=new JObject();foreach(var field in value.GetType().GetFields(BindingFlags.Public|BindingFlags.Instance))result[field.Name]=FieldValue(field.GetValue(value),asset);return result;
     }
-    public static object Read(string path)
+    public static object Read(string path,Func<string,string>? resolve=null)
     {
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
         var companion=Path.ChangeExtension(path,".uexp");if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export exceeds viewer limits.");
@@ -52,6 +52,7 @@ public static class GenericResourceViewer
                         ["Mips"]=new JArray(platform.Mips.Select((m,index)=>new JObject
                         {
                             ["Name"]=$"Mip {index} ({m.SizeX} × {m.SizeY})",
+                            ["MipIndex"]=index,
                             ["SizeX"]=m.SizeX,["SizeY"]=m.SizeY,["SizeZ"]=m.SizeZ,
                             ["BulkData"]=m.BulkData is null?JValue.CreateNull():new JObject
                             {
@@ -69,6 +70,85 @@ public static class GenericResourceViewer
             {
                 foreach(var node in ((JArray)data["Exports"]!).OfType<JObject>().Where(n=>n["Class"]?.ToString()=="Texture2D"))
                     if(node["CustomSerialization"] is JObject raw)raw["TextureParseError"]=ex.Message;
+            }
+        }
+        var miExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString() is "MaterialInstanceConstant" or "MaterialInstance");
+        if(miExport is not null)
+        {
+            try
+            {
+                var miProps=miExport.Data;
+                string? parentObjName=null,parentPackage=null;
+                if(miProps.FirstOrDefault(p=>p.Name.ToString()=="Parent") is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData parentProp)
+                {
+                    var res=ResolveReference(parentProp.Value.Index,asset);
+                    parentObjName=res["ObjectName"]?.ToString();
+                    parentPackage=res["ContentFile"]?.ToString()??res["Package"]?.ToString();
+                }
+                var scalars=new Dictionary<string,float>();
+                if(miProps.FirstOrDefault(p=>p.Name.ToString()=="ScalarParameterValues") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData scalarArray)
+                {
+                    foreach(var item in scalarArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                    {
+                        string? pName=null;float? pVal=null;
+                        foreach(var field in item.Value)
+                        {
+                            if(field.Name.ToString()=="ParameterInfo" && field is UAssetAPI.PropertyTypes.Structs.StructPropertyData infoStruct)
+                                pName=infoStruct.Value.FirstOrDefault(f=>f.Name.ToString()=="Name")?.RawValue?.ToString();
+                            else if(field.Name.ToString()=="ParameterValue" && field is UAssetAPI.PropertyTypes.Objects.FloatPropertyData floatVal)
+                                pVal=floatVal.Value;
+                        }
+                        if(pName!=null&&pVal!=null)scalars[pName]=pVal.Value;
+                    }
+                }
+                var textures=new Dictionary<string,string>();
+                if(miProps.FirstOrDefault(p=>p.Name.ToString()=="TextureParameterValues") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData texArray)
+                {
+                    foreach(var item in texArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                    {
+                        string? pName=null;string? tFile=null;
+                        foreach(var field in item.Value)
+                        {
+                            if(field.Name.ToString()=="ParameterInfo" && field is UAssetAPI.PropertyTypes.Structs.StructPropertyData infoStruct)
+                                pName=infoStruct.Value.FirstOrDefault(f=>f.Name.ToString()=="Name")?.RawValue?.ToString();
+                            else if(field.Name.ToString()=="ParameterValue" && field is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData objVal)
+                            {
+                                var res=ResolveReference(objVal.Value.Index,asset);
+                                tFile=res["ContentFile"]?.ToString()??res["Package"]?.ToString();
+                            }
+                        }
+                        if(pName!=null&&tFile!=null)textures[pName]=tFile;
+                    }
+                }
+                if(parentPackage!=null&&resolve!=null&&!textures.ContainsKey("tex"))
+                {
+                    try
+                    {
+                        var parentPath=resolve(parentPackage);
+                        if(File.Exists(parentPath))
+                        {
+                            var parentAsset=new UAsset(parentPath,EngineVersion.VER_UE4_19);
+                            foreach(var imp in parentAsset.Imports.Where(i=>i.ClassName.ToString()=="Texture2D"))
+                            {
+                                var res=ResolveReference(-(parentAsset.Imports.IndexOf(imp)+1),parentAsset);
+                                var cf=res["ContentFile"]?.ToString()??res["Package"]?.ToString();
+                                if(cf!=null){textures["tex"]=cf;break;}
+                            }
+                        }
+                    }
+                    catch{}
+                }
+                data["MaterialInstanceInfo"]=new JObject
+                {
+                    ["Parent"]=parentObjName,
+                    ["ParentPackage"]=parentPackage,
+                    ["Scalars"]=JObject.FromObject(scalars),
+                    ["Textures"]=JObject.FromObject(textures)
+                };
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                data["MaterialInstanceError"]=ex.Message;
             }
         }
         if(asset.Exports.Any(e=>e.GetExportClassType().ToString()=="SoundAtomCueSheet"))
@@ -128,8 +208,8 @@ public static class GenericResourceViewer
     }
     public static object Describe(UAsset asset)
     {
-        var exports=new JArray();int budget=4*1024*1024;
-        JToken Serialize(object value){var json=asset.SerializeJsonObject(value);budget-=json.Length;if(budget<0)throw new InvalidDataException("Parsed data exceeds viewer limits.");return JToken.Parse(json);}
+        var exports=new JArray();long budget=256L*1024*1024;
+        JToken Serialize(object value){var json=asset.SerializeJsonObject(value);budget-=json.Length;if(budget<0)throw new InvalidDataException("Parsed data exceeds the 256 MiB viewer parse budget.");return JToken.Parse(json);}
         foreach(var export in asset.Exports)
         {
             var node=new JObject{["Name"]=export.ObjectName.ToString(),["Class"]=export.GetExportClassType().ToString(),["Parser"]=export.GetType().Name,["SerialOffset"]=export.SerialOffset.ToString(),["SerialSize"]=export.SerialSize.ToString(),["Flags"]=export.ObjectFlags.ToString()};
@@ -146,7 +226,7 @@ public static class GenericResourceViewer
             if(export.Extras is {Length:>0} extras)node["CustomSerialization"]=new JObject{["Status"]="Opaque bytes (not parsed by this viewer)",["Bytes"]=extras.Length,["HexPreview"]=Convert.ToHexString(extras.AsSpan(0,Math.Min(128,extras.Length)))};
             exports.Add(node);
         }
-        var data=new JObject{["Header"]=new JObject{["EngineProfile"]="UE4.19",["Note"]="Read-only; parser profile is not proof of original engine version.",["Exports"]=asset.Exports.Count,["Imports"]=asset.Imports.Count},["NameMap"]=new JArray(asset.GetNameMapIndexList().Select(n=>n.ToString())),["Imports"]=new JArray(asset.Imports.Select((i,index)=>new JObject{["Index"]=-(index+1),["ObjectName"]=i.ObjectName.ToString(),["ClassPackage"]=i.ClassPackage.ToString(),["ClassName"]=i.ClassName.ToString(),["OuterIndex"]=i.OuterIndex.Index,["OuterName"]=ReferenceName(i.OuterIndex,asset),["Optional"]=i.bImportOptional})),["Exports"]=exports};
+        var data=new JObject{["Header"]=new JObject{["EngineProfile"]="UE4.19",["Note"]="Read-only; parser profile is not proof of original engine version.",["Exports"]=asset.Exports.Count,["Imports"]=asset.Imports.Count},["NameMap"]=new JArray(asset.GetNameMapIndexList().Select(n=>n.ToString())),["Imports"]=new JArray(asset.Imports.Select((i,index)=>{var res=ResolveReference(-(index+1),asset);return new JObject{["Index"]=-(index+1),["ObjectName"]=i.ObjectName.ToString(),["ClassPackage"]=i.ClassPackage.ToString(),["ClassName"]=i.ClassName.ToString(),["OuterIndex"]=i.OuterIndex.Index,["OuterName"]=ReferenceName(i.OuterIndex,asset),["Optional"]=i.bImportOptional,["ContentFile"]=res["ContentFile"],["Package"]=res["Package"]};})),["Exports"]=exports};
         // Convert Newtonsoft tokens to System.Text.Json values for the standard API envelope.
         return new{isTexture=asset.Exports.Any(e=>e.GetExportClassType().ToString()=="Texture2D"),data=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(data.ToString(Newtonsoft.Json.Formatting.None))};
     }

@@ -95,16 +95,25 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
     public object Info(string id,string path)
     {
         var source=Resolve(id,path);var a=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
-        try{var n=a.Exports.Single() as UAssetAPI.ExportTypes.NormalExport??throw new InvalidDataException();var layout=TextureAuthoring.Inspect(n.Extras);return new{width=layout.Width,height=layout.Height,supported=true};}catch{return new{width=0,height=0,supported=false};}
+        try{var n=a.Exports.Single() as UAssetAPI.ExportTypes.NormalExport??throw new InvalidDataException();var layout=TextureAuthoring.Inspect(n.Extras);return new{width=layout.Width,height=layout.Height,mips=layout.Mips.Count,supported=true};}catch{return new{width=0,height=0,mips=0,supported=false};}
     }
     public object Build(string id,string template,string target,byte[] image)
     {
         lock(assets){Validate(target);if(!target.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Texture output must be uasset.");if(!target.StartsWith("UI/Textures/",StringComparison.Ordinal))throw new ArgumentException("Output must be under UI/Textures/.");if(image.Length>16*1024*1024)throw new ArgumentException("Upload too large.");
         var source=Resolve(id,template);var root=DraftRoot(id);var dest=Path.Combine(root,target);MusicWorkspaceStore.RejectLinks(dest);
-        if(new[]{".uasset",".uexp",".ubulk"}.Any(ext=>File.Exists(Path.ChangeExtension(dest,ext))||content.Exists(assets.Get(id).ContentRoot!,Path.ChangeExtension(target,ext))))throw new IOException("Target already exists; choose a new resource path.");
+        bool overwrite=string.Equals(template,target,StringComparison.Ordinal);
+        if(!overwrite&&new[]{".uasset",".uexp",".ubulk"}.Any(ext=>File.Exists(Path.ChangeExtension(dest,ext))||content.Exists(assets.Get(id).ContentRoot!,Path.ChangeExtension(target,ext))))throw new IOException("Target already exists; choose a new resource path.");
         var staging=Path.Combine(assets.WorkspaceDirectory(id),"texture-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(staging);
         try{var output=Path.Combine(staging,Path.GetFileName(target));TextureAuthoring.Build(source,image,target,output);Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        var created=new List<string>();try{foreach(var file in Directory.GetFiles(staging)){var targetFile=Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(file));MusicWorkspaceStore.RejectLinks(targetFile);File.Copy(file,targetFile,false);created.Add(targetFile);}}catch{foreach(var file in created)File.Delete(file);throw;}
+        if(overwrite)
+        {
+            var files=Directory.GetFiles(staging).Select(f=>(Source:f,Destination:Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(f)))).ToArray();
+            FileTransaction.Copy(files,false);
+        }
+        else
+        {
+            var created=new List<string>();try{foreach(var file in Directory.GetFiles(staging)){var targetFile=Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(file));MusicWorkspaceStore.RejectLinks(targetFile);File.Copy(file,targetFile,false);created.Add(targetFile);}}catch{foreach(var file in created)File.Delete(file);throw;}
+        }
         return new{path=target,workspacePath=dest,verified=true};}finally{Directory.Delete(staging,true);}}
     }
     public string[] Changes(string id){var root=DraftRoot(id);return Directory.Exists(root)?Directory.GetFiles(root,"*",SearchOption.AllDirectories).Select(f=>Path.GetRelativePath(root,f).Replace('\\','/')).Order(StringComparer.Ordinal).ToArray():[];}

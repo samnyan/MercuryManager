@@ -11,31 +11,74 @@ namespace MercuryManager.Server;
 // Deliberately restricted cooked UE4.19 layout; unknown layouts fail closed.
 public static class TextureAuthoring
 {
-    public sealed record Layout(int Width,int Height,int Pixels,int Length,int Skip,int Bulk);
+    public sealed record MipLayout(int Width,int Height,int Pixels,int Length,int Bulk);
+    public sealed record Layout(int Width,int Height,int Pixels,int Length,int Skip,int Bulk,IReadOnlyList<MipLayout> Mips);
+
     public static Layout Inspect(byte[] extra)
     {
         using var r=new BinaryReader(new MemoryStream(extra));
-        void Require(bool condition){if(!condition)throw new InvalidDataException("Unsupported texture: requires single inline BGRA mip (UE4.19).");}
+        void Require(bool condition){if(!condition)throw new InvalidDataException("Unsupported texture: requires inline BGRA mip(s) (UE4.19).");}
         Require(r.ReadUInt16()==1 && r.ReadUInt16()==1 && r.ReadInt32()==1);
         r.ReadInt32();Require(r.ReadInt32()==0);int skip=(int)r.BaseStream.Position;r.ReadInt32();
         int w=r.ReadInt32(),h=r.ReadInt32();Require(w>0&&h>0&&w<=4096&&h<=4096&&r.ReadInt32()==1);
         int length=r.ReadInt32();Require(length==12);Require(System.Text.Encoding.ASCII.GetString(r.ReadBytes(length))=="PF_B8G8R8A8\0");
-        Require(r.ReadInt32()==0&&r.ReadInt32()==1&&r.ReadInt32()==1&&r.ReadUInt32()==0x48);
-        int bytes=checked(w*h*4);Require(r.ReadInt32()==bytes&&r.ReadInt32()==bytes);
-        int bulk=(int)r.BaseStream.Position;r.ReadInt64();int start=(int)r.BaseStream.Position;
-        Require(extra.Length==start+bytes+16);r.BaseStream.Position=start+bytes;
-        Require(r.ReadInt32()==w&&r.ReadInt32()==h);r.ReadInt32();Require(r.ReadInt32()==0);
-        return new(w,h,start,bytes,skip,bulk);
+        Require(r.ReadInt32()==0);
+        int mipCount=r.ReadInt32();Require(mipCount>=1&&mipCount<=13);
+        var mips=new List<MipLayout>(mipCount);
+        int curW=w,curH=h;
+        for(int i=0;i<mipCount;i++)
+        {
+            Require(r.ReadInt32()==1&&r.ReadUInt32()==0x48);
+            int bytes=checked(curW*curH*4);
+            Require(r.ReadInt32()==bytes&&r.ReadInt32()==bytes);
+            int bulk=(int)r.BaseStream.Position;r.ReadInt64();
+            int start=(int)r.BaseStream.Position;
+            Require(extra.Length>=start+bytes+8);
+            r.BaseStream.Position=start+bytes;
+            Require(r.ReadInt32()==curW&&r.ReadInt32()==curH);
+            mips.Add(new(curW,curH,start,bytes,bulk));
+            curW=Math.Max(1,curW/2);curH=Math.Max(1,curH/2);
+        }
+        Require(extra.Length==r.BaseStream.Position+8);
+        r.ReadInt32();Require(r.ReadInt32()==0);
+        var first=mips[0];
+        return new(w,h,first.Pixels,first.Length,skip,first.Bulk,mips);
     }
+
     public static UTexture2D Read(string path,out DefaultFileProvider provider)
     {
         provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(EGame.GAME_UE4_19),StringComparer.OrdinalIgnoreCase);
         try{provider.Initialize();var file=provider.Files.Values.Single(f=>f.Path.EndsWith('/'+Path.GetFileName(path),StringComparison.OrdinalIgnoreCase)||f.Path.Equals(Path.GetFileName(path),StringComparison.OrdinalIgnoreCase));return provider.LoadPackage(file.Path).GetExports().OfType<UTexture2D>().Single();}catch{provider.Dispose();throw;}
     }
-    public static byte[] Preview(string path)
+
+    public static byte[] Preview(string path,int? mip=null)
     {
-        var t=Read(path,out var provider);using(provider){if(t.PlatformData.SizeX>4096||t.PlatformData.SizeY>4096)throw new InvalidDataException("Texture too large.");using var bmp=t.Decode(512)?.ToSkBitmap()??throw new InvalidDataException("No readable image.");using var png=bmp.Encode(SKEncodedImageFormat.Png,100);return png.ToArray();}
+        var t=Read(path,out var provider);using(provider)
+        {
+            if(t.PlatformData.SizeX>4096||t.PlatformData.SizeY>4096)throw new InvalidDataException("Texture too large.");
+            if(mip is {} m && (m<0||m>=t.PlatformData.Mips.Length))throw new ArgumentOutOfRangeException(nameof(mip),"Invalid mip index.");
+            var ctex=mip is {} idx ? t.DecodeMip(idx) : t.Decode(1024);
+            using var bmp=ctex?.ToSkBitmap()??throw new InvalidDataException("No readable image.");
+            using var png=bmp.Encode(SKEncodedImageFormat.Png,100);
+            return png.ToArray();
+        }
     }
+
+    public static byte[] PreviewCrop(string path,int x,int y,int width,int height)
+    {
+        var t=Read(path,out var provider);using(provider)
+        {
+            if(t.PlatformData.SizeX>4096||t.PlatformData.SizeY>4096)throw new InvalidDataException("Texture too large.");
+            using var bmp=t.DecodeMip(0)?.ToSkBitmap()??throw new InvalidDataException("No readable image.");
+            int cx=Math.Clamp(x,0,Math.Max(0,bmp.Width-1)),cy=Math.Clamp(y,0,Math.Max(0,bmp.Height-1));
+            int cw=Math.Clamp(width,1,bmp.Width-cx),ch=Math.Clamp(height,1,bmp.Height-cy);
+            using var subset=new SKBitmap();
+            if(!bmp.ExtractSubset(subset,new SKRectI(cx,cy,cx+cw,cy+ch)))throw new InvalidDataException("Failed to crop sprite.");
+            using var png=subset.Encode(SKEncodedImageFormat.Png,100);
+            return png.ToArray();
+        }
+    }
+
     public static void Build(string template,byte[] image,string relative,string output)
     {
         MusicWorkspaceStore.RejectLinks(template);
@@ -45,20 +88,54 @@ public static class TextureAuthoring
         using var codec=SKCodec.Create(new SKMemoryStream(image))??throw new InvalidDataException("Invalid image.");
         if(codec.Info.Width<=0||codec.Info.Height<=0||(long)codec.Info.Width*codec.Info.Height>16777216)throw new InvalidDataException("Image too large.");
         using var source=SKBitmap.Decode(image)??throw new InvalidDataException("Invalid image.");
-        using var resized=new SKBitmap(new SKImageInfo(layout.Width,layout.Height,SKColorType.Bgra8888,SKAlphaType.Unpremul));
-        using(var canvas=new SKCanvas(resized)){using var paint=new SKPaint{FilterQuality=SKFilterQuality.High,BlendMode=SKBlendMode.Src};canvas.DrawBitmap(source,new SKRect(0,0,layout.Width,layout.Height),paint);}
-        var pixels=resized.Bytes;pixels.CopyTo(n.Extras,layout.Pixels);
+        var mipPixels=new List<byte[]>(layout.Mips.Count);
+        SKBitmap? prev=null;
+        try
+        {
+            foreach(var mip in layout.Mips)
+            {
+                var resized=new SKBitmap(new SKImageInfo(mip.Width,mip.Height,SKColorType.Bgra8888,SKAlphaType.Unpremul));
+                using(var canvas=new SKCanvas(resized))
+                {
+                    using var paint=new SKPaint{FilterQuality=SKFilterQuality.High,BlendMode=SKBlendMode.Src};
+                    canvas.DrawBitmap(prev??source,new SKRect(0,0,mip.Width,mip.Height),paint);
+                }
+                var bytes=resized.Bytes;
+                bytes.CopyTo(n.Extras,mip.Pixels);
+                mipPixels.Add(bytes);
+                prev?.Dispose();
+                prev=resized;
+            }
+        }
+        finally{prev?.Dispose();}
+
         var names=a.GetNameMapIndexList().ToArray();
         for(int i=0;i<names.Length;i++){var value=names[i].ToString();if(value==original)a.SetNameReference(i,new FString(target));else if(value.StartsWith("/Game/")&&value.EndsWith('/'+original,StringComparison.Ordinal))a.SetNameReference(i,new FString("/Game/"+relative[..^7]));}
         n.ObjectName=new FName(a,target);
         // First write measures relocation introduced by name-map changes. Patch absolute offsets before final write.
         a.Write(output);var measured=new UAsset(output,EngineVersion.VER_UE4_19);
         // UAsset.Write mutates SerialOffset, so measure opaque pointers against serialized payload location instead.
-        var oldPayload=BitConverter.ToInt64(n.Extras,layout.Bulk);long newPayload=measured.Exports[0].SerialOffset+measured.Exports[0].SerialSize-n.Extras.Length+layout.Pixels;
+        var oldPayload=BitConverter.ToInt64(n.Extras,layout.Bulk);
+        long newBase=measured.Exports[0].SerialOffset+measured.Exports[0].SerialSize-n.Extras.Length;
+        long newPayload=newBase+layout.Pixels;
         long delta=newPayload-oldPayload;
         BitConverter.GetBytes(checked((int)(BitConverter.ToInt32(n.Extras,layout.Skip)+delta))).CopyTo(n.Extras,layout.Skip);
-        BitConverter.GetBytes(newPayload).CopyTo(n.Extras,layout.Bulk);a.Write(output);
+        foreach(var mip in layout.Mips)
+        {
+            BitConverter.GetBytes(newBase+mip.Pixels).CopyTo(n.Extras,mip.Bulk);
+        }
+        a.Write(output);
         var reread=new UAsset(output,EngineVersion.VER_UE4_19);if(!reread.VerifyBinaryEquality()||reread.Exports.Single().ObjectName.ToString()!=target)throw new InvalidDataException("Written asset identity verification failed.");
-        var texture=Read(output,out var provider);using(provider){var data=texture.PlatformData;if(data.SizeX!=layout.Width||data.SizeY!=layout.Height||data.PixelFormat!="PF_B8G8R8A8"||data.Mips.Length!=1||!data.Mips[0].BulkData!.Data!.SequenceEqual(pixels))throw new InvalidDataException("Written texture pixel verification failed.");}
+        var texture=Read(output,out var provider);using(provider)
+        {
+            var data=texture.PlatformData;
+            if(data.SizeX!=layout.Width||data.SizeY!=layout.Height||data.PixelFormat!="PF_B8G8R8A8"||data.Mips.Length!=layout.Mips.Count)
+                throw new InvalidDataException("Written texture metadata verification failed.");
+            for(int i=0;i<layout.Mips.Count;i++)
+            {
+                if(!data.Mips[i].BulkData!.Data!.SequenceEqual(mipPixels[i]))
+                    throw new InvalidDataException($"Written texture mip {i} pixel verification failed.");
+            }
+        }
     }
 }
