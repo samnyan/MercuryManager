@@ -68,10 +68,11 @@ public static class CriAudio
         var (provider,acb)=OpenAcb(path);using(provider)using(acb)
             return new {Parser="CUE4Parse ACB",Tables=acb.AtomCueSheetData};
     }
+    private static FileStream OpenSharedRead(string path)=>new(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
     public static Cue[] List(string path)
     {
         if(path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase))
-        {using var awb=new AwbReader(File.OpenRead(path));return awb.Waves.Select((w,i)=>new Cue(i,$"Wave {w.WaveId}",w.WaveId,[w.WaveId],null)).ToArray();}
+        {using var awb=new AwbReader(OpenSharedRead(path));return awb.Waves.Select((w,i)=>new Cue(i,$"Wave {w.WaveId}",w.WaveId,[w.WaveId],null)).ToArray();}
         var (provider,acb)=OpenAcb(path);using(provider)using(acb)
         {
             return acb.AtomCueSheetData["CueName"].Select((row,index)=>{
@@ -100,7 +101,7 @@ public static class CriAudio
         string cueName;
         if (path.EndsWith(".awb", StringComparison.OrdinalIgnoreCase))
         {
-            awb = new AwbReader(File.OpenRead(path));
+            awb = new AwbReader(OpenSharedRead(path));
             if (index < 0 || index >= awb.Waves.Count) throw new ArgumentException("Invalid wave index.");
             waveId = awb.Waves[index].WaveId;
             cueName = $"Wave_{waveId}";
@@ -123,7 +124,7 @@ public static class CriAudio
                 if (bankName != Path.GetFileName(bankName) || bankName.Contains('\\')) throw new InvalidDataException("Invalid bank name.");
                 var external = resolveBank is null ? Path.Combine(Path.GetDirectoryName(path)!, bankName + ".awb") : resolveBank(bankName + ".awb");
                 MusicWorkspaceStore.RejectLinks(external);
-                awb = new AwbReader(File.OpenRead(external));
+                awb = new AwbReader(OpenSharedRead(external));
                 waveId = wave.StreamId;
             }
         }
