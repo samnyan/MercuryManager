@@ -9,10 +9,12 @@ import TextureCreateDialog from './components/resource/TextureCreateDialog.vue'
 import TexturePreviewModal from './components/resource/TexturePreviewModal.vue'
 import AudioResourceViewer from './components/resource/AudioResourceViewer.vue'
 import GenericResourceViewer from './components/resource/GenericResourceViewer.vue'
+import UMGDesigner from './components/resource/umg/UMGDesigner.vue'
 import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
 import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
 import MaterialInstanceViewer from './components/resource/MaterialInstanceViewer.vue'
+import MaterialFunctionViewer from './components/resource/MaterialFunctionViewer.vue'
 import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
 import MovieResourceViewer from './components/resource/MovieResourceViewer.vue'
 
@@ -37,9 +39,11 @@ const isAudio = ref(false)
 const isBlueprint = ref(false)
 const isMer = ref(false)
 const blueprint = ref<any>()
+const umgDoc = ref<any>()
 watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){const request=generation;busy.value=true;try{const result=await api<{data:any}>(`/projects/${project.id}/resource-data?`+new URLSearchParams({path:path.value}));if(request===generation)data.value=result.data}catch(e){if(request===generation)error.value=String(e)}finally{if(request===generation)busy.value=false}}})
 const isMaterialInstance = ref(false)
 const isMaterial = ref(false)
+const isMaterialFunction = ref(false)
 const isMpc = ref(false)
 const isMovie = ref(false)
 const spriteSrc = ref('')
@@ -194,6 +198,9 @@ watch(
       if(path.value.endsWith('.mer')){isMer.value=true;mode.value='mer';busy.value=false;return}
       if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';busy.value=false;return}
       if(/(^|\/)BP_[^/]+\.uasset$/i.test(path.value)){
+        try{
+          umgDoc.value=await api<any>(`/projects/${project.id}/resource-umg?`+new URLSearchParams({path:path.value}));
+        }catch(err){console.warn('UMG parse failed, fallback to legacy blueprint',err)}
         const summary=await api<any>(`/projects/${project.id}/resource-blueprint?`+new URLSearchParams({path:path.value}));
         if(request!==generation)return;
         blueprint.value=summary;isBlueprint.value=true;mode.value='blueprint';return;
@@ -208,6 +215,7 @@ watch(
       isTexture.value = result.isTexture
       isMaterialInstance.value = !!result.data?.MaterialInstanceInfo
       isMaterial.value = !!result.data?.MaterialInfo
+      isMaterialFunction.value = !!result.data?.MaterialFunctionInfo
       isMpc.value = !!result.data?.MpcInfo
       isMovie.value = !!result.data?.MovieInfo
 
@@ -217,6 +225,10 @@ watch(
 
       if (isMpc.value) {
         mode.value = 'mpc'
+      }
+
+      if (isMaterialFunction.value) {
+        mode.value = 'materialFunction'
       }
 
       if (isMaterial.value) {
@@ -346,11 +358,12 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialFunction || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
       <n-tab v-if="isMovie" name="movie">{{ tr('ui.movieTab') }}</n-tab>
       <n-tab v-if="isMpc" name="mpc">{{ tr('ui.mpcTab') }}</n-tab>
       <n-tab v-if="isMaterial" name="material">{{ tr('ui.materialTab') }}</n-tab>
+      <n-tab v-if="isMaterialFunction" name="materialFunction">{{ tr('ui.materialFunctionTab') }}</n-tab>
       <n-tab v-if="isMaterialInstance" name="materialInstance">{{ tr('ui.materialInstanceTab') }}</n-tab>
       <n-tab v-if="isMaterialInstance && (miInfo?.Scalars?.U0 !== undefined || miInfo?.Scalars?.V0 !== undefined || spriteSrc)" name="sprite">{{ tr('ui.spriteTab') }}</n-tab>
       <n-tab v-if="isTexture" name="texture">
@@ -371,7 +384,8 @@ onBeforeUnmount(() => {
       <div v-else class="resource-fill-item">
         <div v-if="error" class="error-banner">{{ error }}</div>
 
-        <blueprint-viewer v-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
+        <u-m-g-designer v-if="isBlueprint && umgDoc && mode === 'blueprint'" :path="path" :document="umgDoc" @navigate-path="jumpToResource" />
+        <blueprint-viewer v-else-if="isBlueprint && blueprint && mode === 'blueprint'" :path="path" :summary="blueprint" @navigate-path="jumpToResource" />
         <movie-resource-viewer
           v-if="data?.MovieInfo && mode === 'movie'"
           :info="data.MovieInfo"
@@ -385,6 +399,13 @@ onBeforeUnmount(() => {
         <material-resource-viewer
           v-if="data?.MaterialInfo && mode === 'material'"
           :info="data.MaterialInfo"
+          :path="path"
+          @navigate-path="jumpToResource"
+          @preview-texture="openExternalTexPreview"
+        />
+        <material-function-viewer
+          v-if="data?.MaterialFunctionInfo && mode === 'materialFunction'"
+          :info="data.MaterialFunctionInfo"
           :path="path"
           @navigate-path="jumpToResource"
           @preview-texture="openExternalTexPreview"

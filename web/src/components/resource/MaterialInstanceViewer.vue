@@ -13,6 +13,7 @@ import {
 import { Save, RotateCcw, ExternalLink, Image as ImageIcon, Layers } from '@lucide/vue'
 import { api, useProject } from '../../project'
 import { tr } from '../../i18n'
+import MaterialShaderCanvas from './MaterialShaderCanvas.vue'
 
 export interface MaterialInstanceData {
   Name: string
@@ -33,6 +34,7 @@ export interface MaterialInstanceData {
     ScalarParameters?: Array<{ ParameterName: string; DefaultValue: number; SliderMin?: number; SliderMax?: number }>
     VectorParameters?: Array<{ ParameterName: string; R: number; G: number; B: number; A: number }>
     TextureNodes?: Array<{ ParameterName?: string; TextureName?: string; ContentFile?: string }>
+    FunctionCalls?: Array<{ FunctionName?: string; ContentFile?: string }>
   }
 }
 
@@ -289,6 +291,42 @@ const textureParams = computed(() => {
     path: item.path
   }))
 })
+
+// 聚合给 Shader 预览器的有效参数
+const simScalars = computed(() => {
+  const res: Record<string, number> = {}
+  for (const p of allScalarParams.value) {
+    res[p.name] = p.isOverridden ? (editScalars.value[p.name] ?? p.value) : p.value
+  }
+  return res
+})
+
+const simVectors = computed(() => {
+  const res: Record<string, { r: number; g: number; b: number; a: number }> = {}
+  for (const p of allVectorParams.value) {
+    if (p.isOverridden && editVectors.value[p.name]) {
+      const v = editVectors.value[p.name]
+      res[p.name] = { r: v.r, g: v.g, b: v.b, a: v.a }
+    } else {
+      res[p.name] = { r: p.r, g: p.g, b: p.b, a: p.a }
+    }
+  }
+  return res
+})
+
+const simTextures = computed(() => {
+  return textureParams.value.map(t => ({ name: t.name, path: t.path }))
+})
+
+const simFunctionNames = computed(() => {
+  return (props.info.ParentMaterialInfo?.FunctionCalls || [])
+    .map(f => f.FunctionName || '')
+    .filter(Boolean)
+})
+
+function getTextureImageUrl(targetPath: string): string {
+  return `/api/projects/${project.id}/resource-image?path=${encodeURIComponent(targetPath)}&mip=0`
+}
 </script>
 
 <template>
@@ -351,7 +389,7 @@ const textureParams = computed(() => {
       </div>
     </n-card>
 
-    <!-- 贴图参数组 (Texture Parameter Values) -->
+    <!-- 贴图参数组 (上方直接显示缩略图，点击弹窗放大) -->
     <n-card v-if="textureParams.length" size="small" class="mi-section-card">
       <template #header>
         <div class="group-header">
@@ -362,6 +400,20 @@ const textureParams = computed(() => {
 
       <div class="tex-param-grid">
         <div v-for="t in textureParams" :key="t.name" class="tex-param-card">
+          <div
+            class="tex-thumb-stage"
+            @click="emit('previewTexture', t.path, t.name)"
+          >
+            <img
+              :src="getTextureImageUrl(t.path)"
+              class="tex-thumb-img"
+              :alt="t.name"
+            />
+            <div class="thumb-zoom-overlay">
+              <n-icon :component="ImageIcon" />
+            </div>
+          </div>
+
           <div class="tex-param-header">
             <span class="p-name">{{ t.name }}</span>
             <n-tag size="tiny" :type="t.isOverridden ? 'warning' : 'default'">
@@ -369,107 +421,107 @@ const textureParams = computed(() => {
             </n-tag>
           </div>
           <div class="tex-param-path">
-            <code class="code-box">{{ t.path }}</code>
-          </div>
-          <div class="tex-param-actions">
-            <n-button
-              size="tiny"
-              type="primary"
-              secondary
-              @click="emit('previewTexture', t.path, t.name)"
-            >
-              <template #icon><n-icon :component="ImageIcon" /></template>
-              {{ tr('ui.rawPreview') }}
-            </n-button>
-            <n-button size="tiny" secondary @click="emit('navigatePath', t.path)">
-              <template #icon><n-icon :component="ExternalLink" /></template>
-              {{ tr('ui.openAsset') }}
-            </n-button>
+            <a class="ref-link" @click.prevent="emit('navigatePath', t.path)">
+              🔗 {{ t.path }}
+            </a>
           </div>
         </div>
       </div>
     </n-card>
 
     <div class="two-col-layout">
-      <!-- 矢量与颜色参数组 (Vector Parameter Values) -->
-      <n-card size="small" class="mi-section-card col-half">
-        <template #header>
-          <div class="group-header">
-            <span>{{ tr('ui.vectorParamsGroup') }}</span>
-            <n-tag size="small">{{ allVectorParams.length }}</n-tag>
-          </div>
-        </template>
-
-        <div v-if="!allVectorParams.length" class="empty-hint">{{ tr('ui.noVectorParams') }}</div>
-        <div v-else class="param-rows-container">
-          <div v-for="p in allVectorParams" :key="p.name" class="vector-param-row">
-            <div class="param-info-header">
-              <span class="p-name">{{ p.name }}</span>
-              <n-tag size="tiny" :type="p.isOverridden ? 'warning' : 'default'">
-                {{ p.isOverridden ? tr('ui.overridden') : tr('ui.inherited') }}
-              </n-tag>
+      <div class="col-left-params">
+        <!-- 矢量与颜色参数组 (Vector Parameter Values) -->
+        <n-card size="small" class="mi-section-card">
+          <template #header>
+            <div class="group-header">
+              <span>{{ tr('ui.vectorParamsGroup') }}</span>
+              <n-tag size="small">{{ allVectorParams.length }}</n-tag>
             </div>
+          </template>
 
-            <div class="color-control-box">
-              <n-color-picker
-                v-if="p.isOverridden && editVectors[p.name]"
-                v-model:value="editVectors[p.name].hex"
-                :show-alpha="false"
-                size="small"
-                style="width: 130px"
-                @update:value="hex => onColorPickerChange(p.name, hex)"
-              />
-              <div v-else class="static-color-box" :style="{ backgroundColor: p.hex }" />
+          <div v-if="!allVectorParams.length" class="empty-hint">{{ tr('ui.noVectorParams') }}</div>
+          <div v-else class="param-rows-container">
+            <div v-for="p in allVectorParams" :key="p.name" class="vector-param-row">
+              <div class="param-info-header">
+                <span class="p-name">{{ p.name }}</span>
+                <n-tag size="tiny" :type="p.isOverridden ? 'warning' : 'default'">
+                  {{ p.isOverridden ? tr('ui.overridden') : tr('ui.inherited') }}
+                </n-tag>
+              </div>
 
-              <div class="color-values">
-                <span class="hex-text">{{ p.isOverridden && editVectors[p.name] ? editVectors[p.name].hex : p.hex }}</span>
-                <span class="rgba-detail">
-                  RGBA({{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].r : p.r).toFixed(2) }},
-                  {{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].g : p.g).toFixed(2) }},
-                  {{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].b : p.b).toFixed(2) }},
-                  {{ p.a.toFixed(1) }})
+              <div class="color-control-box">
+                <n-color-picker
+                  v-if="p.isOverridden && editVectors[p.name]"
+                  v-model:value="editVectors[p.name].hex"
+                  :show-alpha="false"
+                  size="small"
+                  style="width: 130px"
+                  @update:value="hex => onColorPickerChange(p.name, hex)"
+                />
+                <div v-else class="static-color-box" :style="{ backgroundColor: p.hex }" />
+
+                <div class="color-values">
+                  <span class="hex-text">{{ p.isOverridden && editVectors[p.name] ? editVectors[p.name].hex : p.hex }}</span>
+                  <span class="rgba-detail">
+                    RGBA({{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].r : p.r).toFixed(2) }},
+                    {{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].g : p.g).toFixed(2) }},
+                    {{ (p.isOverridden && editVectors[p.name] ? editVectors[p.name].b : p.b).toFixed(2) }},
+                    {{ p.a.toFixed(1) }})
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </n-card>
+
+        <!-- 标量参数组 (Scalar Parameter Values) -->
+        <n-card size="small" class="mi-section-card">
+          <template #header>
+            <div class="group-header">
+              <span>{{ tr('ui.scalarParamsGroup') }}</span>
+              <n-tag size="small">{{ allScalarParams.length }}</n-tag>
+            </div>
+          </template>
+
+          <div v-if="!allScalarParams.length" class="empty-hint">{{ tr('ui.noScalarParams') }}</div>
+          <div v-else class="param-rows-container">
+            <div v-for="p in allScalarParams" :key="p.name" class="scalar-param-row">
+              <div class="param-info-header">
+                <span class="p-name">{{ p.name }}</span>
+                <n-tag size="tiny" :type="p.isOverridden ? 'warning' : 'default'">
+                  {{ p.isOverridden ? tr('ui.overridden') : tr('ui.inherited') }}
+                </n-tag>
+              </div>
+
+              <div class="scalar-control-box">
+                <n-input-number
+                  v-if="p.isOverridden"
+                  v-model:value="editScalars[p.name]"
+                  size="small"
+                  :step="0.01"
+                  style="width: 140px"
+                />
+                <code v-else class="scalar-static-val">{{ p.value }}</code>
+                <span v-if="p.min !== undefined || p.max !== undefined" class="range-hint">
+                  [{{ p.min ?? 0 }} ~ {{ p.max ?? 1 }}]
                 </span>
               </div>
             </div>
           </div>
-        </div>
-      </n-card>
+        </n-card>
+      </div>
 
-      <!-- 标量参数组 (Scalar Parameter Values) -->
-      <n-card size="small" class="mi-section-card col-half">
-        <template #header>
-          <div class="group-header">
-            <span>{{ tr('ui.scalarParamsGroup') }}</span>
-            <n-tag size="small">{{ allScalarParams.length }}</n-tag>
-          </div>
-        </template>
-
-        <div v-if="!allScalarParams.length" class="empty-hint">{{ tr('ui.noScalarParams') }}</div>
-        <div v-else class="param-rows-container">
-          <div v-for="p in allScalarParams" :key="p.name" class="scalar-param-row">
-            <div class="param-info-header">
-              <span class="p-name">{{ p.name }}</span>
-              <n-tag size="tiny" :type="p.isOverridden ? 'warning' : 'default'">
-                {{ p.isOverridden ? tr('ui.overridden') : tr('ui.inherited') }}
-              </n-tag>
-            </div>
-
-            <div class="scalar-control-box">
-              <n-input-number
-                v-if="p.isOverridden"
-                v-model:value="editScalars[p.name]"
-                size="small"
-                :step="0.01"
-                style="width: 140px"
-              />
-              <code v-else class="scalar-static-val">{{ p.value }}</code>
-              <span v-if="p.min !== undefined || p.max !== undefined" class="range-hint">
-                [{{ p.min ?? 0 }} ~ {{ p.max ?? 1 }}]
-              </span>
-            </div>
-          </div>
-        </div>
-      </n-card>
+      <!-- 右侧：UMG 实时材质动画模拟预览器 -->
+      <div class="col-right-sim">
+        <material-shader-canvas
+          :blend-mode="info.BasePropertyOverrides?.BlendMode || info.ParentMaterialInfo?.BlendMode"
+          :scalars="simScalars"
+          :vectors="simVectors"
+          :textures="simTextures"
+          :function-names="simFunctionNames"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -545,7 +597,7 @@ const textureParams = computed(() => {
 }
 .tex-param-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 10px;
 }
 .tex-param-card {
@@ -557,33 +609,71 @@ const textureParams = computed(() => {
   flex-direction: column;
   gap: 8px;
 }
+.tex-thumb-stage {
+  position: relative;
+  width: 100%;
+  height: 128px;
+  border-radius: 4px;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #e0e0e0 25%, transparent 25%),
+    linear-gradient(-45deg, #e0e0e0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e0e0e0 75%),
+    linear-gradient(-45deg, transparent 75%, #e0e0e0 75%);
+  background-size: 12px 12px;
+  border: 1px solid #e5e5eb;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tex-thumb-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  transition: transform 0.2s;
+}
+.thumb-zoom-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.tex-thumb-stage:hover .thumb-zoom-overlay {
+  opacity: 1;
+}
+.tex-thumb-stage:hover .tex-thumb-img {
+  transform: scale(1.05);
+}
 .tex-param-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.code-box {
-  display: block;
-  font-family: monospace;
-  font-size: 11px;
-  background: #f0f0f4;
-  padding: 3px 6px;
-  border-radius: 4px;
-  word-break: break-all;
-}
-.tex-param-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .two-col-layout {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
-.col-half {
+.col-left-params {
+  flex: 1.4;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.col-right-sim {
   flex: 1;
-  min-width: 320px;
+  min-width: 300px;
 }
 .empty-hint {
   color: #999;

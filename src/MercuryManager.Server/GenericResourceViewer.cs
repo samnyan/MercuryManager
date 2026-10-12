@@ -217,6 +217,18 @@ public static class GenericResourceViewer
                 data["MaterialError"]=ex.Message;
             }
         }
+        var mfExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="MaterialFunction");
+        if(mfExport is not null)
+        {
+            try
+            {
+                data["MaterialFunctionInfo"]=ExtractMaterialFunctionInfo(asset);
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                data["MaterialFunctionError"]=ex.Message;
+            }
+        }
         var mpcExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="MaterialParameterCollection");
         if(mpcExport is not null)
         {
@@ -499,6 +511,87 @@ public static class GenericResourceViewer
             ["FunctionCalls"]=funcCalls,
             ["Expressions"]=allExpressions,
             ["ImportedTextures"]=importedTextures
+        };
+    }
+    internal static JObject? ExtractMaterialFunctionInfo(UAsset asset)
+    {
+        var fnExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="MaterialFunction");
+        if(fnExport is null)return null;
+
+        var desc=(fnExport.Data.FirstOrDefault(p=>p.Name.ToString()=="Description") as UAssetAPI.PropertyTypes.Objects.StrPropertyData)?.Value?.ToString();
+        var stateId="";
+        if(fnExport.Data.FirstOrDefault(p=>p.Name.ToString()=="StateId") is UAssetAPI.PropertyTypes.Structs.StructPropertyData stateStruct && stateStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.GuidPropertyData guidProp)
+            stateId=guidProp.Value.ToString();
+
+        var scalarParams=new JArray();
+        var vectorParams=new JArray();
+        var textureNodes=new JArray();
+        var funcCalls=new JArray();
+        var allExpressions=new JArray();
+
+        string? GetEnum(NormalExport e,string propName)=>(e.Data.FirstOrDefault(p=>p.Name.ToString()==propName) as UAssetAPI.PropertyTypes.Objects.BytePropertyData)?.EnumValue?.ToString();
+
+        for(int idx=0;idx<asset.Exports.Count;idx++)
+        {
+            if(asset.Exports[idx] is not NormalExport exp)continue;
+            var cls=exp.GetExportClassType().ToString();
+            if(!cls.StartsWith("MaterialExpression",StringComparison.Ordinal))continue;
+            var expName=exp.ObjectName.ToString();
+            var pName=(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="ParameterName") as UAssetAPI.PropertyTypes.Objects.NamePropertyData)?.Value?.ToString();
+
+            if(cls.Contains("ScalarParameter",StringComparison.Ordinal))
+            {
+                var defVal=(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0f;
+                var sMin=(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="SliderMin") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value;
+                var sMax=(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="SliderMax") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value;
+                scalarParams.Add(new JObject{["ExportIndex"]=idx,["NodeName"]=expName,["ParameterName"]=pName??expName,["DefaultValue"]=defVal,["SliderMin"]=sMin,["SliderMax"]=sMax});
+            }
+            else if(cls.Contains("VectorParameter",StringComparison.Ordinal))
+            {
+                float r=0,g=0,b=0,a=1;
+                if(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Structs.StructPropertyData colStruct && colStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.LinearColorPropertyData linCol)
+                {
+                    r=linCol.Value.R;g=linCol.Value.G;b=linCol.Value.B;a=linCol.Value.A;
+                }
+                vectorParams.Add(new JObject{["ExportIndex"]=idx,["NodeName"]=expName,["ParameterName"]=pName??expName,["R"]=r,["G"]=g,["B"]=b,["A"]=a});
+            }
+            else if(cls.Contains("Texture",StringComparison.Ordinal))
+            {
+                string? texObj=null,texFile=null;
+                if(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="Texture") is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData texProp)
+                {
+                    var res=ResolveReference(texProp.Value.Index,asset);
+                    texObj=res["ObjectName"]?.ToString();
+                    texFile=res["ContentFile"]?.ToString()??res["Package"]?.ToString();
+                }
+                var samplerType=GetEnum(exp,"SamplerType");
+                textureNodes.Add(new JObject{["ExportIndex"]=idx,["NodeName"]=expName,["Class"]=cls,["ParameterName"]=pName,["TextureName"]=texObj,["ContentFile"]=texFile,["SamplerType"]=samplerType});
+            }
+            else if(cls.Contains("MaterialFunctionCall",StringComparison.Ordinal))
+            {
+                string? fnObj=null,fnFile=null;
+                if(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="MaterialFunction") is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData fnProp)
+                {
+                    var res=ResolveReference(fnProp.Value.Index,asset);
+                    fnObj=res["ObjectName"]?.ToString();
+                    fnFile=res["ContentFile"]?.ToString()??res["Package"]?.ToString();
+                }
+                funcCalls.Add(new JObject{["ExportIndex"]=idx,["NodeName"]=expName,["FunctionName"]=fnObj,["ContentFile"]=fnFile});
+            }
+
+            allExpressions.Add(new JObject{["ExportIndex"]=idx,["NodeName"]=expName,["Class"]=cls,["ParameterName"]=pName});
+        }
+
+        return new JObject
+        {
+            ["Name"]=fnExport.ObjectName.ToString(),
+            ["Description"]=desc,
+            ["StateId"]=stateId,
+            ["ScalarParameters"]=scalarParams,
+            ["VectorParameters"]=vectorParams,
+            ["TextureNodes"]=textureNodes,
+            ["FunctionCalls"]=funcCalls,
+            ["Expressions"]=allExpressions
         };
     }
 }
