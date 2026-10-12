@@ -6,10 +6,11 @@ Requires Python 3, .NET 10 SDK and pnpm 11. Install frontend dependencies first 
 python3 scripts/publish.py
 ```
 
-The script builds the frontend, runs tests and publishes Linux/Windows x64 single-file self-contained executables. Archives are placed in ignored `dist/`. Each package contains the executable and available license notices; no separate DLLs, wwwroot or appsettings are required. Run the executable and visit http://127.0.0.1:5087. Settings can be passed on the command line.
+The script builds the frontend, runs tests and publishes Linux x64, Windows x64 and macOS ARM64 (`osx-arm64`) single-file self-contained executables. Archives are placed in ignored `dist/`. Each package contains the executable and available license notices; no separate DLLs, wwwroot or appsettings are required. Run the executable and visit http://127.0.0.1:5087. Settings can be passed on the command line.
 
 ```sh
 python3 scripts/publish.py --rid linux-x64
+python3 scripts/publish.py --rid osx-arm64
 python3 scripts/publish.py --framework-dependent
 ```
 

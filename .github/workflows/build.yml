@@ -27,6 +27,8 @@ jobs:
             extension: tar.gz
           - rid: win-x64
             extension: zip
+          - rid: osx-arm64
+            extension: tar.gz
     steps:
       - uses: actions/checkout@v4
 

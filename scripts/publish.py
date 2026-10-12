@@ -7,7 +7,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--framework-dependent', action='store_true', help='Require installed .NET 10 ASP.NET Core Runtime')
-parser.add_argument('--rid', action='append', choices=['linux-x64', 'win-x64'], help='Defaults to both platforms')
+parser.add_argument('--rid', action='append', choices=['linux-x64', 'win-x64', 'osx-arm64'], help='Defaults to all platforms')
 args = parser.parse_args()
 
 def run(*command):
@@ -15,7 +15,7 @@ def run(*command):
 
 run('pnpm', '--dir', 'web', 'build')
 run('dotnet', 'test', 'tests/MercuryManager.Assets.Tests')
-for rid in args.rid or ['linux-x64', 'win-x64']:
+for rid in args.rid or ['linux-x64', 'win-x64', 'osx-arm64']:
     suffix = '-framework-dependent' if args.framework_dependent else ''
     output = ROOT / 'dist' / (rid + '-single' + suffix)
     if output.exists():
