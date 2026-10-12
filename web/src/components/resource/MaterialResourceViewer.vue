@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NCard, NTag, NSpace, NDivider, NButton, NIcon } from 'naive-ui'
-import { Eye, ExternalLink, Image as ImageIcon, Sliders, Palette, Box } from '@lucide/vue'
+import { ref, computed, watch } from 'vue'
+import {
+  NCard,
+  NTag,
+  NSpace,
+  NButton,
+  NIcon,
+  NInputNumber,
+  NColorPicker,
+  useMessage
+} from 'naive-ui'
+import { ExternalLink, Image as ImageIcon, Save, RotateCcw } from '@lucide/vue'
+import { api, useProject } from '../../project'
+import { tr } from '../../i18n'
 
 export interface MaterialInfo {
   Name: string
@@ -66,18 +77,120 @@ const emit = defineEmits<{
   previewTexture: [path: string, label: string]
 }>()
 
-function rgbaStyle(v: { R: number; G: number; B: number; A: number }) {
-  const r = Math.round(Math.min(1, Math.max(0, v.R)) * 255)
-  const g = Math.round(Math.min(1, Math.max(0, v.G)) * 255)
-  const b = Math.round(Math.min(1, Math.max(0, v.B)) * 255)
-  return `rgba(${r}, ${g}, ${b}, ${v.A})`
+const project = useProject()
+const message = useMessage()
+const saving = ref(false)
+
+interface ColorParam {
+  r: number
+  g: number
+  b: number
+  a: number
+  hex: string
 }
 
-function hexColor(v: { R: number; G: number; B: number }) {
-  const r = Math.round(Math.min(1, Math.max(0, v.R)) * 255).toString(16).padStart(2, '0')
-  const g = Math.round(Math.min(1, Math.max(0, v.G)) * 255).toString(16).padStart(2, '0')
-  const b = Math.round(Math.min(1, Math.max(0, v.B)) * 255).toString(16).padStart(2, '0')
-  return `#${r}${g}${b}`.toUpperCase()
+const editScalars = ref<Record<string, number>>({})
+const origScalars = ref<Record<string, number>>({})
+const editVectors = ref<Record<string, ColorParam>>({})
+const origVectors = ref<Record<string, ColorParam>>({})
+
+function toHex(r: number, g: number, b: number): string {
+  const cr = Math.round(Math.min(1, Math.max(0, r)) * 255).toString(16).padStart(2, '0')
+  const cg = Math.round(Math.min(1, Math.max(0, g)) * 255).toString(16).padStart(2, '0')
+  const cb = Math.round(Math.min(1, Math.max(0, b)) * 255).toString(16).padStart(2, '0')
+  return `#${cr}${cg}${cb}`.toUpperCase()
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace('#', '')
+  if (clean.length === 6) {
+    return {
+      r: parseInt(clean.substring(0, 2), 16) / 255,
+      g: parseInt(clean.substring(2, 4), 16) / 255,
+      b: parseInt(clean.substring(4, 6), 16) / 255
+    }
+  }
+  return { r: 1, g: 1, b: 1 }
+}
+
+function initEditState() {
+  const sMap: Record<string, number> = {}
+  for (const p of props.info.ScalarParameters || []) {
+    sMap[p.ParameterName] = p.DefaultValue
+  }
+  editScalars.value = { ...sMap }
+  origScalars.value = { ...sMap }
+
+  const vMap: Record<string, ColorParam> = {}
+  for (const p of props.info.VectorParameters || []) {
+    vMap[p.ParameterName] = {
+      r: p.R,
+      g: p.G,
+      b: p.B,
+      a: p.A,
+      hex: toHex(p.R, p.G, p.B)
+    }
+  }
+  editVectors.value = JSON.parse(JSON.stringify(vMap))
+  origVectors.value = JSON.parse(JSON.stringify(vMap))
+}
+
+watch(() => props.info, initEditState, { immediate: true })
+
+const isDirty = computed(() => {
+  for (const k of Object.keys(editScalars.value)) {
+    if (editScalars.value[k] !== origScalars.value[k]) return true
+  }
+  for (const k of Object.keys(editVectors.value)) {
+    const cur = editVectors.value[k]
+    const orig = origVectors.value[k]
+    if (!orig) return true
+    if (cur.r !== orig.r || cur.g !== orig.g || cur.b !== orig.b || cur.a !== orig.a) return true
+  }
+  return false
+})
+
+function onColorPickerChange(paramName: string, hex: string) {
+  const rgb = hexToRgb(hex)
+  const current = editVectors.value[paramName]
+  if (current) {
+    current.hex = hex
+    current.r = rgb.r
+    current.g = rgb.g
+    current.b = rgb.b
+  }
+}
+
+function resetChanges() {
+  initEditState()
+}
+
+async function saveChanges() {
+  if (!project.id || !props.path) return
+  saving.value = true
+  try {
+    const reqVectors: Record<string, { r: number; g: number; b: number; a: number }> = {}
+    for (const [k, v] of Object.entries(editVectors.value)) {
+      reqVectors[k] = { r: v.r, g: v.g, b: v.b, a: v.a }
+    }
+    await api(
+      `/projects/${project.id}/resource-material-params?` +
+        new URLSearchParams({ path: props.path }),
+      'POST',
+      {
+        scalars: editScalars.value,
+        vectors: reqVectors
+      }
+    )
+    origScalars.value = { ...editScalars.value }
+    origVectors.value = JSON.parse(JSON.stringify(editVectors.value))
+    project.revision++
+    message.success(tr('ui.matParamsSaved'))
+  } catch (e: any) {
+    message.error(e?.message || String(e))
+  } finally {
+    saving.value = false
+  }
 }
 
 const domainLabel = computed(() => {
@@ -90,11 +203,11 @@ const domainLabel = computed(() => {
 
 const blendModeLabel = computed(() => {
   const b = props.info.BlendMode || ''
-  if (b.includes('BLEND_Opaque')) return 'Opaque (不透明)'
-  if (b.includes('BLEND_Masked')) return 'Masked (镂空遮罩)'
-  if (b.includes('BLEND_Translucent')) return 'Translucent (半透明混合)'
-  if (b.includes('BLEND_Additive')) return 'Additive (加法叠加)'
-  if (b.includes('BLEND_Modulate')) return 'Modulate (正片叠底)'
+  if (b.includes('BLEND_Opaque')) return 'Opaque'
+  if (b.includes('BLEND_Masked')) return 'Masked'
+  if (b.includes('BLEND_Translucent')) return 'Translucent'
+  if (b.includes('BLEND_Additive')) return 'Additive'
+  if (b.includes('BLEND_Modulate')) return 'Modulate'
   return b || 'Opaque'
 })
 </script>
@@ -103,36 +216,54 @@ const blendModeLabel = computed(() => {
   <div class="material-viewer">
     <!-- 头部着色器基础属性卡片 -->
     <n-card size="small" class="mat-section-card">
-      <template #header>
-        <div class="mat-card-header">
-          <span>母版材质属性 (Master Material)</span>
+      <div class="mat-toolbar">
+        <div class="mat-title-left">
+          <span class="mat-title">{{ tr('ui.masterMaterialTitle') }}</span>
           <n-tag type="info" size="small">{{ info.Name }}</n-tag>
+          <n-tag v-if="isDirty" type="warning" size="small">{{ tr('ui.draftModified') }}</n-tag>
         </div>
-      </template>
+
+        <n-space size="small">
+          <n-button size="small" secondary :disabled="!isDirty" @click="resetChanges">
+            <template #icon><n-icon :component="RotateCcw" /></template>
+            {{ tr('ui.resetChanges') }}
+          </n-button>
+          <n-button
+            size="small"
+            type="primary"
+            :loading="saving"
+            :disabled="!isDirty"
+            @click="saveChanges"
+          >
+            <template #icon><n-icon :component="Save" /></template>
+            {{ tr('ui.saveToWorkspace') }}
+          </n-button>
+        </n-space>
+      </div>
 
       <div class="mat-prop-grid">
         <div class="mat-prop-item">
-          <span class="label">材质域 (Domain):</span>
+          <span class="label">{{ tr('ui.materialDomain') }}:</span>
           <span class="value font-medium">{{ domainLabel }}</span>
         </div>
         <div class="mat-prop-item">
-          <span class="label">混合模式 (Blend Mode):</span>
+          <span class="label">{{ tr('ui.blendMode') }}:</span>
           <span class="value font-medium">{{ blendModeLabel }}</span>
         </div>
         <div class="mat-prop-item">
-          <span class="label">着色模型 (Shading Model):</span>
+          <span class="label">{{ tr('ui.shadingModel') }}:</span>
           <span class="value">{{ info.ShadingModel || 'MSM_DefaultLit' }}</span>
         </div>
         <div class="mat-prop-item">
-          <span class="label">双面渲染 (Two Sided):</span>
-          <span class="value">{{ info.TwoSided ? '是' : '否' }}</span>
+          <span class="label">{{ tr('ui.twoSided') }}:</span>
+          <span class="value">{{ info.TwoSided ? tr('ui.yes') : tr('ui.no') }}</span>
         </div>
         <div v-if="info.CanMaskedBeAssumedOpaque" class="mat-prop-item">
-          <span class="label">遮罩假设不透明:</span>
-          <span class="value">True</span>
+          <span class="label">{{ tr('ui.maskedAssumedOpaque') }}:</span>
+          <span class="value">{{ tr('ui.yes') }}</span>
         </div>
         <div v-if="info.StateId" class="mat-prop-item full-row">
-          <span class="label">StateId (编译指纹):</span>
+          <span class="label">StateId:</span>
           <span class="value code-val">{{ info.StateId }}</span>
         </div>
       </div>
@@ -142,12 +273,12 @@ const blendModeLabel = computed(() => {
     <n-card size="small" class="mat-section-card">
       <template #header>
         <div class="mat-card-header">
-          <span>引用贴图采样 (Texture Samplers / Parameters)</span>
-          <n-tag size="small">{{ info.TextureNodes?.length || 0 }} 个采样节点</n-tag>
+          <span>{{ tr('ui.texSamplersTitle') }}</span>
+          <n-tag size="small">{{ info.TextureNodes?.length || 0 }}</n-tag>
         </div>
       </template>
 
-      <div v-if="!info.TextureNodes?.length" class="empty-hint">无显式纹理采样节点</div>
+      <div v-if="!info.TextureNodes?.length" class="empty-hint">{{ tr('ui.noTextureSamplers') }}</div>
       <div v-else class="tex-grid">
         <div v-for="node in info.TextureNodes" :key="node.ExportIndex" class="tex-card">
           <div class="tex-card-header">
@@ -156,17 +287,17 @@ const blendModeLabel = computed(() => {
           </div>
           <div class="tex-card-body">
             <div class="tex-field">
-              <span class="f-label">贴图名称:</span>
+              <span class="f-label">{{ tr('ui.textureName') }}:</span>
               <span class="f-val font-medium">{{ node.TextureName || '—' }}</span>
             </div>
             <div v-if="node.ContentFile" class="tex-field">
-              <span class="f-label">资产路径:</span>
+              <span class="f-label">{{ tr('ui.assetPath') }}:</span>
               <a class="ref-link" @click.prevent="emit('navigatePath', node.ContentFile)">
                 🔗 {{ node.ContentFile }}
               </a>
             </div>
             <div v-if="node.SamplerType" class="tex-field">
-              <span class="f-label">采样类型:</span>
+              <span class="f-label">{{ tr('ui.samplerType') }}:</span>
               <span class="f-val">{{ node.SamplerType }}</span>
             </div>
           </div>
@@ -175,10 +306,11 @@ const blendModeLabel = computed(() => {
               v-if="node.ContentFile"
               size="tiny"
               type="primary"
+              secondary
               @click="emit('previewTexture', node.ContentFile, node.TextureName || 'Texture')"
             >
               <template #icon><n-icon :component="ImageIcon" /></template>
-              预览贴图
+              {{ tr('ui.rawPreview') }}
             </n-button>
             <n-button
               v-if="node.ContentFile"
@@ -187,7 +319,7 @@ const blendModeLabel = computed(() => {
               @click="emit('navigatePath', node.ContentFile)"
             >
               <template #icon><n-icon :component="ExternalLink" /></template>
-              打开资产
+              {{ tr('ui.openAsset') }}
             </n-button>
           </div>
         </div>
@@ -199,11 +331,11 @@ const blendModeLabel = computed(() => {
       <n-card size="small" class="mat-section-card col-half">
         <template #header>
           <div class="mat-card-header">
-            <span>标量参数 (Scalar Parameters)</span>
-            <n-tag size="small">{{ info.ScalarParameters?.length || 0 }} 个</n-tag>
+            <span>{{ tr('ui.scalarParamsGroup') }}</span>
+            <n-tag size="small">{{ info.ScalarParameters?.length || 0 }}</n-tag>
           </div>
         </template>
-        <div v-if="!info.ScalarParameters?.length" class="empty-hint">无标量参数</div>
+        <div v-if="!info.ScalarParameters?.length" class="empty-hint">{{ tr('ui.noScalarParams') }}</div>
         <div v-else class="param-list">
           <div v-for="p in info.ScalarParameters" :key="p.ExportIndex" class="param-row">
             <div class="param-title">
@@ -211,7 +343,12 @@ const blendModeLabel = computed(() => {
               <span class="p-node">({{ p.NodeName }})</span>
             </div>
             <div class="param-value">
-              <code>{{ p.DefaultValue }}</code>
+              <n-input-number
+                v-model:value="editScalars[p.ParameterName]"
+                size="small"
+                :step="0.01"
+                style="width: 130px"
+              />
               <span v-if="p.SliderMin !== undefined || p.SliderMax !== undefined" class="p-range">
                 [{{ p.SliderMin ?? 0 }} ~ {{ p.SliderMax ?? 1 }}]
               </span>
@@ -224,21 +361,31 @@ const blendModeLabel = computed(() => {
       <n-card size="small" class="mat-section-card col-half">
         <template #header>
           <div class="mat-card-header">
-            <span>矢量 / 颜色参数 (Vector Parameters)</span>
-            <n-tag size="small">{{ info.VectorParameters?.length || 0 }} 个</n-tag>
+            <span>{{ tr('ui.vectorParamsGroup') }}</span>
+            <n-tag size="small">{{ info.VectorParameters?.length || 0 }}</n-tag>
           </div>
         </template>
-        <div v-if="!info.VectorParameters?.length" class="empty-hint">无矢量/颜色参数</div>
+        <div v-if="!info.VectorParameters?.length" class="empty-hint">{{ tr('ui.noVectorParams') }}</div>
         <div v-else class="param-list">
           <div v-for="p in info.VectorParameters" :key="p.ExportIndex" class="param-row">
             <div class="param-title">
-              <div class="color-swatch-box" :style="{ backgroundColor: rgbaStyle(p) }" />
               <span class="p-name">{{ p.ParameterName }}</span>
               <span class="p-node">({{ p.NodeName }})</span>
             </div>
-            <div class="param-value">
-              <span class="hex-tag">{{ hexColor(p) }}</span>
-              <code class="rgba-detail">RGBA({{ p.R.toFixed(2) }}, {{ p.G.toFixed(2) }}, {{ p.B.toFixed(2) }}, {{ p.A.toFixed(2) }})</code>
+            <div v-if="editVectors[p.ParameterName]" class="param-value">
+              <n-color-picker
+                v-model:value="editVectors[p.ParameterName].hex"
+                :show-alpha="false"
+                size="small"
+                style="width: 120px"
+                @update:value="hex => onColorPickerChange(p.ParameterName, hex)"
+              />
+              <code class="rgba-detail">
+                RGBA({{ editVectors[p.ParameterName].r.toFixed(2) }},
+                {{ editVectors[p.ParameterName].g.toFixed(2) }},
+                {{ editVectors[p.ParameterName].b.toFixed(2) }},
+                {{ editVectors[p.ParameterName].a.toFixed(1) }})
+              </code>
             </div>
           </div>
         </div>
@@ -249,13 +396,13 @@ const blendModeLabel = computed(() => {
     <n-card size="small" class="mat-section-card">
       <template #header>
         <div class="mat-card-header">
-          <span>材质表达式节点清单 (Expressions)</span>
-          <n-tag size="small">{{ info.Expressions?.length || 0 }} 个节点</n-tag>
+          <span>{{ tr('ui.expressionsListTitle') }}</span>
+          <n-tag size="small">{{ info.Expressions?.length || 0 }}</n-tag>
         </div>
       </template>
 
       <div v-if="info.FunctionCalls?.length" class="func-calls-box">
-        <div class="func-calls-title">使用的材质函数 (Material Functions):</div>
+        <div class="func-calls-title">{{ tr('ui.materialFunctionsUsed') }}:</div>
         <div class="func-tags">
           <div v-for="fn in info.FunctionCalls" :key="fn.ExportIndex" class="func-pill">
             <span class="fn-name">⚡ {{ fn.FunctionName || fn.NodeName }}</span>
@@ -293,6 +440,25 @@ const blendModeLabel = computed(() => {
 }
 .mat-section-card {
   border-radius: 6px;
+}
+.mat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #f0f0f4;
+  padding-bottom: 10px;
+}
+.mat-title-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mat-title {
+  font-weight: 600;
+  font-size: 14px;
 }
 .mat-card-header {
   display: flex;
@@ -445,21 +611,6 @@ const blendModeLabel = computed(() => {
 .p-range {
   color: #888;
   font-size: 11px;
-}
-.color-swatch-box {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-.hex-tag {
-  font-family: monospace;
-  font-weight: 600;
-  font-size: 11px;
-  background: #eee;
-  padding: 1px 4px;
-  border-radius: 3px;
 }
 .rgba-detail {
   font-size: 11px;

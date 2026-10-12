@@ -137,6 +137,93 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
             return new{path,verified=true,sources=Sources(id,path)};
         }
     }
+    public object SaveMaterialParams(string id,string path,SaveMaterialParamsRequest request)
+    {
+        lock(assets)
+        {
+            Validate(path);
+            if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Only .uasset files are supported.");
+            var source=Resolve(id,path);var dest=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(dest);
+            var stage=Path.Combine(assets.WorkspaceDirectory(id),"mat-stage-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
+            try
+            {
+                var asset=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+                var scalars=request.Scalars??new Dictionary<string,float>();
+                var vectors=request.Vectors??new Dictionary<string,VectorColorValue>();
+
+                var miExport=asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString() is "MaterialInstanceConstant" or "MaterialInstance");
+                if(miExport is not null)
+                {
+                    if(scalars.Count>0 && miExport.Data.FirstOrDefault(p=>p.Name.ToString()=="ScalarParameterValues") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData sArray)
+                    {
+                        foreach(var item in sArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                        {
+                            string? pName=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="ParameterInfo") as UAssetAPI.PropertyTypes.Structs.StructPropertyData)?.Value.FirstOrDefault(f=>f.Name.ToString()=="Name")?.RawValue?.ToString();
+                            if(pName!=null&&scalars.TryGetValue(pName,out var newVal)&&item.Value.FirstOrDefault(f=>f.Name.ToString()=="ParameterValue") is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fProp)
+                                fProp.Value=newVal;
+                        }
+                    }
+                    if(vectors.Count>0 && miExport.Data.FirstOrDefault(p=>p.Name.ToString()=="VectorParameterValues") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData vArray)
+                    {
+                        foreach(var item in vArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                        {
+                            string? pName=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="ParameterInfo") as UAssetAPI.PropertyTypes.Structs.StructPropertyData)?.Value.FirstOrDefault(f=>f.Name.ToString()=="Name")?.RawValue?.ToString();
+                            if(pName!=null&&vectors.TryGetValue(pName,out var newCol)&&item.Value.FirstOrDefault(f=>f.Name.ToString()=="ParameterValue") is UAssetAPI.PropertyTypes.Structs.StructPropertyData colStruct && colStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.LinearColorPropertyData linCol)
+                                linCol.Value=new UAssetAPI.UnrealTypes.FLinearColor(newCol.R,newCol.G,newCol.B,newCol.A);
+                        }
+                    }
+                }
+
+                foreach(var exp in asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>())
+                {
+                    var cls=exp.GetExportClassType().ToString();
+                    if(!cls.StartsWith("MaterialExpression",StringComparison.Ordinal))continue;
+                    var pName=(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="ParameterName") as UAssetAPI.PropertyTypes.Objects.NamePropertyData)?.Value?.ToString()??exp.ObjectName.ToString();
+                    if(cls.Contains("ScalarParameter",StringComparison.Ordinal)&&scalars.TryGetValue(pName,out var sVal))
+                    {
+                        if(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fProp)
+                            fProp.Value=sVal;
+                    }
+                    else if(cls.Contains("VectorParameter",StringComparison.Ordinal)&&vectors.TryGetValue(pName,out var vCol))
+                    {
+                        if(exp.Data.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Structs.StructPropertyData colStruct && colStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.LinearColorPropertyData linCol)
+                            linCol.Value=new UAssetAPI.UnrealTypes.FLinearColor(vCol.R,vCol.G,vCol.B,vCol.A);
+                    }
+                }
+
+                var mpcExport=asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="MaterialParameterCollection");
+                if(mpcExport is not null)
+                {
+                    if(scalars.Count>0 && mpcExport.Data.FirstOrDefault(p=>p.Name.ToString()=="ScalarParameters") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData sArray)
+                    {
+                        foreach(var item in sArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                        {
+                            var pName=item.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterName")?.RawValue?.ToString();
+                            if(pName!=null&&scalars.TryGetValue(pName,out var sVal)&&item.Value.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fProp)
+                                fProp.Value=sVal;
+                        }
+                    }
+                    if(vectors.Count>0 && mpcExport.Data.FirstOrDefault(p=>p.Name.ToString()=="VectorParameters") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData vArray)
+                    {
+                        foreach(var item in vArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                        {
+                            var pName=item.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterName")?.RawValue?.ToString();
+                            if(pName!=null&&vectors.TryGetValue(pName,out var vCol)&&item.Value.FirstOrDefault(p=>p.Name.ToString()=="DefaultValue") is UAssetAPI.PropertyTypes.Structs.StructPropertyData colStruct && colStruct.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.LinearColorPropertyData linCol)
+                                linCol.Value=new UAssetAPI.UnrealTypes.FLinearColor(vCol.R,vCol.G,vCol.B,vCol.A);
+                        }
+                    }
+                }
+
+                var output=Path.Combine(stage,Path.GetFileName(path));
+                asset.Write(output);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                var files=Directory.GetFiles(stage).Select(f=>(Source:f,Destination:Path.Combine(Path.GetDirectoryName(dest)!,Path.GetFileName(f)))).ToArray();
+                FileTransaction.Copy(files,false);
+                return new{path,verified=true,sources=Sources(id,path)};
+            }
+            finally{Directory.Delete(stage,true);}
+        }
+    }
     public object Build(string id,string template,string target,byte[] image)
     {
         lock(assets){Validate(target);if(!target.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("Texture output must be uasset.");if(!target.StartsWith("UI/Textures/",StringComparison.Ordinal))throw new ArgumentException("Output must be under UI/Textures/.");if(image.Length>16*1024*1024)throw new ArgumentException("Upload too large.");
@@ -170,3 +257,5 @@ public sealed record CueEditRequest(string Operation,string Bank,int CueId,int T
 public sealed record ReplaceAudioRequest(string Bank,ushort WaveId,string HcaBase64);
 public sealed record BuildTextureRequest(string Template,string Target,string ImageBase64);
 public sealed record SaveTextRequest(string Content);
+public sealed record VectorColorValue(float R,float G,float B,float A=1f);
+public sealed record SaveMaterialParamsRequest(Dictionary<string,float>? Scalars,Dictionary<string,VectorColorValue>? Vectors);

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { NCard, NButton, NSpace, NTag, NSpin, useMessage, NIcon } from 'naive-ui'
-import { Save, RotateCcw, Download, Music } from '@lucide/vue'
+import { Save, RotateCcw, Download } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { api, useProject } from '../../project'
+import { tr } from '../../i18n'
 
 const props = defineProps<{
   path: string
@@ -81,7 +82,7 @@ async function saveText() {
     selectedSource.value = res.sources.selected
     hasProjectDraft.value = res.sources.project
     hasGameSource.value = res.sources.game
-    message.success('谱面文件已保存到工程草稿区')
+    message.success(tr('ui.merSaved'))
   } catch (e: any) {
     message.error(e?.message || String(e))
   } finally {
@@ -121,14 +122,14 @@ function openBgmAsset() {
       <n-card size="small" class="mer-meta-card">
         <div class="mer-toolbar">
           <div class="mer-meta-tags">
-            <n-tag type="success" size="small" :bordered="false">MER 谱面</n-tag>
-            <n-tag v-if="hasProjectDraft" type="warning" size="small">工程草稿已修改</n-tag>
-            <span class="meta-stat">总行数: <b>{{ lineCount }}</b></span>
-            <span class="meta-stat">事件行数 (#BODY): <b>{{ eventCount }}</b></span>
+            <n-tag type="success" size="small" :bordered="false">{{ tr('ui.merChart') }}</n-tag>
+            <n-tag v-if="hasProjectDraft" type="warning" size="small">{{ tr('ui.draftModified') }}</n-tag>
+            <span class="meta-stat">{{ tr('ui.merTotalLines') }}: <b>{{ lineCount }}</b></span>
+            <span class="meta-stat">{{ tr('ui.merBodyEvents') }}: <b>{{ eventCount }}</b></span>
             <span v-if="headers['OFFSET']" class="meta-stat">OFFSET: <code>{{ headers['OFFSET'] }}</code></span>
             <span v-if="headers['MOVIEOFFSET']" class="meta-stat">MOVIEOFFSET: <code>{{ headers['MOVIEOFFSET'] }}</code></span>
             <span v-if="headers['MUSIC_FILE_PATH']" class="meta-stat">
-              关联音频:
+              {{ tr('ui.merLinkedAudio') }}:
               <a class="ref-link" @click.prevent="openBgmAsset">
                 🔗 {{ headers['MUSIC_FILE_PATH'] }} ({{ bgmAssetPath }})
               </a>
@@ -142,19 +143,19 @@ function openBgmAsset() {
               secondary
               @click="loadText(selectedSource === 'project' ? 'game' : 'project')"
             >
-              切换查看: {{ selectedSource === 'project' ? '原版游戏文件' : '工程草稿文件' }}
+              {{ selectedSource === 'project' ? tr('ui.viewGameOriginal') : tr('ui.viewProjectDraft') }}
             </n-button>
             <n-button size="small" secondary :disabled="!isDirty" @click="resetChanges">
               <template #icon><n-icon :component="RotateCcw" /></template>
-              还原修改
+              {{ tr('ui.resetChanges') }}
             </n-button>
             <n-button size="small" secondary @click="downloadMer">
               <template #icon><n-icon :component="Download" /></template>
-              导出 .mer
+              {{ tr('ui.exportMer') }}
             </n-button>
             <n-button size="small" type="primary" :loading="saving" :disabled="!isDirty" @click="saveText">
               <template #icon><n-icon :component="Save" /></template>
-              保存到工作区
+              {{ tr('ui.saveToWorkspace') }}
             </n-button>
           </n-space>
         </div>
@@ -165,7 +166,7 @@ function openBgmAsset() {
           v-model="content"
           class="mer-textarea"
           spellcheck="false"
-          placeholder="谱面内容为空..."
+          :placeholder="tr('ui.merEmptyPlaceholder')"
         />
       </div>
     </template>

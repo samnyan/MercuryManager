@@ -73,6 +73,7 @@ app.MapPost("/api/projects/{id}/resource-cue-edit",(string id,string path,CueEdi
 app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,ReplaceAudioRequest request,ResourceService r)=>r.ReplaceAudio(id,path,request.Bank,request.WaveId,Convert.FromBase64String(request.HcaBase64)));
 app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
 app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
+app.MapPost("/api/projects/{id}/resource-material-params",(string id,string path,SaveMaterialParamsRequest request,ResourceService r)=>r.SaveMaterialParams(id,path,request));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
 app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path),mip),"image/png"));
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));

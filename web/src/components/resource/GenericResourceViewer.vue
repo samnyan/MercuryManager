@@ -24,6 +24,7 @@ import {
 import { tr } from '../../i18n'
 import { useProject } from '../../project'
 import VoiceMatchesPopover from './VoiceMatchesPopover.vue'
+import TexturePreviewModal from './TexturePreviewModal.vue'
 
 const project = useProject()
 
@@ -44,11 +45,15 @@ const previewOpen = ref(false)
 const mipPreviewOpen = ref(false)
 const mipPreviewSrc = ref('')
 const mipPreviewTitle = ref('')
+const mipPreviewTargetPath = ref('')
+const mipPreviewIndex = ref(0)
 
 function openMipPreview(mipIndex: number, label: string, targetPath?: string) {
   const p = targetPath || props.path
   if (!p || !project.id) return
   mipPreviewTitle.value = label
+  mipPreviewTargetPath.value = p
+  mipPreviewIndex.value = mipIndex
   mipPreviewSrc.value = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: p, mip: String(mipIndex) })
   mipPreviewOpen.value = true
 }
@@ -692,40 +697,23 @@ watch(columns, () => {
 </script>
 
 <template>
-  <n-modal
+  <texture-preview-modal
     v-model:show="mipPreviewOpen"
-    preset="card"
-    :title="'Mip 预览 · ' + mipPreviewTitle"
-    style="width: min(90vw, 800px)"
-  >
-    <div v-if="mipPreviewSrc" class="raw-preview">
-      <n-image
-        :src="mipPreviewSrc"
-        :img-props="{
-          style:
-            'max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;display:block;image-rendering:pixelated'
-        }"
-      />
-    </div>
-  </n-modal>
+    :title="mipPreviewTitle"
+    :src="mipPreviewSrc"
+    :asset-path="mipPreviewTargetPath"
+    :mip="mipPreviewIndex"
+    @navigate-path="emit('navigatePath', $event)"
+  />
 
-  <n-modal
+  <texture-preview-modal
     v-model:show="previewOpen"
-    preset="card"
     :title="tr('ui.rawPreview')"
-    style="width: min(90vw, 1000px)"
-  >
-    <div v-if="previewSrc" class="raw-preview">
-      <n-image
-        :src="previewSrc"
-        :img-props="{
-          style:
-            'max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;display:block'
-        }"
-      />
-    </div>
-    <div v-else>{{ previewError }}</div>
-  </n-modal>
+    :src="previewSrc"
+    :asset-path="path"
+    :error="previewError"
+    @navigate-path="emit('navigatePath', $event)"
+  />
 
   <div class="generic-viewer">
     <!-- 左侧树状目录导航 -->

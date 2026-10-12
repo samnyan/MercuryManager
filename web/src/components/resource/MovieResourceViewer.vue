@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NCard, NTag, NSpace, NDivider, NIcon } from 'naive-ui'
-import { Film, Clock, Layers, FileVideo } from '@lucide/vue'
+import { NCard, NTag, NIcon } from 'naive-ui'
+import { Film } from '@lucide/vue'
+import { tr } from '../../i18n'
 
 export interface MovieInfo {
   Name: string
@@ -26,7 +27,7 @@ const durationStr = computed(() => {
   const total = Math.round(props.info.DurationSec || 0)
   const mins = Math.floor(total / 60)
   const secs = total % 60
-  return `${mins}:${secs.toString().padStart(2, '0')} (${(props.info.DurationSec || 0).toFixed(2)} 秒)`
+  return `${mins}:${secs.toString().padStart(2, '0')} (${(props.info.DurationSec || 0).toFixed(2)}s)`
 })
 
 const sizeStr = computed(() => {
@@ -44,7 +45,7 @@ const sizeStr = computed(() => {
         <div class="movie-card-header">
           <div class="header-left">
             <n-icon :component="Film" size="18" />
-            <span>CRI Sofdec 视频资产 (FileManaMovie)</span>
+            <span>{{ tr('ui.movieTitle') }}</span>
           </div>
           <n-tag type="info" size="small">{{ info.Name }}</n-tag>
         </div>
@@ -52,48 +53,45 @@ const sizeStr = computed(() => {
 
       <div class="movie-grid">
         <div class="movie-prop">
-          <span class="label">关联媒体文件 (.usm):</span>
+          <span class="label">{{ tr('ui.movieFilePath') }}:</span>
           <code class="val-code">{{ info.FilePath || '—' }}</code>
-          <n-tag v-if="info.UsmExists" type="success" size="tiny">文件存在 ({{ sizeStr }})</n-tag>
-          <n-tag v-else type="warning" size="tiny">未在磁盘上找到 .usm</n-tag>
+          <n-tag v-if="info.UsmExists" type="success" size="tiny">
+            {{ tr('ui.movieFileExists') }} ({{ sizeStr }})
+          </n-tag>
+          <n-tag v-else type="warning" size="tiny">
+            {{ tr('ui.movieFileMissing') }}
+          </n-tag>
         </div>
 
         <div class="movie-prop">
-          <span class="label">分辨率尺寸:</span>
+          <span class="label">{{ tr('ui.movieResolution') }}:</span>
           <span class="val font-medium">{{ info.Width }} × {{ info.Height }}</span>
         </div>
 
         <div class="movie-prop">
-          <span class="label">播放帧率:</span>
+          <span class="label">{{ tr('ui.movieFrameRate') }}:</span>
           <span class="val">{{ (info.FrameRate || 0).toFixed(2) }} FPS</span>
         </div>
 
         <div class="movie-prop">
-          <span class="label">总帧数:</span>
-          <span class="val">{{ info.TotalFrames }} 帧</span>
+          <span class="label">{{ tr('ui.movieTotalFrames') }}:</span>
+          <span class="val">{{ info.TotalFrames }}</span>
         </div>
 
         <div class="movie-prop">
-          <span class="label">视频时长:</span>
+          <span class="label">{{ tr('ui.movieDuration') }}:</span>
           <span class="val font-medium">{{ durationStr }}</span>
         </div>
 
         <div class="movie-prop">
-          <span class="label">编码类型:</span>
+          <span class="label">{{ tr('ui.movieCodec') }}:</span>
           <span class="val">{{ info.MovieType?.replace('EManaMovieType::', '') || 'SofdecPrime' }}</span>
         </div>
 
         <div class="movie-prop">
-          <span class="label">Alpha 透明通道:</span>
-          <span class="val">{{ info.IsAlpha ? '包含 Alpha 遮罩' : '无透明通道' }}</span>
+          <span class="label">{{ tr('ui.movieAlpha') }}:</span>
+          <span class="val">{{ info.IsAlpha ? tr('ui.yes') : tr('ui.no') }}</span>
         </div>
-      </div>
-    </n-card>
-
-    <n-card size="small" title="CRI Sofdec 媒体说明" class="movie-card">
-      <div class="movie-hint-text">
-        <p>• 该资产是 UE4 中 <code>FileManaMovie</code> 的轻量烘焙索引元数据，真实视频流存储在游戏 Content 目录或 PAK 的 <code>{{ info.FilePath }}</code> 中。</p>
-        <p>• WACCA 中的选歌背景 MV、结算动画及段位结算均采用 CRI Sofdec 视频（通常为 1080×1080 正方形 60FPS H.264/Sofdec 编码格式）。</p>
       </div>
     </n-card>
   </div>
@@ -149,13 +147,5 @@ const sizeStr = computed(() => {
   background: #f4f4f8;
   padding: 2px 6px;
   border-radius: 4px;
-}
-.movie-hint-text {
-  font-size: 13px;
-  color: #555;
-  line-height: 1.6;
-}
-.movie-hint-text p {
-  margin: 4px 0;
 }
 </style>

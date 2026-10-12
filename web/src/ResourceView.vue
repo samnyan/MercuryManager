@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NImage, NButton, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon, NModal, NTag } from 'naive-ui'
-import { ArrowLeft, ExternalLink } from '@lucide/vue'
+import { NImage, NButton, NButtonGroup, NSpace, NTabs, NTab, NSpin, NSelect, NCard, NIcon, NTag } from 'naive-ui'
+import { ArrowLeft, ExternalLink, Grid, Moon, Sun } from '@lucide/vue'
 import { api, useProject } from './project'
 import { tr } from './i18n'
 import TextureCreateDialog from './components/resource/TextureCreateDialog.vue'
+import TexturePreviewModal from './components/resource/TexturePreviewModal.vue'
 import AudioResourceViewer from './components/resource/AudioResourceViewer.vue'
 import GenericResourceViewer from './components/resource/GenericResourceViewer.vue'
 import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
 import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
+import MaterialInstanceViewer from './components/resource/MaterialInstanceViewer.vue'
 import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
 import MovieResourceViewer from './components/resource/MovieResourceViewer.vue'
 
@@ -42,30 +44,16 @@ const isMpc = ref(false)
 const isMovie = ref(false)
 const spriteSrc = ref('')
 const spriteError = ref('')
+const texBgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
 const showTexModal = ref(false)
-const modalTexSrc = ref('')
+const modalTexPath = ref('')
 const modalTexTitle = ref('')
-const modalTexLoading = ref(false)
 
-async function openExternalTexPreview(targetPath: string, label: string) {
+function openExternalTexPreview(targetPath: string, label: string) {
   if (!project.id || !targetPath) return
+  modalTexPath.value = targetPath
+  modalTexTitle.value = label ? `${label} (${targetPath})` : targetPath
   showTexModal.value = true
-  modalTexTitle.value = `${label} (${targetPath})`
-  modalTexLoading.value = true
-  if (modalTexSrc.value) {
-    URL.revokeObjectURL(modalTexSrc.value)
-    modalTexSrc.value = ''
-  }
-  try {
-    const res = await fetch(`/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: targetPath, mip: '0' }))
-    if (!res.ok) throw new Error((await res.json()).message)
-    const blob = await res.blob()
-    modalTexSrc.value = URL.createObjectURL(blob)
-  } catch (e) {
-    error.value = String(e)
-  } finally {
-    modalTexLoading.value = false
-  }
 }
 const isDataTable = computed(() => {
   if (!data.value?.Exports) return false
@@ -77,12 +65,12 @@ const matchedTableRoute = computed(() => {
   const filename = path.value.split('/').pop()?.replace('.uasset', '') || ''
   if (path.value.startsWith('Table/')) {
     if (filename === 'MusicParameterTable') {
-      return { path: '/table/MusicParameterTable', label: '打开音乐参数表 (MusicParameterTable)', type: 'music' }
+      return { path: '/table/MusicParameterTable', label: `${tr('ui.openTableEditor')} (MusicParameterTable)`, type: 'music' }
     }
-    return { path: `/table/${filename}`, label: `打开表格数据编辑器 (${filename})`, type: 'table' }
+    return { path: `/table/${filename}`, label: `${tr('ui.openTableEditor')} (${filename})`, type: 'table' }
   }
   if (path.value.startsWith('Message/')) {
-    return { path: `/message/${filename}`, label: `打开本地化文本编辑器 (${filename})`, type: 'message' }
+    return { path: `/message/${filename}`, label: `${tr('ui.openMessageEditor')} (${filename})`, type: 'message' }
   }
   return null
 })
@@ -236,10 +224,11 @@ watch(
       }
 
       if (isMaterialInstance.value) {
-        mode.value = 'sprite'
         const mi = result.data.MaterialInstanceInfo
+        const hasUvCrop = mi.Scalars?.U0 !== undefined || mi.Scalars?.V0 !== undefined
+        mode.value = hasUvCrop ? 'sprite' : 'materialInstance'
         const targetTex = mi.Textures?.tex || mi.Textures?.Texture
-        if (targetTex) {
+        if (targetTex && hasUvCrop) {
           try {
             const texInfo = await api<{ width: number; height: number }>(
               `/projects/${project.id}/resource-info?` + new URLSearchParams({ path: targetTex })
@@ -347,22 +336,23 @@ onBeforeUnmount(() => {
 
     <div v-if="matchedTableRoute" class="datatable-route-banner view-header-fixed">
       <div class="banner-left">
-        <n-tag type="success" size="small" :bordered="false">DataTable 专用编辑器</n-tag>
-        <span>该资产拥有专门的结构化表格管理与字段关联页面，支持多语言预览、筛选与直接编辑保存。</span>
+        <n-tag type="success" size="small" :bordered="false">{{ tr('ui.dataTableDedicatedTag') }}</n-tag>
+        <span>{{ tr('ui.dataTableDedicatedDesc') }}</span>
       </div>
       <n-button size="small" type="primary" @click="router.push(matchedTableRoute.path)">
         <template #icon><n-icon :component="ExternalLink" /></template>
-        前往 {{ matchedTableRoute.path }}
+        {{ tr('ui.gotoPage') }} {{ matchedTableRoute.path }}
       </n-button>
     </div>
 
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
     <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialInstance || isTexture || isAudio) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
-      <n-tab v-if="isMovie" name="movie">视频元数据 (Movie)</n-tab>
-      <n-tab v-if="isMpc" name="mpc">材质参数集 (MPC)</n-tab>
-      <n-tab v-if="isMaterial" name="material">材质属性 (Material)</n-tab>
-      <n-tab v-if="isMaterialInstance" name="sprite">Sprite 预览</n-tab>
+      <n-tab v-if="isMovie" name="movie">{{ tr('ui.movieTab') }}</n-tab>
+      <n-tab v-if="isMpc" name="mpc">{{ tr('ui.mpcTab') }}</n-tab>
+      <n-tab v-if="isMaterial" name="material">{{ tr('ui.materialTab') }}</n-tab>
+      <n-tab v-if="isMaterialInstance" name="materialInstance">{{ tr('ui.materialInstanceTab') }}</n-tab>
+      <n-tab v-if="isMaterialInstance && (miInfo?.Scalars?.U0 !== undefined || miInfo?.Scalars?.V0 !== undefined || spriteSrc)" name="sprite">{{ tr('ui.spriteTab') }}</n-tab>
       <n-tab v-if="isTexture" name="texture">
         {{ tr('ui.textureMode') }}
       </n-tab>
@@ -399,6 +389,13 @@ onBeforeUnmount(() => {
           @navigate-path="jumpToResource"
           @preview-texture="openExternalTexPreview"
         />
+        <material-instance-viewer
+          v-if="data?.MaterialInstanceInfo && mode === 'materialInstance'"
+          :info="data.MaterialInstanceInfo"
+          :path="path"
+          @navigate-path="jumpToResource"
+          @preview-texture="openExternalTexPreview"
+        />
         <generic-resource-viewer
           v-if="data && mode === 'generic'"
           :data="data"
@@ -411,31 +408,49 @@ onBeforeUnmount(() => {
 
         <!-- Material Instance Sprite 裁切预览面板 -->
         <div v-if="mode === 'sprite' && isMaterialInstance" class="sprite-pane">
-          <div v-if="spriteSrc" class="sprite-preview-box">
-            <n-image :src="spriteSrc" width="128" height="128" class="sprite-img" />
+          <div class="tex-toolbar-row">
+            <span class="bg-label">{{ tr('ui.texBgLabel') }}:</span>
+            <n-button-group size="tiny">
+              <n-button :type="texBgMode === 'checkerboard' ? 'primary' : 'default'" :secondary="texBgMode !== 'checkerboard'" @click="texBgMode = 'checkerboard'">
+                <template #icon><n-icon :component="Grid" /></template>
+                {{ tr('ui.texBgChecker') }}
+              </n-button>
+              <n-button :type="texBgMode === 'dark' ? 'primary' : 'default'" :secondary="texBgMode !== 'dark'" @click="texBgMode = 'dark'">
+                <template #icon><n-icon :component="Moon" /></template>
+                {{ tr('ui.texBgDark') }}
+              </n-button>
+              <n-button :type="texBgMode === 'light' ? 'primary' : 'default'" :secondary="texBgMode !== 'light'" @click="texBgMode = 'light'">
+                <template #icon><n-icon :component="Sun" /></template>
+                {{ tr('ui.texBgLight') }}
+              </n-button>
+            </n-button-group>
+          </div>
+
+          <div v-if="spriteSrc" class="sprite-preview-box" :class="`bg-${texBgMode}`">
+            <img :src="spriteSrc" width="128" height="128" class="sprite-img" alt="Sprite" />
           </div>
           <div v-else-if="spriteError" class="error-banner">{{ spriteError }}</div>
           <div v-else class="sprite-placeholder">
-            <span>未关联贴图或无法解析图集参数</span>
+            <span>{{ tr('ui.spritePlaceholder') }}</span>
           </div>
 
-          <n-card title="图集关联信息" size="small" class="mi-meta-card">
+          <n-card :title="tr('ui.atlasMetaTitle')" size="small" class="mi-meta-card">
             <div class="mi-meta-row">
-              <span class="mi-meta-label">母版材质 (Parent):</span>
+              <span class="mi-meta-label">{{ tr('ui.parentMaterial') }}:</span>
               <a v-if="miInfo?.ParentPackage" href="javascript:void(0)" class="resource-link" @click="jumpToResource(miInfo.ParentPackage)">
                 {{ miInfo.Parent }} ({{ miInfo.ParentPackage }})
               </a>
               <span v-else>{{ miInfo?.Parent || '—' }}</span>
             </div>
             <div class="mi-meta-row">
-              <span class="mi-meta-label">底图资产 (Texture):</span>
+              <span class="mi-meta-label">{{ tr('ui.baseTexture') }}:</span>
               <a v-if="miInfo?.Textures?.tex || miInfo?.Textures?.Texture" href="javascript:void(0)" class="resource-link" @click="jumpToResource(miInfo.Textures.tex || miInfo.Textures.Texture)">
                 {{ miInfo.Textures.tex || miInfo.Textures.Texture }}
               </a>
               <span v-else>—</span>
             </div>
             <div class="mi-meta-row">
-              <span class="mi-meta-label">UV 参数:</span>
+              <span class="mi-meta-label">{{ tr('ui.uvParams') }}:</span>
               <code>U0: {{ miInfo?.Scalars?.U0 ?? 0 }}, V0: {{ miInfo?.Scalars?.V0 ?? 0 }}</code>
             </div>
           </n-card>
@@ -444,9 +459,28 @@ onBeforeUnmount(() => {
         <div v-if="mode === 'texture'" class="texture-pane">
           <div class="texture-controls">
             <div v-if="mipCount > 1" class="mip-selector-box">
-              <span style="font-size: 13px; font-weight: 500">查看 Mip 层级:</span>
+              <span style="font-size: 13px; font-weight: 500">{{ tr('ui.viewMipLevel') }}:</span>
               <n-select v-model:value="selectedMip" :options="mipOptions" size="small" style="width: 220px" />
             </div>
+
+            <div class="tex-toolbar-row">
+              <span class="bg-label">{{ tr('ui.texBgLabel') }}:</span>
+              <n-button-group size="tiny">
+                <n-button :type="texBgMode === 'checkerboard' ? 'primary' : 'default'" :secondary="texBgMode !== 'checkerboard'" @click="texBgMode = 'checkerboard'">
+                  <template #icon><n-icon :component="Grid" /></template>
+                  {{ tr('ui.texBgChecker') }}
+                </n-button>
+                <n-button :type="texBgMode === 'dark' ? 'primary' : 'default'" :secondary="texBgMode !== 'dark'" @click="texBgMode = 'dark'">
+                  <template #icon><n-icon :component="Moon" /></template>
+                  {{ tr('ui.texBgDark') }}
+                </n-button>
+                <n-button :type="texBgMode === 'light' ? 'primary' : 'default'" :secondary="texBgMode !== 'light'" @click="texBgMode = 'light'">
+                  <template #icon><n-icon :component="Sun" /></template>
+                  {{ tr('ui.texBgLight') }}
+                </n-button>
+              </n-button-group>
+            </div>
+
             <n-button
               v-if="src"
               type="primary"
@@ -458,12 +492,13 @@ onBeforeUnmount(() => {
             </n-button>
           </div>
 
-          <n-image
-            v-if="src"
-            :src="src"
-            width="512"
-            class="texture-img"
-          />
+          <div v-if="src" class="texture-stage-box" :class="`bg-${texBgMode}`">
+            <img
+              :src="src"
+              class="texture-img-element"
+              alt="Texture Preview"
+            />
+          </div>
           <div v-if="textureError" class="error-banner">{{ textureError }}</div>
           <div v-if="src && !supported" class="unsupported-hint">
             {{ tr('ui.unsupportedTexture') }}
@@ -478,12 +513,12 @@ onBeforeUnmount(() => {
       @created="project.revision++"
     />
 
-    <n-modal v-model:show="showTexModal" preset="card" :title="modalTexTitle" style="width: 600px; max-width: 90vw">
-      <div style="display: flex; justify-content: center; align-items: center; min-height: 200px; background: #18181c; padding: 16px; border-radius: 6px">
-        <n-spin v-if="modalTexLoading" />
-        <n-image v-else-if="modalTexSrc" :src="modalTexSrc" style="max-width: 100%; max-height: 500px; image-rendering: pixelated" />
-      </div>
-    </n-modal>
+    <texture-preview-modal
+      v-model:show="showTexModal"
+      :title="modalTexTitle"
+      :asset-path="modalTexPath"
+      @navigate-path="jumpToResource"
+    />
   </div>
 </template>
 
@@ -634,10 +669,56 @@ onBeforeUnmount(() => {
   cursor: pointer;
   word-break: break-all;
 }
-.texture-img {
+.tex-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bg-label {
+  font-size: 12px;
+  color: #666;
+}
+.texture-stage-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #dcdfe6;
   max-width: 100%;
+  min-height: 240px;
+  overflow: auto;
+}
+.texture-img-element {
+  display: block;
+  max-width: 100%;
+  max-height: 65vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  image-rendering: pixelated;
   border-radius: 4px;
-  border: 1px solid #eee;
+}
+.sprite-preview-box.bg-checkerboard,
+.texture-stage-box.bg-checkerboard {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #cccccc 25%, transparent 25%),
+    linear-gradient(-45deg, #cccccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #cccccc 75%),
+    linear-gradient(-45deg, transparent 75%, #cccccc 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.sprite-preview-box.bg-dark,
+.texture-stage-box.bg-dark {
+  background-color: #141418;
+  background-image: none;
+}
+.sprite-preview-box.bg-light,
+.texture-stage-box.bg-light {
+  background-color: #ffffff;
+  background-image: none;
 }
 .unsupported-hint {
   font-size: 12px;
