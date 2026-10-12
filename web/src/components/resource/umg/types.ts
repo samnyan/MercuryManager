@@ -40,7 +40,7 @@ export type UMGNode = {
     Text?: string
     RenderTransform?: { Translation?: { X?: number; Y?: number }; Scale?: { X?: number; Y?: number }; Shear?: { X?: number; Y?: number }; Angle?: number }
     RenderTransformPivot?: { X?: number; Y?: number }
-    Brush?: { ImageSize?: { X?: number; Y?: number }; ResourceObject?: { assetPath?: string; className?: string } }
+    Brush?: { ImageSize?: { X?: number; Y?: number }; ResourceObject?: { assetPath?: string; className?: string }; TintColor?: any }
     Font?: { Size?: number }
     WidthOverride?: number
     HeightOverride?: number

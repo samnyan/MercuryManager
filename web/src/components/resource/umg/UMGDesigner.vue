@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NSpin, NRadioGroup, NRadioButton, NSelect } from 'naive-ui'
+import { NRadioGroup, NRadioButton, NTag } from 'naive-ui'
 import type { UMGDocument, UMGNode } from './types'
 import { computeTreeLayout } from './layout'
 import UMGHierarchy from './UMGHierarchy.vue'
@@ -21,18 +21,8 @@ const activeRootId = ref<string | null>(props.document.suggestedRootId || props.
 const selectedNodeId = ref<string | null>(null)
 const viewMode = ref<'appearance' | 'structure'>('appearance')
 
-const viewport = ref({ width: 1920, height: 1080 })
-const viewportOptions = [
-  { label: '1080p (1920 × 1080)', value: '1920x1080' },
-  { label: '720p (1280 × 720)', value: '1280x720' },
-  { label: '竖屏 (1080 × 1920)', value: '1080x1920' }
-]
-const selectedViewportKey = ref('1920x1080')
-
-watch(selectedViewportKey, val => {
-  const [w, h] = val.split('x').map(Number)
-  viewport.value = { width: w, height: h }
-})
+// WACCA 街机标准竖屏分辨率 1080 × 1920
+const viewport = ref({ width: 1080, height: 1920 })
 
 const activeRoot = computed(() => {
   return props.document.roots.find(r => r.id === activeRootId.value) || props.document.roots[0]
@@ -81,12 +71,7 @@ function openTexturePreview(targetPath: string) {
       </div>
 
       <div class="topbar-right">
-        <n-select
-          v-model:value="selectedViewportKey"
-          :options="viewportOptions"
-          size="small"
-          style="width: 180px"
-        />
+        <n-tag size="small" :bordered="false" type="info">竖屏 1080 × 1920</n-tag>
       </div>
     </div>
 
