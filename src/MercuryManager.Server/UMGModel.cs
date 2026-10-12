@@ -10,4 +10,4 @@ public sealed record UMGNode(string Id,int ExportIndex,string TreeId,string Name
     Dictionary<string,string> Sources,List<UMGResource> Resources,UMGChildWidget? ChildWidget,UMGPreview Preview);
 public sealed record UMGRoot(string Id,string TreeId,string? RootNodeId,string OwnerName,string Kind);
 public sealed record UMGDocument(int SchemaVersion,string Revision,string AssetPath,List<UMGRoot> Roots,
-    string? SuggestedRootId,List<UMGNode> Nodes,List<UMGIssue> Diagnostics);
+    string? SuggestedRootId,List<UMGNode> Nodes,List<UMGIssue> Diagnostics,Dictionary<string,System.Text.Json.JsonElement>? Materials=null);

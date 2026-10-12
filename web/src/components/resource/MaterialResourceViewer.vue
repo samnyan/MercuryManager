@@ -322,7 +322,19 @@ const simVectors = computed(() => {
 
 const simTextures = computed(() => {
   const res: Array<{ name: string; path: string }> = []
+  const counts = new Map<string, number>()
   for (const node of props.info.TextureNodes || []) {
+    if (node.ContentFile) counts.set(node.ContentFile, (counts.get(node.ContentFile) || 0) + 1)
+  }
+  const sortedNodes = [...(props.info.TextureNodes || [])].sort((a, b) => {
+    const aSample = a.Class === 'MaterialExpressionTextureSample' ? 1 : 0
+    const bSample = b.Class === 'MaterialExpressionTextureSample' ? 1 : 0
+    if (aSample !== bSample) return bSample - aSample
+    const ca = counts.get(a.ContentFile || '') || 0
+    const cb = counts.get(b.ContentFile || '') || 0
+    return cb - ca
+  })
+  for (const node of sortedNodes) {
     if (node.ContentFile) {
       res.push({
         name: node.ParameterName || node.TextureName || node.NodeName,

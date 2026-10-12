@@ -102,7 +102,20 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     }
   }
   if (Array.isArray(matInfo?.TextureNodes)) {
+    // 优先排列被多次采样的核心纹理节点（如 uM_Title009 中采样 4 次的 uT_Chara000_RT000），再排列单次节点，且 MaterialExpressionTextureSample 优先于 TextureObjectParameter（通常为遮罩）
+    const counts = new Map<string, number>()
     for (const tn of matInfo.TextureNodes) {
+      if (tn?.ContentFile) counts.set(tn.ContentFile, (counts.get(tn.ContentFile) || 0) + 1)
+    }
+    const sortedNodes = [...matInfo.TextureNodes].sort((a, b) => {
+      const aSample = a?.Class === 'MaterialExpressionTextureSample' ? 1 : 0
+      const bSample = b?.Class === 'MaterialExpressionTextureSample' ? 1 : 0
+      if (aSample !== bSample) return bSample - aSample
+      const ca = counts.get(a?.ContentFile) || 0
+      const cb = counts.get(b?.ContentFile) || 0
+      return cb - ca
+    })
+    for (const tn of sortedNodes) {
       if (tn?.ParameterName && overriddenParams.has(tn.ParameterName)) continue
       addTex(tn?.ParameterName || tn?.TextureName || tn?.NodeName || 'Texture', tn?.ContentFile)
     }
@@ -128,10 +141,15 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
 
   const hasTimeAnim =
     fnList.some(f => f.includes('rotator') || f.includes('panner') || f.includes('glitch') || f.includes('sine') || f.includes('crop')) ||
-    sKeys.some(k => k.includes('speed') || k.includes('pan') || k.includes('rotator') || k.includes('duration'))
+    sKeys.some(k => k.includes('speed') || k.includes('pan') || k.includes('rotator') || k.includes('duration') || k.includes('move_'))
 
   let preset: NormalizedMaterialSpec['preset'] = 'color_tint'
-  if (nonMasks.length >= 2 && (fnList.some(f => f.includes('crop') || f.includes('rotator')) || textures.length >= 4)) {
+  // 必须真正有多个非遮罩纹理（如既有角色立绘又有独立 Logo 纹理）或显式 Glitch 函数才算 composite，不能仅因为有 move 参数误入
+  if (
+    nonMasks.length >= 2 &&
+    textures.some(t => /ttlogo/i.test(t.name) || /ttlogo/i.test(t.path)) &&
+    (fnList.some(f => f.includes('crop') || f.includes('rotator')) || textures.length >= 4)
+  ) {
     preset = 'composite'
   } else if (sKeys.includes('u0') && sKeys.includes('v0')) {
     preset = 'uv_crop'
@@ -147,8 +165,6 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     sKeys.some(k => k.includes('rotate') || k.includes('speed') || k.includes('pan'))
   ) {
     preset = 'pan_rotate'
-  } else if (nonMasks.length >= 2) {
-    preset = 'composite'
   } else if (!hasTimeAnim) {
     preset = 'static'
   }
@@ -236,7 +252,12 @@ export async function renderUMGMaterialToCanvas(
   const secondaryPath = secItem ? secItem.path : ''
 
   // 1. 对于复合多图层材质（如 uM_Title008），优先使用已封装的 MaterialWebGLRenderer 渲染物理着色效果
-  if (spec.preset === 'composite' && Object.keys(spec.vectors).some(k => k.includes('color_') || k.includes('R_Color'))) {
+  // 注意：仅当材质具有对应的多图层调色盘特征时启用（排除一般的角色立绘/特效材质，以保证 2D 烘焙高保真度）
+  if (
+    spec.preset === 'composite' &&
+    Object.keys(spec.vectors).some(k => k.includes('color_') || k.includes('R_Color')) &&
+    spec.textures.some(t => /ttlogo/i.test(t.name) || /ttlogo/i.test(t.path))
+  ) {
     const glCanvas = document.createElement('canvas')
     glCanvas.width = W
     glCanvas.height = H
@@ -361,7 +382,7 @@ export async function renderUMGMaterialToCanvas(
       ctx.restore()
     }
 
-    // 若材质为 BLEND_Additive（如光晕 uM_Title004、流光 uM_CM_active01_3），将黑色背景转为 Alpha 透明通道，使其在画布上自然发光叠加而不产生黑块遮挡
+    // 若材质为 BLEND_Additive（如光晕 uM_Title004、流光 uM_CM_active01_3）或特定发光特效，将黑色背景转为 Alpha 透明通道，使其自然发光叠加
     if (isAdditive) {
       try {
         const imgData = ctx.getImageData(0, 0, W, H)
@@ -374,6 +395,24 @@ export async function renderUMGMaterialToCanvas(
       } catch {
         // ignore cross-origin if any
       }
+    }
+
+    // 若材质为 BLEND_Translucent，但纹理本身是不透明黑底（如发光/光芒特效），检测是否需要基于明度滤黑
+    if (!isAdditive && (spec.blendMode || '').includes('Translucent')) {
+      try {
+        const imgData = ctx.getImageData(0, 0, W, H)
+        const d = imgData.data
+        // 检查四角像素是否为纯黑或接近黑色
+        const corners = [0, (W - 1) * 4, ((H - 1) * W) * 4, ((H - 1) * W + (W - 1)) * 4]
+        const allCornersBlack = corners.every(idx => d[idx] < 15 && d[idx + 1] < 15 && d[idx + 2] < 15 && d[idx + 3] > 200)
+        if (allCornersBlack) {
+          for (let i = 0; i < d.length; i += 4) {
+            const lum = Math.max(d[i], d[i + 1], d[i + 2])
+            d[i + 3] = Math.round((d[i + 3] * lum) / 255)
+          }
+          ctx.putImageData(imgData, 0, 0)
+        }
+      } catch {}
     }
 
     return canvas

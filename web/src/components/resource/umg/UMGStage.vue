@@ -7,10 +7,12 @@ import type { UMGNode, ComputedLayout } from './types'
 import { useProject } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
 import { widgetClip } from './clipping'
+import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
 
 const props = defineProps<{
   nodes: UMGNode[]
   layouts: Map<string, ComputedLayout>
+  materials?: Record<string, any>
   selectedId: string | null
   hiddenIds: Set<string>
   viewport: { width: number; height: number }
@@ -38,6 +40,7 @@ const nodeIdByObject = new WeakMap<FabricObject, string>()
 // 图像与着色缓存
 const rawImageCache = new Map<string, Promise<HTMLImageElement | null>>()
 const tintedSourceCache = new Map<string, HTMLImageElement | HTMLCanvasElement>()
+const materialCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
 
 const finite = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -65,6 +68,43 @@ function getImageUrl(node: UMGNode): string | null {
     node.resources?.find(r => r.className === 'Texture2D' && r.assetPath === brushPath)
   if (!texRef || !project.id) return null
   return `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texRef.assetPath, mip: '0' })
+}
+
+function getMaterialRef(node: UMGNode): { assetPath: string; className: string } | null {
+  const brushPath = node.visual.Brush?.ResourceObject?.assetPath
+  const isMat = (c?: string | null) => c === 'Material' || c === 'MaterialInstanceConstant' || c === 'MaterialInstance'
+  const matRef =
+    (brushPath ? node.resources?.find(r => isMat(r.className) && r.assetPath === brushPath) : null) ||
+    node.resources?.find(r => isMat(r.className))
+  return matRef && matRef.assetPath ? { assetPath: matRef.assetPath, className: matRef.className || 'Material' } : null
+}
+
+async function getMaterialCanvasSource(
+  matPath: string,
+  targetW: number,
+  targetH: number
+): Promise<HTMLCanvasElement | null> {
+  if (!props.materials || !props.materials[matPath]) return null
+  const cacheKey = `${matPath}|${Math.round(targetW)}x${Math.round(targetH)}`
+  const cached = materialCanvasCache.get(cacheKey)
+  if (cached) return cached
+
+  const spec = normalizeMaterialEntry(props.materials[matPath])
+  if (!spec) return null
+
+  const promise = renderUMGMaterialToCanvas(
+    spec,
+    async (texPath: string) => {
+      if (!project.id || !texPath) return null
+      const url = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texPath, mip: '0' })
+      return await loadRawImage(url)
+    },
+    targetW,
+    targetH
+  )
+
+  materialCanvasCache.set(cacheKey, promise)
+  return promise
 }
 
 function loadRawImage(url: string): Promise<HTMLImageElement | null> {
@@ -289,8 +329,30 @@ async function rebuildScene() {
 
     let fabricObj: FabricObject | null = null
     const imageUrl = props.viewMode === 'appearance' ? getImageUrl(node) : null
+    const matRef = props.viewMode === 'appearance' ? getMaterialRef(node) : null
 
-    if (imageUrl && rect.width > 0 && rect.height > 0) {
+    // 优先材质解析渲染 (Material / MaterialInstanceConstant)
+    if (matRef && rect.width > 0 && rect.height > 0) {
+      const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h)
+      if (gen !== renderGeneration) return
+      if (matCanvas) {
+        fabricObj = new FabricImage(matCanvas, {
+          left,
+          top,
+          originX: tf.pivotX,
+          originY: tf.pivotY,
+          scaleX: (w / matCanvas.width) * absSx,
+          scaleY: (h / matCanvas.height) * absSy,
+          flipX,
+          flipY,
+          angle: tf.angle,
+          opacity,
+          clipPath: nodeClip
+        })
+      }
+    }
+
+    if (!fabricObj && imageUrl && rect.width > 0 && rect.height > 0) {
       const tint = extractColor(node.visual.ColorAndOpacity ?? node.visual.Brush?.TintColor)
       const source = await getTintedImageSource(imageUrl, tint)
       if (gen !== renderGeneration) return

@@ -40,8 +40,8 @@ export type UMGNode = {
     Text?: string
     RenderTransform?: { Translation?: { X?: number; Y?: number }; Scale?: { X?: number; Y?: number }; Shear?: { X?: number; Y?: number }; Angle?: number }
     RenderTransformPivot?: { X?: number; Y?: number }
-    Brush?: { ImageSize?: { X?: number; Y?: number }; ResourceObject?: { assetPath?: string; className?: string }; TintColor?: any }
-    Font?: { Size?: number }
+    Brush?: { ImageSize?: { X?: number; Y?: number }; ResourceObject?: { assetPath?: string; className?: string }; TintColor?: any; DrawAs?: string; Tiling?: string; [key: string]: any }
+    Font?: { Size?: number; TypefaceFontName?: string; [key: string]: any }
     WidthOverride?: number
     HeightOverride?: number
     bOverride_WidthOverride?: boolean
@@ -69,6 +69,7 @@ export type UMGDocument = {
   suggestedRootId: string | null
   nodes: UMGNode[]
   diagnostics: DiagnosticIssue[]
+  materials?: Record<string, any>
 }
 
 export type Rect = {
