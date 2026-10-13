@@ -126,9 +126,11 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     if (!float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
     var context = MaterialPreviewOverrides.Parse(scalarOverrides, vectorOverrides, now, now);
     var resolved = r.Resolve(id, path);
-    var asset = new UAssetAPI.UAsset(resolved, UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
-    var matExport = asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>().FirstOrDefault(e => e.GetExportClassType().ToString() == "Material");
-    if (matExport == null) return Results.NotFound("Master Material export not found");
+    var preview = LegacyMaterialInstanceResolver.Resolve(resolved, dependency => r.ResolveMaterialDependency(id, dependency), context);
+    var asset = preview.Asset;
+    var matExport = preview.Material;
+    context = preview.Context;
+    resolved = preview.Path;
     var cooked = LegacyMaterialUniformReader.ReadCookedMaterial(asset, matExport);
     if (cooked == null) return Results.NotFound("Cooked material shader data not found");
     var candidates = MaterialShaderCompiler.Discover(resolved);
