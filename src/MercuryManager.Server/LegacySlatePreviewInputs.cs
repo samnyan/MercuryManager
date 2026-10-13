@@ -5,7 +5,8 @@ namespace MercuryManager.Server;
 public static class LegacySlatePreviewInputs
 {
     // 默认矩形预览只提供顶点色、UV、Gamma 和已求值常量；场景 View 不以零缓冲代替。
-    public static void Validate(string reflection, LegacySlatePixelBindings bindings)
+    public static void Validate(string reflection, LegacySlatePixelBindings bindings,
+        IReadOnlyList<LegacySlateBufferInput>? sceneInputs = null)
     {
         using var doc = JsonDocument.Parse(reflection);
         var root = doc.RootElement;
@@ -24,6 +25,7 @@ public static class LegacySlatePreviewInputs
         {
             int slot = ubo.GetProperty("binding").GetInt32(), size = ubo.GetProperty("block_size").GetInt32();
             if (slot == bindings.Material.MaterialBufferIndex && bindings.Material.MaterialBufferBound) continue;
+            if (sceneInputs?.Any(input => input.BufferIndex == slot && input.Data.Length == size) == true) continue;
             if (slot != gamma.BufferIndex || gamma.BaseIndex + 8 > size || size > 256)
                 throw new NotSupportedException("Slate View/scene uniform buffers are not supported by rectangle preview.");
         }

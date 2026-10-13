@@ -159,7 +159,12 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     catch (NotSupportedException ex) { textureMappingError = ex.Message; }
     var limitations = new List<string>();
     if (textureMappingError != null) limitations.Add(textureMappingError);
-    try { LegacySlatePreviewInputs.Validate(translation.Reflection, bindings); }
+    IReadOnlyList<LegacySlateBufferInput> sceneInputs = [];
+    try
+    {
+        sceneInputs = LegacySlateTimeInputs.Evaluate(translation.Reflection, translation.Glsl, bindings, now, now);
+        LegacySlatePreviewInputs.Validate(translation.Reflection, bindings, sceneInputs);
+    }
     catch (NotSupportedException ex) { limitations.Add(ex.Message); }
     var blendMode = (matExport.Data.FirstOrDefault(p => p.Name.ToString() == "BlendMode") as UAssetAPI.PropertyTypes.Objects.BytePropertyData)?.EnumValue?.ToString()?.Split("::").Last() ?? "BLEND_Opaque";
     if (blendMode is not ("BLEND_Opaque" or "BLEND_Masked" or "BLEND_Translucent"))
@@ -175,6 +180,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         materialConstants = uploadConstants,
         nativeMaterialConstantBytes = constants.Length,
         frameWrites,
+        sceneInputs,
         slateBindings = bindings,
         time = now,
         previousTime = before,

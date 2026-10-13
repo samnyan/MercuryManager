@@ -96,6 +96,7 @@ export interface MaterialShaderContract {
   textureMappingError?: string | null
   blendMode?: string
   previewProfile?: string
+  sceneInputs?: { bufferIndex: number; data: string }[]
   renderingReady: boolean
   limitations?: string[]
 }
@@ -334,6 +335,13 @@ export class MaterialWebGLRenderer {
         if (matBytes.length !== blockSize) { gl.bindVertexArray(null); return false }
         data.set(matBytes, 0)
       } else {
+        const scene = (contract.sceneInputs || []).filter(input => input.bufferIndex === bindingSlot)
+        if (scene.length > 1) { gl.bindVertexArray(null); return false }
+        if (scene.length === 1) {
+          const bytes = decodeBase64Bytes(scene[0]!.data)
+          if (bytes.length !== blockSize) { gl.bindVertexArray(null); return false }
+          data.set(bytes)
+        }
         // Populate Slate GammaValues if bound to this buffer
         const gamma = contract.slateBindings?.gammaValues
         if (gamma && gamma.bufferIndex === bindingSlot && gamma.numBytes >= 8) {
