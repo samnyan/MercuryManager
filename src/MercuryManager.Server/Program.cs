@@ -144,14 +144,24 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     LegacySlateProgramSelector.ValidateFrameWrites(translation.Reflection, bindings.Material, uploadConstants.Length, frameWrites);
     IReadOnlyList<string> textureTable = cooked.ReferencedTextures;
     IReadOnlyList<LegacyMaterialTextureExpression> textureExpressions = [];
+    IReadOnlyList<LegacyMaterialSamplerSlot> samplerSlots = [];
     string? textureMappingError = null;
     try
     {
         if (textureTable.Count == 0) textureTable = LegacyMaterialTextureTable.Read(asset, matExport,
             dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
         textureExpressions = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, textureTable);
+        samplerSlots = LegacyMaterialSamplerMapping.Resolve(LegacyShaderResourceTable.Read(psCandidate.ResourceTablePrefix),
+            bindings.Material, textureExpressions, translation.CombinedSamplers);
     }
     catch (NotSupportedException ex) { textureMappingError = ex.Message; }
+    var limitations = new List<string>();
+    if (textureMappingError != null) limitations.Add(textureMappingError);
+    try { LegacySlatePreviewInputs.Validate(translation.Reflection, bindings); }
+    catch (NotSupportedException ex) { limitations.Add(ex.Message); }
+    var blendMode = (matExport.Data.FirstOrDefault(p => p.Name.ToString() == "BlendMode") as UAssetAPI.PropertyTypes.Objects.BytePropertyData)?.EnumValue?.ToString()?.Split("::").Last() ?? "BLEND_Opaque";
+    if (blendMode is not ("BLEND_Opaque" or "BLEND_Masked" or "BLEND_Translucent"))
+        limitations.Add("Destination-dependent blend modes are not supported by isolated rectangle preview.");
     using var reflection = System.Text.Json.JsonDocument.Parse(translation.Reflection);
     return Results.Ok(new
     {
@@ -168,9 +178,13 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         previousTime = before,
         referencedTextures = textureTable,
         textureExpressions,
+        samplerSlots,
+        textureMappingReady = textureMappingError == null,
         textureMappingError,
-        renderingReady = false,
-        limitations = new[] { "Texture/sampler resource mapping and Slate View/vertex/blend inputs are not supplied", "Master materials with temporary numeric overrides only; instance inheritance and texture overrides are not supported" }
+        blendMode,
+        previewProfile = "slate-rectangle-v1",
+        renderingReady = limitations.Count == 0,
+        limitations
     });
 });
 app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));

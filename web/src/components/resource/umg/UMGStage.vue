@@ -104,9 +104,11 @@ async function getMaterialCanvasSource(
   if (project.id && matPath.endsWith('.uasset')) {
     try {
       const q = new URLSearchParams({ path: matPath, time: '0', previousTime: '0' })
-      if (animatedScalars && Object.keys(animatedScalars).length > 0) {
-        q.set('scalarOverrides', JSON.stringify(animatedScalars))
+      if (Object.keys(spec.scalars).length > 0) {
+        q.set('scalarOverrides', JSON.stringify(spec.scalars))
       }
+      const vectors = Object.fromEntries(Object.entries(spec.vectors).map(([name, v]) => [name, [v.r, v.g, v.b, v.a]]))
+      if (Object.keys(vectors).length > 0) q.set('vectorOverrides', JSON.stringify(vectors))
       contract = await api(`/projects/${project.id}/resource-material-shader?` + q.toString())
     } catch {}
   }

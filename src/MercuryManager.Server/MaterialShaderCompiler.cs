@@ -106,7 +106,16 @@ public static class MaterialShaderCompiler
             await Run("spirv-cross",[spirv,"--reflect","--output",reflection],cancellationToken);
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
             var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source);
-            return new(candidate.Hash,candidate.Stage,source,await File.ReadAllTextAsync(reflection,cancellationToken),
+            var reflected = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(reflection,cancellationToken))!;
+            foreach (var ubo in reflected["ubos"]!.AsArray())
+            {
+                int slot = ubo!["binding"]!.GetValue<int>();
+                var blocks = System.Text.RegularExpressions.Regex.Matches(source,
+                    @"uniform\s+(\w+)\s*\{[^}]*\}\s*cb" + slot + @"_0(?:_\d+)?\s*;");
+                if (blocks.Count != 1) throw new NotSupportedException("Translated UBO identity is not unique.");
+                ubo["name"] = blocks[0].Groups[1].Value;
+            }
+            return new(candidate.Hash,candidate.Stage,source,reflected.ToJsonString(),
                 ["Translation metadata does not establish native resource-table mapping or game rendering fidelity."])
                 { CombinedSamplers = samplers };
         }

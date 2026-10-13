@@ -91,7 +91,11 @@ export interface MaterialShaderContract {
   previousTime: number
   referencedTextures: string[]
   textureExpressions: LegacyMaterialTextureExpression[]
+  samplerSlots?: ResolvedSamplerSlot[]
+  textureMappingReady?: boolean
   textureMappingError?: string | null
+  blendMode?: string
+  previewProfile?: string
   renderingReady: boolean
   limitations?: string[]
 }
@@ -142,13 +146,6 @@ function decodeBase64Bytes(base64: string): Uint8Array {
   return out
 }
 
-function parseImageRegisterIndex(imageName: string): number | null {
-  const m = /^t(\d+)$/.exec(imageName)
-  if (!m) return null
-  const idx = Number.parseInt(m[1], 10)
-  return Number.isFinite(idx) && idx >= 0 ? idx : null
-}
-
 export interface ResolvedSamplerSlot {
   uniformName: string
   imageName: string
@@ -159,10 +156,7 @@ export interface ResolvedSamplerSlot {
   parameterName: string | null
 }
 
-/**
- * Maps SPIR-V combined samplers (t0/s0, t1/s1...) to resolved UE4 material 2D texture expressions.
- * Accounts for Slate ElementTexture occupying base slots when bound.
- */
+/** Consume server-proven resource identities; never infer expression order from registers. */
 export function resolveContractSamplerSlots(
   contract: MaterialShaderContract,
   textureOverrides?: Record<string, string>
@@ -170,72 +164,19 @@ export function resolveContractSamplerSlots(
   if (contract.schemaVersion !== 1 || contract.renderingReady !== true) {
     return { slots: [], error: contract.limitations?.join('; ') || 'Cooked material binding contract is not rendering-ready.' }
   }
-  if (contract.textureMappingError) {
-    return { slots: [], error: contract.textureMappingError }
+  if (contract.textureMappingError || contract.textureMappingReady !== true || !contract.samplerSlots) {
+    return { slots: [], error: contract.textureMappingError || 'Explicit material sampler mapping is unavailable.' }
   }
-
-  const samplers = contract.combinedSamplers ? [...contract.combinedSamplers] : []
-  if (samplers.length === 0 && contract.reflection?.separate_images?.length) {
-    // Fallback if server binary has not yet populated combinedSamplers
-    const imgs = contract.reflection.separate_images
-    const smps = contract.reflection.separate_samplers || []
-    for (let i = 0; i < imgs.length; i++) {
-      const imgName = imgs[i].name
-      const smpName = smps[i]?.name || imgName.replace(/^t/, 's')
-      const uniformName = `SPIRV_Cross_Combined${imgName}${smpName}`
-      if (contract.glsl.includes(uniformName)) {
-        samplers.push({ uniformName, imageName: imgName, samplerName: smpName })
-      }
-    }
+  const slots = contract.samplerSlots.map(slot => ({
+    ...slot,
+    assetPath: slot.parameterName && textureOverrides?.[slot.parameterName] || slot.assetPath
+  }))
+  const names = new Set(slots.map(slot => slot.uniformName))
+  if (names.size !== slots.length || slots.length !== (contract.combinedSamplers || []).length ||
+      (contract.combinedSamplers || []).some(pair => !slots.some(slot =>
+        slot.uniformName === pair.uniformName && slot.imageName === pair.imageName && slot.samplerName === pair.samplerName))) {
+    return { slots: [], error: 'Incomplete or inconsistent material sampler mapping.' }
   }
-
-  const elementTexCount = contract.slateBindings?.elementTexture?.numResources || 0
-  const elementTexBase = contract.slateBindings?.elementTexture?.baseIndex || 0
-  const exprByIndex = new Map<number, LegacyMaterialTextureExpression>()
-  for (const expr of contract.textureExpressions || []) {
-    exprByIndex.set(expr.expressionIndex, expr)
-  }
-
-  const slots: ResolvedSamplerSlot[] = []
-  for (const item of samplers) {
-    const regIdx = parseImageRegisterIndex(item.imageName)
-    if (regIdx === null) {
-      return { slots: [], error: `Unsupported image register name: ${item.imageName}` }
-    }
-
-    // Check if this register is occupied by Slate's ElementTexture
-    if (elementTexCount > 0 && regIdx >= elementTexBase && regIdx < elementTexBase + elementTexCount) {
-      return { slots: [], error: `Slate ElementTexture slot (${item.imageName}) requires external brush texture.` }
-    }
-
-    const exprIdx = elementTexCount > 0 && regIdx >= elementTexBase + elementTexCount
-      ? regIdx - elementTexCount
-      : regIdx
-
-    const expr = exprByIndex.get(exprIdx)
-    if (!expr) {
-      return {
-        slots: [],
-        error: `Sampler ${item.uniformName} (${item.imageName}) has no matching Texture2D expression at index ${exprIdx}.`
-      }
-    }
-
-    let assetPath = expr.assetPath
-    if (expr.parameterName && textureOverrides && textureOverrides[expr.parameterName]) {
-      assetPath = textureOverrides[expr.parameterName]
-    }
-
-    slots.push({
-      uniformName: item.uniformName,
-      imageName: item.imageName,
-      samplerName: item.samplerName,
-      expressionIndex: exprIdx,
-      assetPath,
-      samplerSource: expr.samplerSource,
-      parameterName: expr.parameterName
-    })
-  }
-
   return { slots, error: null }
 }
 
@@ -247,7 +188,6 @@ export class MaterialWebGLRenderer {
   private posBuffer: WebGLBuffer | null = null
   private uboBuffers: Map<number, WebGLBuffer> = new Map()
   private textures: Map<string, WebGLTexture> = new Map()
-  private fallbackWhiteTex: WebGLTexture | null = null
 
   init(canvas: HTMLCanvasElement): boolean {
     if (this.gl && this.gl.canvas === canvas) return true
@@ -276,28 +216,6 @@ export class MaterialWebGLRenderer {
     gl.bindVertexArray(null)
     this.posBuffer = posBuf
 
-    // 1x1 white fallback texture only when an image is still loading
-    const white = gl.createTexture()
-    if (white) {
-      gl.bindTexture(gl.TEXTURE_2D, white)
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        1,
-        1,
-        0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        new Uint8Array([255, 255, 255, 255])
-      )
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-      this.fallbackWhiteTex = white
-    }
-
     return true
   }
 
@@ -305,6 +223,7 @@ export class MaterialWebGLRenderer {
     if (!this.gl || !image.complete || image.naturalWidth === 0) return
     const gl = this.gl
 
+    key = `${key}#sampler=${samplerSource}`
     let tex = this.textures.get(key)
     if (!tex) {
       tex = gl.createTexture()!
@@ -375,6 +294,10 @@ export class MaterialWebGLRenderer {
     const gl = this.gl
     if (!gl || !this.vao || contract.schemaVersion !== 1 || contract.renderingReady !== true) return false
 
+    const expected = resolveContractSamplerSlots(contract)
+    if (expected.error || samplerSlots.length !== expected.slots.length ||
+        expected.slots.some(slot => !samplerSlots.some(actual => actual.uniformName === slot.uniformName &&
+          actual.imageName === slot.imageName && actual.samplerName === slot.samplerName && actual.assetPath === slot.assetPath))) return false
     const prog = this.ensureProgram(contract.glsl)
     if (!prog) return false
 
@@ -382,20 +305,9 @@ export class MaterialWebGLRenderer {
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
 
-    // Configure blend state
-    const upperBlend = (blendMode || '').toUpperCase()
-    if (upperBlend.includes('ADDITIVE')) {
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.ONE, gl.ONE)
-    } else if (upperBlend.includes('MODULATE')) {
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.DST_COLOR, gl.ZERO)
-    } else if (upperBlend.includes('TRANSLUCENT') || upperBlend.includes('ALPHA')) {
-      gl.enable(gl.BLEND)
-      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-    } else {
-      gl.disable(gl.BLEND)
-    }
+    // 单矩形离屏输出保留 shader 的 straight RGBA，避免先乘 alpha 再被 Canvas 二次乘。
+    if (contract.blendMode && blendMode !== contract.blendMode) return false
+    gl.disable(gl.BLEND)
 
     gl.useProgram(prog)
     gl.bindVertexArray(this.vao)
@@ -411,7 +323,7 @@ export class MaterialWebGLRenderer {
       if (blockSize <= 0) continue
 
       const blockIndex = gl.getUniformBlockIndex(prog, ubo.name)
-      if (blockIndex === gl.INVALID_INDEX) continue
+      if (blockIndex === gl.INVALID_INDEX) { gl.bindVertexArray(null); return false }
       gl.uniformBlockBinding(prog, blockIndex, bindingSlot)
 
       const data = new Uint8Array(blockSize)
@@ -419,18 +331,9 @@ export class MaterialWebGLRenderer {
 
       if (contract.materialBindings?.materialBufferBound && bindingSlot === matBindingIndex) {
         // Material numeric constant buffer
-        data.set(matBytes.subarray(0, Math.min(matBytes.length, blockSize)), 0)
+        if (matBytes.length !== blockSize) { gl.bindVertexArray(null); return false }
+        data.set(matBytes, 0)
       } else {
-        // Populate View buffer (when block_size === 2128 / _m0[133])
-        // cb1_0._m0[132].z is View.RealTime / GameTime at byte offset 132 * 16 + 8 = 2120
-        if (blockSize >= 2128) {
-          const t = Number.isFinite(contract.time) ? contract.time : 0
-          view.setFloat32(132 * 16 + 0, t, true)
-          view.setFloat32(132 * 16 + 4, t, true)
-          view.setFloat32(132 * 16 + 8, t, true)
-          view.setFloat32(132 * 16 + 12, 0, true)
-        }
-
         // Populate Slate GammaValues if bound to this buffer
         const gamma = contract.slateBindings?.gammaValues
         if (gamma && gamma.bufferIndex === bindingSlot && gamma.numBytes >= 8) {
@@ -469,7 +372,8 @@ export class MaterialWebGLRenderer {
       if (!loc) continue
 
       gl.activeTexture(gl.TEXTURE0 + i)
-      const tex = this.textures.get(slot.assetPath) || this.fallbackWhiteTex
+      const tex = this.textures.get(`${slot.assetPath}#sampler=${slot.samplerSource}`)
+      if (!tex) { gl.bindVertexArray(null); return false }
       gl.bindTexture(gl.TEXTURE_2D, tex)
       gl.uniform1i(loc, i)
     }
@@ -486,10 +390,6 @@ export class MaterialWebGLRenderer {
       gl.deleteTexture(tex)
     }
     this.textures.clear()
-    if (this.fallbackWhiteTex) {
-      gl.deleteTexture(this.fallbackWhiteTex)
-      this.fallbackWhiteTex = null
-    }
     for (const buf of this.uboBuffers.values()) {
       gl.deleteBuffer(buf)
     }
