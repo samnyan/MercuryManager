@@ -38,9 +38,10 @@ public static class MaterialUniformEvaluator
             "FMaterialUniformExpressionSquareRoot"=>new Vector4(MathF.Sqrt(MathF.Max(0f,Child(0).X))),
             "FMaterialUniformExpressionLength"=>new Vector4(Child(0).Length()),
             "FMaterialUniformExpressionFloor"=>new Vector4(MathF.Floor(Child(0).X),MathF.Floor(Child(0).Y),MathF.Floor(Child(0).Z),MathF.Floor(Child(0).W)),
-            "FMaterialUniformExpressionCeil"=>new Vector4(MathF.Ceiling(Child(0).X),MathF.Ceiling(Child(0).Y),MathF.Ceiling(Child(0).Z),MathF.Ceiling(Child(0).W)),
+            "FMaterialUniformExpressionCeil"=>CeilNative(Child(0)),
+            "FMaterialUniformExpressionAbs"=>Vector4.Abs(Child(0)),
             "FMaterialUniformExpressionFrac"=>Child(0)-new Vector4(MathF.Floor(Child(0).X),MathF.Floor(Child(0).Y),MathF.Floor(Child(0).Z),MathF.Floor(Child(0).W)),
-            "FMaterialUniformExpressionClamp"=>Vector4.Clamp(Child(0),Child(1),Child(2)),
+            "FMaterialUniformExpressionClamp"=>ClampNative(Child(0),Child(1),Child(2)),
             "FMaterialUniformExpressionMin"=>Vector4.Min(Child(0),Child(1)),
             "FMaterialUniformExpressionMax"=>Vector4.Max(Child(0),Child(1)),
             "FMaterialUniformExpressionSaturate"=>Vector4.Clamp(Child(0),Vector4.Zero,Vector4.One),
@@ -48,6 +49,24 @@ public static class MaterialUniformEvaluator
         };
         if(!float.IsFinite(result.X)||!float.IsFinite(result.Y)||!float.IsFinite(result.Z)||!float.IsFinite(result.W))throw new InvalidDataException("Non-finite uniform expression result.");
         return result;
+    }
+    private static Vector4 CeilNative(Vector4 value)
+    {
+        float Apply(float v)
+        {
+            float converted = -0.5f - (v + v);
+            if (!float.IsFinite(converted) || converted <= int.MinValue || converted >= 2147483648f)
+                throw new NotSupportedException("Uniform ceil exceeds the supported int32 domain.");
+            return -((int)converted >> 1);
+        }
+        return new(Apply(value.X), Apply(value.Y), Apply(value.Z), Apply(value.W));
+    }
+    private static Vector4 ClampNative(Vector4 value, Vector4 minimum, Vector4 maximum)
+    {
+        // 保留原版比较次序，反向上下界时不能交换边界或套用 SIMD Clamp。
+        float Apply(float v, float lo, float hi) => v < lo ? lo : MathF.Min(v, hi);
+        return new(Apply(value.X, minimum.X, maximum.X), Apply(value.Y, minimum.Y, maximum.Y),
+            Apply(value.Z, minimum.Z, maximum.Z), Apply(value.W, minimum.W, maximum.W));
     }
     private static Vector4 Remainder(Vector4 a,Vector4 b)
     {

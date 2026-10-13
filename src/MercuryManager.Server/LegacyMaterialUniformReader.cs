@@ -153,7 +153,11 @@ public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int off
             case "FMaterialUniformExpressionFmod":children=[Read(depth+1),Read(depth+1)];break;
             case "FMaterialUniformExpressionTexture":metadata=[Int(),Int()];break;
             case "FMaterialUniformExpressionTime":break;
-            case "FMaterialUniformExpressionRealTime":metadata=[Int()];break;
+            case "FMaterialUniformExpressionRealTime":break;
+            case "FMaterialUniformExpressionMax":children=[Read(depth+1),Read(depth+1)];break;
+            case "FMaterialUniformExpressionAbs":
+            case "FMaterialUniformExpressionCeil":children=[Read(depth+1)];break;
+            case "FMaterialUniformExpressionClamp":children=[Read(depth+1),Read(depth+1),Read(depth+1)];break;
             case "FMaterialUniformExpressionConstant":values=Color();metadata=[Byte()];break;
             case "FMaterialUniformExpressionFoldedMath":
                 children=[Read(depth+1),Read(depth+1)];int operation=Byte();metadata=[operation,renderingVersion>=11?Int():15];break;
