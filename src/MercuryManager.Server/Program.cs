@@ -188,6 +188,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         materialConstants = uploadConstants,
         nativeMaterialConstantBytes = constants.Length,
         frameWrites,
+        uniformProgram = MaterialRuntimeProgramBuilder.Build(cooked.Uniforms, bindings, context, uploadConstants.Length),
         sceneInputs,
         // Evaluate has already verified the time-only layout and read profile.
         timeInputs = sceneInputs.Where(input => !collectionInputs.Any(c => c.BufferIndex == input.BufferIndex))

@@ -12,6 +12,7 @@ import {
   NInputNumber
 } from 'naive-ui'
 import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles } from '@lucide/vue'
+import { MaterialInstance } from '../../utils/material-runtime/MaterialInstance'
 import { useProject } from '../../project'
 import { tr } from '../../i18n'
 import {
@@ -81,6 +82,7 @@ const usingCookedWebGL2 = computed(() => {
 })
 
 let webglRenderer: MaterialWebGLRenderer | null = null
+let materialInstance: MaterialInstance | null = null
 let fetchController: AbortController | null = null
 let debounceTimer: number | undefined
 
@@ -217,6 +219,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
     const data: MaterialShaderContract = json.data
     if (controller.signal.aborted) return
     shaderContract.value = data
+    materialInstance = data.uniformProgram ? new MaterialInstance(data) : null
     const { slots, error } = resolveContractSamplerSlots(data)
     contractError.value = error
 
@@ -296,7 +299,7 @@ async function loadTextureImage(path: string): Promise<HTMLImageElement | null> 
 
 let rafId = 0
 let lastTs = 0
-let lastFrameContractPoll = 0
+
 
 function renderLoop(ts: number) {
   if (!lastTs) lastTs = ts
@@ -305,12 +308,8 @@ function renderLoop(ts: number) {
 
   const prevT = simTime.value
   if (playing.value) {
-    simTime.value = (simTime.value + dt) % 60
-    const mb = shaderContract.value?.materialBindings
-    if (mb && (mb.perFrameScalarCount > 0 || mb.perFrameVectorCount > 0) && ts - lastFrameContractPoll > 120) {
-      lastFrameContractPoll = ts
-      fetchShaderContract(simTime.value, prevT)
-    }
+    simTime.value = simTime.value + dt
+    materialInstance?.update({ time: simTime.value, previousTime: prevT })
   }
 
   drawCanvas()
@@ -345,10 +344,12 @@ async function drawCanvas() {
               })
             }
           }
+          materialInstance?.setParameters(props.scalars, Object.fromEntries(Object.entries(props.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
+          if (!playing.value) materialInstance?.update({ time: t, previousTime: t })
           const ok = webglRenderer.renderContract(
             glCanvas.width,
             glCanvas.height,
-            { ...shaderContract.value, time: t },
+            { ...shaderContract.value, time: t, runtimeWrites: materialInstance?.writes() },
             slots,
             props.blendMode || 'BLEND_Opaque',
             bgMode.value

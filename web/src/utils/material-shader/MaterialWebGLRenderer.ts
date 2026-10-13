@@ -2,6 +2,8 @@
 // Supports both cooked GLSL ES 300 shader contracts (/api/projects/{id}/resource-material-shader)
 // and legacy fallback rendering when a cooked shader contract is unavailable.
 
+import type { UniformProgram } from '../material-runtime/MaterialUniformRuntime'
+
 export interface MaterialCombinedSampler {
   uniformName: string
   imageName: string
@@ -87,6 +89,8 @@ export interface MaterialShaderContract {
   nativeMaterialConstantBytes: number
   frameWrites: LegacyFrameConstantWrite[]
   slateBindings: LegacySlatePixelBindings
+  uniformProgram?: UniformProgram
+  runtimeWrites?: { bufferIndex: number; byteOffset: number; values: number[] }[]
   time: number
   previousTime: number
   referencedTextures: string[]
@@ -397,6 +401,11 @@ export class MaterialWebGLRenderer {
         }
       }
 
+      for (const write of contract.runtimeWrites || []) {
+        if (write.bufferIndex !== bindingSlot) continue
+        if (write.byteOffset < 0 || write.byteOffset + write.values.length * 4 > blockSize) return false
+        write.values.forEach((value, i) => view.setFloat32(write.byteOffset + i * 4, value, true))
+      }
       let glBuf = this.uboBuffers.get(bindingSlot)
       if (!glBuf) {
         glBuf = gl.createBuffer()!
