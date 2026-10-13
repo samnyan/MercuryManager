@@ -127,6 +127,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     var uploadConstants = LegacySlateProgramSelector.PrepareMaterialBuffer(translation.Reflection, bindings.Material, constants);
     var frameWrites = LegacyMaterialFrameEvaluator.Evaluate(cooked.Uniforms, bindings, context,
         context with { Time = before, RealTime = before });
+    LegacySlateProgramSelector.ValidateFrameWrites(translation.Reflection, bindings.Material, uploadConstants.Length, frameWrites);
     IReadOnlyList<string> textureTable = cooked.ReferencedTextures;
     IReadOnlyList<LegacyMaterialTextureExpression> textureExpressions = [];
     string? textureMappingError = null;

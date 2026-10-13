@@ -31,6 +31,35 @@ public static class LegacySlateProgramSelector
         return constants[..size];
     }
 
+    public static void ValidateFrameWrites(string reflection, LegacyMaterialShaderBindings material,
+        int materialUploadBytes, IReadOnlyList<LegacyFrameConstantWrite> writes)
+    {
+        using var json = JsonDocument.Parse(reflection);
+        if (writes.Count == 0) return;
+        if (!json.RootElement.TryGetProperty("ubos", out var ubos))
+            throw new InvalidDataException("Frame writes require reflected uniform buffers.");
+        foreach (var write in writes)
+        {
+            var matches = ubos.EnumerateArray().Where(x => x.GetProperty("binding").GetInt32() == write.BufferIndex).ToArray();
+            if (matches.Length != 1) throw new InvalidDataException("Ambiguous or missing frame UBO slot.");
+            int size = matches[0].GetProperty("block_size").GetInt32();
+            if (write.Data.Length is not (4 or 16) || write.ByteOffset % 4 != 0 ||
+                size <= 0 || write.ByteOffset > size - write.Data.Length)
+                throw new InvalidDataException("Frame write exceeds reflected UBO bounds.");
+            if (material.MaterialBufferBound && write.BufferIndex == material.MaterialBufferIndex &&
+                write.ByteOffset < materialUploadBytes)
+                throw new InvalidDataException("Frame write overlaps uploaded Material constants.");
+            // 不把任意反射布局当作原生寄存器数组，避免将字节写到重映射后的成员。
+            var type = json.RootElement.GetProperty("types").GetProperty(matches[0].GetProperty("type").GetString()!);
+            var members = type.GetProperty("members").EnumerateArray().ToArray();
+            if (members.Length != 1 || members[0].GetProperty("type").GetString() != "vec4" ||
+                members[0].GetProperty("offset").GetInt32() != 0 || members[0].GetProperty("array_stride").GetInt32() != 16 ||
+                members[0].GetProperty("array").GetArrayLength() != 1 || size % 16 != 0 ||
+                members[0].GetProperty("array")[0].GetInt32() != size / 16)
+                throw new NotSupportedException("Frame UBO is not a contiguous native register layout.");
+        }
+    }
+
     private static int GetMaterialBufferSize(string reflection, LegacyMaterialShaderBindings bindings, byte[] constants)
     {
         if (!bindings.MaterialBufferBound)
