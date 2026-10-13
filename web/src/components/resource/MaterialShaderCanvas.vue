@@ -417,6 +417,15 @@ onUnmounted(() => {
           <n-tag v-if="usingCookedWebGL2" size="tiny" type="success" :bordered="false">
             WebGL2 GLSL
           </n-tag>
+          <n-tag
+            v-else-if="shaderContract?.limitations?.length"
+            size="tiny"
+            type="warning"
+            :bordered="false"
+            :title="shaderContract.limitations.join('; ')"
+          >
+            {{ tr('ui.simModeAuto') }} (Fallback)
+          </n-tag>
         </div>
         <n-space size="small" align="center">
           <n-select
