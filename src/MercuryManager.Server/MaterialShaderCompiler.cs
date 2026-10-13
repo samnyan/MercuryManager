@@ -11,7 +11,10 @@ namespace MercuryManager.Server;
 /// <summary>Local, on-demand translation of user-owned cooked shader code. No generated shaders are shipped.</summary>
 public static class MaterialShaderCompiler
 {
-    public sealed record ShaderCandidate(string Hash,string Stage,int Offset,byte[] Bytecode);
+    public sealed record ShaderCandidate(string Hash,string Stage,int Offset,byte[] Bytecode)
+    {
+        public byte[] ResourceTablePrefix { get; init; } = [];
+    }
     public sealed record Translation(string Hash,string Stage,string Glsl,string Reflection,string[] Diagnostics)
     {
         public IReadOnlyList<MaterialCombinedSampler> CombinedSamplers { get; init; } = [];
@@ -52,7 +55,8 @@ public static class MaterialShaderCompiler
                     if(!bytes.AsSpan(start,4).SequenceEqual("DXBC"u8))continue;
                     if(!TryReadContainer(bytes.AsSpan(start),out var bytecode,out var stage))continue;
                     var hash=Convert.ToHexStringLower(SHA256.HashData(bytecode));
-                    found.TryAdd((hash,offset),new(hash,stage,offset,bytecode));
+                    found.TryAdd((hash,offset),new(hash,stage,offset,bytecode)
+                        { ResourceTablePrefix = bytes[..start] });
                     start+=bytecode.Length-1;
                 }
             }
