@@ -43,9 +43,10 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         var relative = Validate(path[8..]);
         var root = assets.Get(id).ContentRoot ?? throw new InvalidOperationException("Import game first.");
         // 只接受标准安装布局，不搜索任意父目录或回退到系统上的其他安装。
-        var gameDirectory = Directory.GetParent(root);
+        var cleanRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var gameDirectory = Directory.GetParent(cleanRoot);
         var installation = gameDirectory?.Parent;
-        if (Path.GetFileName(root) != "Content" || installation == null)
+        if (Path.GetFileName(cleanRoot) != "Content" || installation == null)
             throw new NotSupportedException("Engine dependency requires a standard game Content installation.");
         var target = Path.Combine(installation.FullName, "Engine", "Content", relative);
         MusicWorkspaceStore.RejectLinks(target);
