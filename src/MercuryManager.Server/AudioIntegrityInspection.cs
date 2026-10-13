@@ -10,7 +10,7 @@ using UAssetAPI.PropertyTypes.Objects;
 namespace MercuryManager.Server;
 
 public sealed record AudioIssue(string Code,string Severity,string Table,int? Row,string Message,string? Repair=null,int? Port=null);
-public sealed record AudioRepairOption(string Id,string Description,bool Recommended=false);
+public sealed record AudioRepairOption(string Id,string Description,bool Recommended=false,bool RequiresRecovery=false,uint[]? DamagedIds=null);
 public sealed record AudioStreamInspection(int Port,string Name,bool Available,int? Entries,int CachedHeaderBytes,bool? HeaderMatches,string? FileBytes);
 public sealed record AudioNameInspection(int Row,string Name,int CueIndex,bool LookupMatches);
 public sealed record AudioWorkInspection(int Ports,int Bytes,int AlignmentLoss,int RequiredBytes,int RecommendedBytes);
@@ -34,8 +34,9 @@ public static class AudioIntegrityInspection
             Identity(sheet,!sheet.EndsWith(".awb",StringComparison.OrdinalIgnoreCase));foreach(string ext in new[]{".uexp",".ubulk"})if(File.Exists(Path.ChangeExtension(sheet,ext)))Identity(Path.ChangeExtension(sheet,ext),true);
             if(sheet.EndsWith(".awb",StringComparison.OrdinalIgnoreCase))
             {
-                var bank=AwbIndex.Read(sheet);revision.AppendData(bank.CacheHeader);streams.Add(new(0,Path.GetFileNameWithoutExtension(sheet),true,bank.Entries.Count,0,null,bank.FileBytes.ToString()));
-                if(deep)CheckHca(sheet,bank,new Dictionary<uint,List<(int Row,long Channels,long Rate,long Samples)>>(),Issue,cancellation);
+                AwbIndex bank;bool legacyBank=false;try{bank=AwbIndex.Read(sheet);}catch(InvalidDataException){var legacy=AwbLegacyRepair.Inspect(sheet);bank=legacy.Index;legacyBank=true;Issue("awb-legacy-offset",legacy.Description,"AWB",port:0);}
+                revision.AppendData(bank.CacheHeader);streams.Add(new(0,Path.GetFileNameWithoutExtension(sheet),true,bank.Entries.Count,0,null,bank.FileBytes.ToString()));
+                if(deep&&!legacyBank)CheckHca(sheet,bank,new Dictionary<uint,List<(int Row,long Channels,long Rate,long Samples)>>(),Issue,cancellation);
                 Issue("standalone-awb","AWB index checked without a paired ACB; slot names, cached indexes and Cue references are not checked.",severity:"warning");
             }
             else
@@ -104,9 +105,20 @@ public static class AudioIntegrityInspection
                         cancellation.ThrowIfCancellationRequested();string name=slots.Text(port,"Name"),file=name+".awb";int cached=port<headers.Rows.Count?headers.Blob(port,"Header").Length:0;
                         try
                         {
-                            AudioBanks.ValidateName(file);string path=resolveBank(file);Identity(path);var index=AwbIndex.Read(path);revision.AppendData(index.CacheHeader);
+                            AudioBanks.ValidateName(file);string path=resolveBank(file);Identity(path);AwbIndex index;AwbLegacyLayout? legacy=null;
+                            try{index=AwbIndex.Read(path);}catch(InvalidDataException){legacy=AwbLegacyRepair.Inspect(path);index=legacy.Index;}
+                            revision.AppendData(index.CacheHeader);
                             var refs=references.GetValueOrDefault(port)??[];var physical=index.Entries.Select(e=>e.Id).ToHashSet();bool missing=false;
                             foreach(var pair in refs)if(!physical.Contains(pair.Key)){missing=true;Issue("wave-entry-missing",$"AWB {file} has no entry {pair.Key}; supplying the right bank is required, not rewriting the expected cached header.","Waveform",pair.Value[0].Row,port:port);}
+                            if(legacy is not null)
+                            {
+                                string? action=modern&&headerCount&&!missing&&legacy.Repairable?$"repair-legacy-awb:{port}":null;
+                                Issue("awb-legacy-offset",legacy.Description,"StreamAwb",port,action,port:port);
+                                if(action is not null)options.Add(new(action,"Repair legacy editor AWB offsets; recover overwritten audio only from an explicit matching backup; synchronize ACB cache/hash",legacy.Damage.Count==0,legacy.Damage.Count>0,legacy.Damage.Select(d=>d.Id).ToArray()));
+                                streams.Add(new(port,name,true,index.Entries.Count,cached,false,index.FileBytes.ToString()));
+                                // Never pass overlapping ranges to the normal codec reader or expose ordinary repack/cache repairs.
+                                continue;
+                            }
                             bool matches=headerCount&&MatchesHeader(headers.Blob(port,"Header"),index);
                             if(!matches)Issue("awb-header-mismatch","Cached AFS2 header differs from physical AWB; entry IDs/offsets may be stale.","StreamAwbHeader",port,modern&&headerCount&&!missing?$"refresh-awb-header:{port}":null,port:port);
                             if(modern&&headerCount&&!missing)

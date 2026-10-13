@@ -74,6 +74,24 @@ Available actions, when their prerequisites are satisfied:
 - `refresh-awb-header:<port>`: rebuild the cached AFS2 index from a validated physical bank.
 - `refresh-awb-hash:<port>`: recompute stored MD5. The complete native hash-validation contract is not claimed recovered.
 - `repack-awb:<port>`: rebuild a structurally valid bank while preserving every ID and payload; update the paired cache/hash. It does not re-encode audio.
+- `repair-legacy-awb:<port>`: repair the recognizable Raymonf/wacca-acb-editor append layout (AFS2 v2, 16-bit sequential IDs, 32-bit offsets, zero subkey). The ordinary strict reader is not relaxed. Fast inspection reports `awb-legacy-offset`, the inferred original count and each payload prefix overwritten by the longer index. Ordinary cache/repack actions are not offered for this invalid bank.
+
+### Legacy editor AWB recovery
+
+Open the **paired CueSheet**, select the legacy repair item, and confirm. An intact aligned payload layout can be repacked without another file. When payloads overlap the index, the item is not selected by default and the dialog requires an **absolute server path** to an intact original/backup AWB. Add `recoveryBanks` to the request, keyed by the exact selected action ID:
+
+```json
+{
+  "revision": "<inspection revision>",
+  "actions": ["repair-legacy-awb:3"],
+  "workBytes": null,
+  "recoveryBanks": {"repair-legacy-awb:3": "/absolute/path/to/backup.awb"}
+}
+```
+
+Recovery replaces only overlapping entries, preserving every other ID/payload (including appended songs), alignment and subkey. A backup must have a valid strict index, matching subkey, matching entry IDs and lengths, and an exactly matching SHA-256 of **all surviving bytes** in each damaged entry. Recovered HCA headers must have valid magic/CRC and their channels/rate/sample count must match every referencing ACB Waveform row. The original/backup is never guessed or automatically selected. A replaced song requires its matching backup, not unrelated original audio. Entries with fewer than 32 surviving bytes cannot be identified safely and no repair is offered; provide a complete corrected bank instead.
+
+The repair writes a new index and updates paired ACB cache/MD5, then verifies all output IDs/payload hashes, cache/hash readback, source and recovery-file hashes, and the exact draft files. Source and backup are read-only. Standalone AWB inspection reports this problem but cannot repair it without a paired CueSheet. Unknown/corrupt offsets, missing references and unsupported layouts remain blocking. This operation does not recover absent bytes without a matching backup, nor claim full PCM or in-game validation.
 
 File-dependent action ports refer to the **pre-repair report**. If slot sorting is also requested, file actions run first, then slots/headers/ports move together. Results are verified by bank name after remapping.
 

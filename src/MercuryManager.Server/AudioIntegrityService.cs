@@ -7,7 +7,7 @@ using UAssetAPI.PropertyTypes.Objects;
 using UAssetAPI.PropertyTypes.Structs;
 namespace MercuryManager.Server;
 
-public sealed record AudioRepairRequest(string Revision,string[] Actions,int? WorkBytes=null);
+public sealed record AudioRepairRequest(string Revision,string[] Actions,int? WorkBytes=null,Dictionary<string,string>? RecoveryBanks=null);
 public sealed record AudioRepairResult(string[] Applied,string[] ChangedFiles,AudioIntegrityReport Before,AudioIntegrityReport After);
 public sealed class AudioIntegrityService(MusicWorkspaceStore assets,ResourceService resources)
 {
@@ -30,6 +30,7 @@ public sealed class AudioIntegrityService(MusicWorkspaceStore assets,ResourceSer
     {
         if(request.Actions is null||request.Actions.Length is <1 or >100||request.Actions.Distinct(StringComparer.Ordinal).Count()!=request.Actions.Length)throw new ArgumentException("Select 1–100 distinct repair actions.");
         if(request.WorkBytes is not null&&!request.Actions.Contains("rebuild-stream-work"))throw new ArgumentException("WorkBytes requires rebuild-stream-work.");
+        if(request.RecoveryBanks is not null&&request.RecoveryBanks.Any(p=>!request.Actions.Contains(p.Key)||!p.Key.StartsWith("repair-legacy-awb:",StringComparison.Ordinal)||string.IsNullOrWhiteSpace(p.Value)))throw new ArgumentException("RecoveryBanks must contain explicit paths for selected legacy AWB repairs only.");
         lock(assets)
         {
             var target=resources.AudioTarget(id,path,source);if(target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Open the paired CueSheet to repair bank/ACB metadata together.");
@@ -47,7 +48,26 @@ public sealed class AudioIntegrityService(MusicWorkspaceStore assets,ResourceSer
                     cancellation.ThrowIfCancellationRequested();string[] parts=action.Split(':');if(parts.Length!=2||!int.TryParse(parts[1],out int port))throw new ArgumentException("Invalid repair port.");
                     var slots=CriUtf.Read(top.Blob(0,"StreamAwbHash"));var headers=CriUtf.Read(top.Blob(0,"StreamAwbAfs2Header"));string bank=slots.Text(port,"Name")+".awb";
                     string original=resolve(bank),current=stagedBanks.GetValueOrDefault(bank)??original;
-                    if(parts[0]=="repack-awb")
+                    if(parts[0]=="repair-legacy-awb")
+                    {
+                        using(var f=File.OpenRead(original))sourceBankHashes[original]=SHA256.HashData(f);
+                        string? donor=request.RecoveryBanks?.GetValueOrDefault(action);
+                        if(donor is not null)
+                        {
+                            if(!Path.IsPathFullyQualified(donor))throw new ArgumentException("Recovery AWB requires an absolute server path.");
+                            donor=Path.GetFullPath(donor);MusicWorkspaceStore.RejectLinks(donor);using var f=File.OpenRead(donor);sourceBankHashes[donor]=SHA256.HashData(f);
+                        }
+                        string output=Path.Combine(stage,bank);var recovered=AwbLegacyRepair.Repack(current,output,donor,cancellation);
+                        var waves=CriUtf.Read(top.Blob(0,"WaveformTable"));
+                        foreach(var format in recovered)for(int row=0;row<waves.Rows.Count;row++)
+                            if(waves.Number(row,"Streaming")!=0&&waves.Number(row,"StreamAwbPortNo")==port&&waves.Number(row,"StreamAwbId")==format.Id&&
+                                (waves.Number(row,"NumChannels")!=format.Channels||waves.Number(row,"SamplingRate")!=format.Rate||waves.Number(row,"NumSamples")!=format.Samples))
+                                throw new InvalidDataException($"Recovery HCA {format.Id} differs from ACB waveform format/sample count.");
+                        current=output;stagedBanks[bank]=output;
+                        headers.Promote("Header");headers.SetBlob(port,"Header",AwbIndex.Read(current).CacheHeader);
+                        slots.Promote("Hash");using(var f=File.OpenRead(current))slots.SetBlob(port,"Hash",MD5.HashData(f));
+                    }
+                    else if(parts[0]=="repack-awb")
                     {
                         using(var f=File.OpenRead(original))sourceBankHashes[original]=SHA256.HashData(f);
                         using var input=new AwbReader(File.OpenRead(current));var index=AwbIndex.Read(current);string output=Path.Combine(stage,bank);
@@ -78,12 +98,12 @@ public sealed class AudioIntegrityService(MusicWorkspaceStore assets,ResourceSer
                 foreach(string action in request.Actions)
                 {
                     if(!action.Contains(':') && staged.Issues.Any(i=>i.Repair==action))throw new InvalidDataException("Repair verification failed: "+action);
-                    if(action.StartsWith("refresh-awb-header:",StringComparison.Ordinal)||action.StartsWith("repack-awb:",StringComparison.Ordinal))
+                    if(action.StartsWith("refresh-awb-header:",StringComparison.Ordinal)||action.StartsWith("repack-awb:",StringComparison.Ordinal)||action.StartsWith("repair-legacy-awb:",StringComparison.Ordinal))
                     {
                         string name=before.Streams.Single(s=>s.Port==int.Parse(action.Split(':')[1])).Name;
                         if(staged.Streams.Single(s=>s.Name==name).HeaderMatches!=true)throw new InvalidDataException("Bank header repair readback failed: "+name);
                     }
-                    if(action.StartsWith("refresh-awb-hash:",StringComparison.Ordinal))
+                    if(action.StartsWith("refresh-awb-hash:",StringComparison.Ordinal)||action.StartsWith("repair-legacy-awb:",StringComparison.Ordinal))
                     {
                         int oldPort=int.Parse(action.Split(':')[1]);string bank=before.Streams.Single(s=>s.Port==oldPort).Name+".awb";
                         var outputTop=CriUtf.Read(CueSheetWriter.Extract(new UAsset(sheetOutput,EngineVersion.VER_UE4_19)));var slots=CriUtf.Read(outputTop.Blob(0,"StreamAwbHash"));int port=Enumerable.Range(0,slots.Rows.Count).Single(i=>slots.Text(i,"Name")==Path.GetFileNameWithoutExtension(bank));
