@@ -18,6 +18,7 @@ const props = defineProps<{
   materials?: Record<string, any>
   particles?: Record<string, any>
   animationMaterialParameters?: Record<string, Record<string, number>>
+  materialTime?: number
   selectedId: string | null
   hiddenIds: Set<string>
   viewport: { width: number; height: number }
@@ -93,7 +94,7 @@ async function getMaterialCanvasSource(
   nodeId = matPath
 ): Promise<HTMLCanvasElement | null> {
   if (!props.materials || !props.materials[matPath]) return null
-  const cacheKey = `${project.id}|${nodeId}|${matPath}`
+  const cacheKey = `${project.id}|${nodeId}|${matPath}|${Math.round(targetW)}x${Math.round(targetH)}`
 
   const spec = normalizeMaterialEntry(props.materials[matPath], matPath)
   if (!spec) return null
@@ -129,7 +130,7 @@ async function getMaterialCanvasSource(
     try {
       const surface = await pending
       surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
-      return surface.draw(0.35)
+      return surface.draw(props.materialTime ?? 0)
     } catch { return null }
   }
   const promise = renderUMGMaterialToCanvas(
@@ -141,7 +142,7 @@ async function getMaterialCanvasSource(
     },
     targetW,
     targetH,
-    0.35,
+    props.materialTime ?? 0,
     contract
   )
 
@@ -706,7 +707,7 @@ onMounted(async () => {
 })
 
 watch(
-  [() => props.nodes, () => props.layouts, () => props.viewMode, () => props.viewport, () => props.hiddenIds],
+  [() => props.nodes, () => props.layouts, () => props.viewMode, () => props.viewport, () => props.hiddenIds, () => props.materialTime, () => props.animationMaterialParameters],
   () => {
     rebuildScene()
   }

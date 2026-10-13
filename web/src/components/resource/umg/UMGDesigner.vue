@@ -40,7 +40,9 @@ const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
 const timelineVisible = ref(true)
-watch(animationFrame,()=>{if(animationTimer){window.clearInterval(animationTimer);animationTimer=undefined}if(animationPlaying.value){animationPlaying.value=false}})
+// Scrubbing pauses playback; timer updates must not pause themselves.
+watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
+let advancingAnimation = false
 let animationTimer: number | undefined
 const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
 function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
@@ -89,7 +91,25 @@ const previewNodes = computed(() => {
   }
   return [...clones.values()]
 })
-function setAnimationPlaying(playing:boolean) { animationPlaying.value=playing;if(animationTimer)window.clearInterval(animationTimer);if(playing)animationTimer=window.setInterval(()=>{const a=activeAnimation.value;if(!a)return;if(animationFrame.value>=a.end)animationFrame.value=a.start;else animationFrame.value+=1/60},16) }
+function setAnimationPlaying(playing: boolean) {
+  animationPlaying.value = playing
+  if (animationTimer) window.clearInterval(animationTimer)
+  animationTimer = undefined
+  if (!playing) return
+  let last = performance.now()
+  animationTimer = window.setInterval(() => {
+    const now = performance.now()
+    const delta = Math.min(0.1, Math.max(0, (now - last) / 1000))
+    last = now
+    const a = activeAnimation.value
+    if (!a || a.end <= a.start) { setAnimationPlaying(false); return }
+    advancingAnimation = true
+    try {
+      const next = animationFrame.value + delta
+      animationFrame.value = next >= a.end ? a.start + (next - a.start) % (a.end - a.start) : next
+    } finally { advancingAnimation = false }
+  }, 16)
+}
 function toggleAnimation() { setAnimationPlaying(!animationPlaying.value) }
 watch(activeAnimationId,()=>{animationFrame.value=activeAnimation.value?.start||0;animationPlaying.value=false;if(animationTimer)window.clearInterval(animationTimer)})
 onBeforeUnmount(()=>{if(animationTimer)window.clearInterval(animationTimer)})
@@ -248,6 +268,7 @@ const selectedLayout = computed(() => {
                     :materials="doc.materials"
                     :particles="doc.particles"
                     :animation-material-parameters="animationMaterialParameters"
+                    :material-time="animationFrame"
                     :selected-id="selectedNodeId"
                     :hidden-ids="hiddenIds"
                     :viewport="viewport"

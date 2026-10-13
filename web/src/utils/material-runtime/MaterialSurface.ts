@@ -8,6 +8,7 @@ export class MaterialSurface {
   private renderer = new MaterialWebGLRenderer()
   private slots: ReturnType<typeof resolveContractSamplerSlots>['slots']
   private disposed = false
+  private lastTime: number | undefined
   constructor(readonly program: MaterialShaderContract, width: number, height: number) {
     const resolved = resolveContractSamplerSlots(program)
     if (resolved.error) throw new Error(resolved.error)
@@ -27,12 +28,13 @@ export class MaterialSurface {
       this.renderer.updateTexture(slot.assetPath, image, slot.samplerSource)
     })
   }
-  draw(time: number, previousTime = time): HTMLCanvasElement {
+  draw(time: number, previousTime = this.lastTime ?? time): HTMLCanvasElement {
     if (this.disposed) throw new Error('Material surface disposed')
     this.instance.update({time, previousTime})
     if (!this.renderer.renderContract(this.canvas.width, this.canvas.height,
       {...this.program, time, previousTime, runtimeWrites:this.instance.writes()}, this.slots,
       this.program.blendMode || 'BLEND_Opaque')) throw new Error('Material draw failed')
+    this.lastTime = time
     return this.canvas
   }
   dispose() { this.disposed = true; this.renderer.destroy() }

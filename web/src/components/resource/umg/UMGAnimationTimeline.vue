@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NButton, NSelect } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation } from './types'
@@ -8,7 +8,6 @@ const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: strin
 const emit = defineEmits<{ 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
 const expanded = ref(true)
 const scrollRef = ref<HTMLElement | null>(null)
-let timer: number | undefined
 const animation = computed(() => props.animations.find(item => item.id === props.activeAnimationId) || null)
 const span = computed(() => Math.max(0.001, (animation.value?.end ?? 0) - (animation.value?.start ?? 0)))
 const timelineWidth = computed(() => `${Math.max(800,span.value * 300)}px`)
@@ -17,33 +16,13 @@ const percent = (time: number) => `${Math.max(0, Math.min(100, (time - (animatio
 const percentCss = (time:number) => `${Math.max(0,(time-(animation.value?.start ?? 0))/span.value*100)}%`
 const bindingLabel = (guid:string) => animation.value?.bindings.find(binding=>binding.guid===guid)?.widgetName || tr('ui.umgAnimationUnbound')
 function togglePlay() { emit('update:playing', !props.playing) }
-watch(() => props.playing, playing => {
-  if (timer !== undefined) window.clearInterval(timer)
-  if (playing) {
-    let lastTime = 0
-    timer = window.setInterval(() => {
-      const a = animation.value
-      const now = performance.now()
-      if (!a) return
-      if (lastTime === 0) lastTime = now
-      const elapsed = Math.min(0.1, (now - lastTime) / 1000)
-      lastTime = now
-      const nextTime = props.time + elapsed
-      if (nextTime >= a.end) {
-        emit('update:time', a.start)
-      } else {
-        emit('update:time', nextTime)
-      }
-    }, 16)
-  }
-})
+// Playback has one clock, owned by UMGDesigner; this component only emits user input.
 watch(() => [props.time, animation.value?.id], () => {
   const el = scrollRef.value
   if (!el || !animation.value) return
   const x = (props.time - animation.value.start) / span.value * el.scrollWidth
   el.scrollLeft = Math.max(0, x - el.clientWidth * 0.45)
 })
-onBeforeUnmount(() => { if (timer !== undefined) window.clearInterval(timer) })
 </script>
 
 <template>
