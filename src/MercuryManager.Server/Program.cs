@@ -133,7 +133,8 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     string? textureMappingError = null;
     try
     {
-        if (textureTable.Count == 0) textureTable = LegacyMaterialTextureTable.ReadDirect(asset, matExport);
+        if (textureTable.Count == 0) textureTable = LegacyMaterialTextureTable.Read(asset, matExport,
+            dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
         textureExpressions = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, textureTable);
     }
     catch (NotSupportedException ex) { textureMappingError = ex.Message; }

@@ -37,6 +37,22 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         if(source!="game"&&File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
         return content.Resolve(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path,Path.Combine(assets.WorkspaceDirectory(id),"SourceCache"));
     }
+    public string ResolveMaterialDependency(string id, string path)
+    {
+        if (!path.StartsWith("/Engine/", StringComparison.Ordinal)) return Resolve(id, path);
+        var relative = Validate(path[8..]);
+        var root = assets.Get(id).ContentRoot ?? throw new InvalidOperationException("Import game first.");
+        // 只接受标准安装布局，不搜索任意父目录或回退到系统上的其他安装。
+        var gameDirectory = Directory.GetParent(root);
+        var installation = gameDirectory?.Parent;
+        if (Path.GetFileName(root) != "Content" || installation == null)
+            throw new NotSupportedException("Engine dependency requires a standard game Content installation.");
+        var target = Path.Combine(installation.FullName, "Engine", "Content", relative);
+        MusicWorkspaceStore.RejectLinks(target);
+        foreach (var ext in new[] { ".uexp", ".ubulk" }) MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(target, ext));
+        if (!File.Exists(target)) throw new NotSupportedException("Engine material dependency is unavailable.");
+        return target;
+    }
     public object[] List(string id,string directory)
     {
         if(directory.Length>0)Validate(directory+"/folder.uasset");
