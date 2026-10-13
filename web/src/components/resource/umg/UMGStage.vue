@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton } from 'naive-ui'
@@ -109,7 +110,7 @@ async function getMaterialCanvasSource(
       }
       const vectors = Object.fromEntries(Object.entries(spec.vectors).map(([name, v]) => [name, [v.r, v.g, v.b, v.a]]))
       if (Object.keys(vectors).length > 0) q.set('vectorOverrides', JSON.stringify(vectors))
-      contract = await api(`/projects/${project.id}/resource-material-shader?` + q.toString())
+      contract = await materialPrograms.load(project.id, matPath)
     } catch {}
   }
 

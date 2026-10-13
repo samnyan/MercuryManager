@@ -549,6 +549,7 @@ onUnmounted(() => {
             :options="settingsDropdownOptions"
             @select="handleSettingsSelect"
           >
+            <span>
             <n-tag
               v-if="usingCookedWebGL2"
               size="tiny"
@@ -578,6 +579,7 @@ onUnmounted(() => {
             >
               Shader Error (Fallback) ▾
             </n-tag>
+            </span>
           </n-dropdown>
         </div>
         <n-button size="tiny" quaternary circle :title="tr('ui.simZoomModal')" @click="showZoomModal = true">

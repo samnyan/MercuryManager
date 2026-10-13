@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { tr } from './i18n'
+import { materialPrograms } from './utils/material-runtime/MaterialProgramCache'
 export type FieldValue = string | number | boolean | null | unknown[] | Record<string, unknown>
 export interface PropertyShape { type: string; element?: PropertyShape | null; fields?: Record<string, PropertyShape> | null }
 export interface Field { name: string; type: string; value: FieldValue; readOnly: boolean; shape?: PropertyShape | null }
@@ -20,6 +21,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   if (!result || typeof result.code !== 'number' || typeof result.message !== 'string' || !('data' in result))
     throw new ApiError(tr('ui.invalidApiResult') || 'Invalid ApiResult format', -2, response.status)
   if (!response.ok || result.code !== 0) throw new ApiError(result.message || `HTTP ${response.status}`, result.code, response.status)
+  if (method !== 'GET') materialPrograms.invalidate()
   return result.data
 }
 export const useProject = defineStore('project', () => {

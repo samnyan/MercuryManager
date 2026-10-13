@@ -1,3 +1,4 @@
+import { MaterialInstance } from '../material-runtime/MaterialInstance'
 import {
   MaterialWebGLRenderer,
   resolveContractSamplerSlots,
@@ -259,10 +260,13 @@ export async function renderUMGMaterialToCanvas(
           }
         }
 
+        const instance = shaderContract.uniformProgram ? new MaterialInstance(shaderContract) : null
+        instance?.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
+        instance?.update({time:simTime,previousTime:simTime})
         const success = webgl2.renderContract(
           W,
           H,
-          { ...shaderContract, time: simTime },
+          { ...shaderContract, time: simTime, runtimeWrites: instance?.writes() },
           slots,
           spec.blendMode
         )

@@ -193,6 +193,7 @@ export class MaterialWebGLRenderer {
   private currentGlsl = ''
   private vao: WebGLVertexArrayObject | null = null
   private posBuffer: WebGLBuffer | null = null
+  private uboSnapshots = new Map<number, Uint8Array>()
   private uboBuffers: Map<number, WebGLBuffer> = new Map()
   private textures: Map<string, WebGLTexture> = new Map()
   private uploadedImages = new Map<string, HTMLImageElement>()
@@ -412,7 +413,15 @@ export class MaterialWebGLRenderer {
         this.uboBuffers.set(bindingSlot, glBuf)
       }
       gl.bindBuffer(gl.UNIFORM_BUFFER, glBuf)
-      gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW)
+      const previous = this.uboSnapshots.get(bindingSlot)
+      if (!previous || previous.length !== data.length) gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW)
+      else {
+        let first = 0, last = data.length - 1
+        while (first < data.length && data[first] === previous[first]) first++
+        while (last >= first && data[last] === previous[last]) last--
+        if (first <= last) gl.bufferSubData(gl.UNIFORM_BUFFER, first, data.subarray(first, last + 1))
+      }
+      this.uboSnapshots.set(bindingSlot, data)
       gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingSlot, glBuf)
     }
 
@@ -446,6 +455,7 @@ export class MaterialWebGLRenderer {
       gl.deleteBuffer(buf)
     }
     this.uboBuffers.clear()
+    this.uboSnapshots.clear()
     if (this.posBuffer) gl.deleteBuffer(this.posBuffer)
     if (this.vao) gl.deleteVertexArray(this.vao)
     if (this.program) gl.deleteProgram(this.program)
