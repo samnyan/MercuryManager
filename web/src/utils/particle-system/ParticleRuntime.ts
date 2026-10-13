@@ -566,8 +566,9 @@ export class ParticleSimulationEngine {
 
       const camZ = ry * sp + rz * cp + camDistance
       if (camZ <= 50) return null
-      const fov = 700
-      const scale = fov / camZ
+      // 保持等比投影，避免视口宽度拉伸或高宽变化时粒子与网格形变
+      const baseDim = Math.min(w, h)
+      const scale = (baseDim * 1.5) / camZ
       return {
         sx: w / 2 + rx * scale,
         sy: h / 2 - (ry * sp - rz * cp) * scale,

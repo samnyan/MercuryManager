@@ -201,9 +201,22 @@ function resetSimulation() {
 }
 
 // ==================== 3D 粒子渲染视口 ====================
+const viewportPaneRef = ref<HTMLDivElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let animFrameId: number | null = null
 let lastTimestamp = 0
+let resizeObserver: ResizeObserver | null = null
+
+function updateCanvasSize() {
+  if (!viewportPaneRef.value || !canvasRef.value) return
+  const rect = viewportPaneRef.value.getBoundingClientRect()
+  const w = Math.max(100, Math.floor(rect.width))
+  const h = Math.max(100, Math.floor(rect.height))
+  if (canvasRef.value.width !== w || canvasRef.value.height !== h) {
+    canvasRef.value.width = w
+    canvasRef.value.height = h
+  }
+}
 
 const camYaw = ref(0.6)
 const camPitch = ref(0.35)
@@ -274,10 +287,21 @@ watch(
 
 onMounted(() => {
   animFrameId = requestAnimationFrame(tick)
+  if (viewportPaneRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      updateCanvasSize()
+    })
+    resizeObserver.observe(viewportPaneRef.value)
+    updateCanvasSize()
+  }
 })
 
 onBeforeUnmount(() => {
   if (animFrameId !== null) cancelAnimationFrame(animFrameId)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
 })
 </script>
 
@@ -339,11 +363,9 @@ onBeforeUnmount(() => {
     <!-- 主工作区：左侧 3D 视口 + 中间 Cascade 发射器列堆栈 + 右侧 Details 面板 -->
     <div class="cascade-workspace">
       <!-- 1. 实时粒子模拟视口 -->
-      <div v-if="showViewport" class="cascade-viewport-pane">
+      <div v-if="showViewport" ref="viewportPaneRef" class="cascade-viewport-pane">
         <canvas
           ref="canvasRef"
-          width="420"
-          height="520"
           class="particle-canvas"
           @mousedown="onCanvasMouseDown"
           @mousemove="onCanvasMouseMove"
@@ -687,13 +709,15 @@ onBeforeUnmount(() => {
 /* 1. 左侧 3D 模拟视口 */
 .cascade-viewport-pane {
   position: relative;
-  width: 420px;
+  width: 440px;
+  min-width: 280px;
+  max-width: 50vw;
   flex-shrink: 0;
   border-right: 1px solid rgba(128, 128, 128, 0.2);
   background: #0b0e14;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   overflow: hidden;
 }
 
