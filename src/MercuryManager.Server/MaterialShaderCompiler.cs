@@ -135,9 +135,9 @@ public static class MaterialShaderCompiler
             var dxbc=Path.Combine(job,"source.dxbc");var spirv=Path.Combine(job,"program.spv");
             var glsl=Path.Combine(job,"program.glsl");var reflection=Path.Combine(job,"reflection.json");
             await File.WriteAllBytesAsync(dxbc,candidate.Bytecode,cancellationToken);
-            await Run("vkd3d-compiler",["-x","dxbc-tpf","-b","spirv-binary",dxbc,"-o",spirv],cancellationToken);
-            await Run("spirv-cross",[spirv,"--es","--version","300","--output",glsl],cancellationToken);
-            await Run("spirv-cross",[spirv,"--reflect","--output",reflection],cancellationToken);
+            await Run(MaterialShaderToolchain.GetVkd3dCompilerPath(),["-x","dxbc-tpf","-b","spirv-binary",dxbc,"-o",spirv],cancellationToken);
+            await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--es","--version","300","--output",glsl],cancellationToken);
+            await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--reflect","--output",reflection],cancellationToken);
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
             var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source);
             var reflected = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(reflection,cancellationToken))!;

@@ -134,6 +134,17 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     var matExport = preview.Material;
     context = preview.Context;
     resolved = preview.Path;
+    var toolchain = MaterialShaderToolchain.Status;
+    if (!toolchain.Available)
+    {
+        return Results.Ok(new
+        {
+            schemaVersion = 1,
+            renderingReady = false,
+            previewProfile = "slate-rectangle-v1",
+            limitations = new[] { toolchain.Hint }
+        });
+    }
     var cooked = LegacyMaterialUniformReader.ReadCookedMaterial(asset, matExport);
     if (cooked == null) return Results.NotFound("Cooked material shader data not found");
     var candidates = MaterialShaderCompiler.Discover(resolved);
@@ -225,7 +236,9 @@ app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceSer
 app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.ResolveMaterialDependency(id,path),mip),"image/png"));
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));
 app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
-app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });
+app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19", shaderToolchain = MaterialShaderToolchain.Status });
+app.MapGet("/api/shader-toolchain", () => Results.Ok(MaterialShaderToolchain.Status));
+app.MapPost("/api/shader-toolchain/refresh", () => Results.Ok(MaterialShaderToolchain.Refresh()));
 app.MapGet("/api/projects", (ProjectManager p)=>p.List());
 app.MapPost("/api/projects", (CreateProject request, ProjectManager p)=>p.Create(request.Name));
 app.MapGet("/api/projects/{id}/export-files", (string id,ProjectManager p)=>p.ExportFiles(id));
@@ -276,6 +289,18 @@ app.MapPost("/api/workspaces/{id}/messages/{name}/rows", (string id, string name
 app.MapPatch("/api/workspaces/{id}/messages/{name}/rows", (string id, string name, MessageEdit request, MessageWorkspaceStore store, VoiceLookupService voices) => {store.Edit(id,name,request.RowName,request.Fields,false);voices.Invalidate(id);return Results.Ok();});
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapEmbeddedFrontend();
+// 启动时检查 Shader 工具链并记录日志提示
+var toolchain = MaterialShaderToolchain.Status;
+if (!toolchain.Available)
+{
+    app.Logger.LogWarning("Shader 转译工具链未就绪: {Hint}", toolchain.Hint);
+}
+else
+{
+    app.Logger.LogInformation("Shader 转译工具链已就绪: vkd3d-compiler={Vkd3d}, spirv-cross={SpirvCross}",
+        toolchain.Vkd3dPath, toolchain.SpirvCrossPath);
+}
+
 if (startup.LaunchBrowser)
 {
     app.Lifetime.ApplicationStarted.Register(() =>

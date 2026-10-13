@@ -168,10 +168,18 @@ const settingsDropdownOptions = computed(() => [
   {
     key: 'action_zoom',
     label: tr('ui.simZoomModal')
-  }
+  },
+  ...(isToolchainMissing.value
+    ? [
+        {
+          key: 'action_refresh_toolchain',
+          label: tr('ui.simToolchainRefresh')
+        }
+      ]
+    : [])
 ])
 
-function handleSettingsSelect(key: string) {
+async function handleSettingsSelect(key: string) {
   if (key.startsWith('scale_')) {
     const val = Number(key.replace('scale_', ''))
     setRenderScale(val)
@@ -179,12 +187,26 @@ function handleSettingsSelect(key: string) {
     aspectMode.value = key.replace('aspect_', '') as AspectMode
   } else if (key === 'action_zoom') {
     showZoomModal.value = true
+  } else if (key === 'action_refresh_toolchain') {
+    try {
+      await fetch('/api/shader-toolchain/refresh', { method: 'POST' })
+      await fetchShaderContract()
+    } catch {}
   }
 }
 
 // Cooked WebGL2 shader contract state
 const shaderContract = ref<MaterialShaderContract | null>(null)
 const contractError = ref<string | null>(null)
+
+// 工具链状态检测
+const isToolchainMissing = computed(() => {
+  return shaderContract.value?.limitations?.some(l => l.includes('vkd3d') || l.includes('spirv-cross')) ?? false
+})
+
+const toolchainHint = computed(() => {
+  return shaderContract.value?.limitations?.find(l => l.includes('vkd3d') || l.includes('spirv-cross')) || ''
+})
 const usingCookedWebGL2 = computed(() => {
   const c = shaderContract.value
   if (!c || c.schemaVersion !== 1 || c.renderingReady !== true) return false
@@ -558,6 +580,16 @@ onUnmounted(() => {
               class="clickable-tag"
             >
               WebGL2 GLSL <span class="tag-meta">({{ renderScale }}x · {{ baseStageSize.width }}×{{ baseStageSize.height }}) ▾</span>
+            </n-tag>
+            <n-tag
+              v-else-if="isToolchainMissing"
+              size="tiny"
+              type="error"
+              :bordered="false"
+              :title="toolchainHint"
+              class="clickable-tag"
+            >
+              {{ tr('ui.simToolchainMissing') }} (Fallback) <span class="tag-meta">({{ renderScale }}x) ▾</span>
             </n-tag>
             <n-tag
               v-else-if="shaderContract && (!shaderContract.renderingReady || shaderContract.limitations?.length)"
