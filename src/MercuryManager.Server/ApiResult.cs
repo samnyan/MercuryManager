@@ -54,7 +54,10 @@ public static class ApiResultMiddleware
                 {
                     using var document = await JsonDocument.ParseAsync(buffer);
                     if (statusCode < 400) data = document.RootElement.Clone();
-                    else if (document.RootElement.TryGetProperty("title", out var title)) failure = ApiResult.Error(statusCode, title.GetString() ?? "请求失败");
+                    else if (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("title", out var title))
+                        failure = ApiResult.Error(statusCode, title.GetString() ?? "请求失败");
+                    else if (document.RootElement.ValueKind == JsonValueKind.String)
+                        failure = ApiResult.Error(statusCode, document.RootElement.GetString() ?? "请求失败");
                 }
                 catch (JsonException) { if (statusCode < 400) { context.Response.StatusCode = 500; failure = ApiResult.Error(500, "服务器响应格式错误"); } }
             }

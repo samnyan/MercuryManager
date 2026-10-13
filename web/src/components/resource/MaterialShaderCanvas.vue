@@ -36,6 +36,7 @@ const props = defineProps<{
   vectors: Record<string, { r: number; g: number; b: number; a: number }>
   textures: SimTextureItem[]
   functionNames?: string[]
+  collectionOverrides?: Record<string, { scalars?: Record<string, number>; vectors?: Record<string, [number, number, number, number]> }>
 }>()
 
 const project = useProject()
@@ -45,7 +46,6 @@ const fallbackCanvasRef = ref<HTMLCanvasElement | null>(null)
 const playing = ref(false)
 const simTime = ref(0)
 const bgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
-const simPreset = ref<string>('auto')
 
 // Cooked WebGL2 shader contract state
 const shaderContract = ref<MaterialShaderContract | null>(null)
@@ -78,12 +78,8 @@ const normalizedSpec = computed<NormalizedMaterialSpec>(() => {
       FunctionCalls: (props.functionNames || []).map(f => ({ FunctionName: f }))
     }
   }
-  const spec = normalizeMaterialEntry(rawEntry, props.materialPath)
-  if (spec && simPreset.value !== 'auto') {
-    spec.preset = simPreset.value as any
-  }
   return (
-    spec || {
+    normalizeMaterialEntry(rawEntry, props.materialPath) || {
       name: 'MaterialSim',
       blendMode: props.blendMode || 'BLEND_Opaque',
       scalars: props.scalars,
@@ -119,21 +115,12 @@ const hasPerFrameExpressions = computed(() => {
 })
 
 const hasTimeAnimation = computed(() => {
-  return hasPerFrameExpressions.value || detectedPreset.value !== 'static'
+  if (usingCookedWebGL2.value) {
+    return hasPerFrameExpressions.value
+  }
+  return detectedPreset.value === 'glitch' || detectedPreset.value === 'pan_rotate'
 })
 
-const presetOptions = computed(() => [
-  { label: `${tr('ui.simModeAuto')} (${detectedPreset.value})`, value: 'auto' },
-  { label: tr('ui.simModeStatic'), value: 'static' },
-  { label: tr('ui.simModeComposite'), value: 'composite' },
-  { label: tr('ui.simModeGlitch'), value: 'glitch' },
-  { label: tr('ui.simModePanRotate'), value: 'pan_rotate' },
-  { label: tr('ui.simModeRingGauge'), value: 'ring_gauge' },
-  { label: tr('ui.simModeUvCrop'), value: 'uv_crop' },
-  { label: tr('ui.simModeColorTint'), value: 'color_tint' }
-])
-
-// 去重后的可选贴图列表
 const uniqueTextures = computed(() => {
   const seen = new Set<string>()
   const out: SimTextureItem[] = []
@@ -150,9 +137,6 @@ const uniqueTextures = computed(() => {
   }
   return out
 })
-
-const primaryTexPath = ref<string>('')
-const secondaryTexPath = ref<string>('')
 
 function buildOverridesQuery(timeVal: number, prevTimeVal: number): URLSearchParams {
   const scalarObj: Record<string, number> = {}
@@ -175,6 +159,9 @@ function buildOverridesQuery(timeVal: number, prevTimeVal: number): URLSearchPar
   }
   if (Object.keys(vectorObj).length > 0) {
     params.set('vectorOverrides', JSON.stringify(vectorObj))
+  }
+  if (props.collectionOverrides && Object.keys(props.collectionOverrides).length > 0) {
+    params.set('collectionOverrides', JSON.stringify(props.collectionOverrides))
   }
   return params
 }
@@ -234,14 +221,7 @@ watch(
 watch(
   uniqueTextures,
   list => {
-    if (!list?.length) {
-      primaryTexPath.value = ''
-      secondaryTexPath.value = ''
-      return
-    }
-    primaryTexPath.value = list[0]?.path || ''
-    secondaryTexPath.value = list[1]?.path || ''
-
+    if (!list?.length) return
     for (const item of list) {
       if (item.path && !loadedImages.has(item.path)) {
         loadTextureImage(item.path)
@@ -354,21 +334,6 @@ async function drawCanvas() {
     if (!targetCanvas) return
 
     const specToRender = { ...normalizedSpec.value }
-    if (primaryTexPath.value || secondaryTexPath.value) {
-      const allTex = [...specToRender.textures]
-      const ordered: Array<{ name: string; path: string }> = []
-      const pri = allTex.find(x => x.path === primaryTexPath.value)
-      if (pri) ordered.push(pri)
-      const sec = allTex.find(x => x.path === secondaryTexPath.value && x.path !== primaryTexPath.value)
-      if (sec) ordered.push(sec)
-      for (const rest of allTex) {
-        if (!ordered.some(o => o.path === rest.path)) {
-          ordered.push(rest)
-        }
-      }
-      specToRender.textures = ordered
-    }
-
     const baked = await renderUMGMaterialToCanvas(
       specToRender,
       loadTextureImage,
@@ -418,24 +383,24 @@ onUnmounted(() => {
             WebGL2 GLSL
           </n-tag>
           <n-tag
-            v-else-if="shaderContract?.limitations?.length"
+            v-else-if="shaderContract && (!shaderContract.renderingReady || shaderContract.limitations?.length)"
             size="tiny"
             type="warning"
             :bordered="false"
-            :title="shaderContract.limitations.join('; ')"
+            :title="shaderContract.limitations?.join('; ') || 'Shader rendering not ready'"
           >
             {{ tr('ui.simModeAuto') }} (Fallback)
           </n-tag>
-        </div>
-        <n-space size="small" align="center">
-          <n-select
-            v-if="!usingCookedWebGL2"
-            v-model:value="simPreset"
-            :options="presetOptions"
+          <n-tag
+            v-else-if="contractError"
             size="tiny"
-            style="width: 160px"
-          />
-        </n-space>
+            type="error"
+            :bordered="false"
+            :title="contractError"
+          >
+            Shader Error (Fallback)
+          </n-tag>
+        </div>
       </div>
     </template>
 
@@ -502,29 +467,6 @@ onUnmounted(() => {
         <div v-if="hasTimeAnimation || playing" class="time-row">
           <span class="t-label">Time: {{ simTime.toFixed(2) }}s</span>
           <n-slider v-model:value="simTime" :min="0" :max="10" :step="0.02" style="flex: 1" />
-        </div>
-
-        <!-- 多图层复合分配管理 (仅回退模式显示) -->
-        <div v-if="!usingCookedWebGL2 && uniqueTextures.length > 0" class="layer-section">
-          <div class="layer-row">
-            <span class="t-label">{{ tr('ui.simPrimaryLayer') }}:</span>
-            <n-select
-              v-model:value="primaryTexPath"
-              :options="uniqueTextures.map(t => ({ label: t.name || t.path.split('/').pop(), value: t.path }))"
-              size="tiny"
-              style="flex: 1"
-            />
-          </div>
-
-          <div v-if="uniqueTextures.length > 1" class="layer-row">
-            <span class="t-label">{{ tr('ui.simSecondaryLayer') }}:</span>
-            <n-select
-              v-model:value="secondaryTexPath"
-              :options="[{ label: tr('ui.viewerEmpty'), value: '' }, ...uniqueTextures.map(t => ({ label: t.name || t.path.split('/').pop(), value: t.path }))]"
-              size="tiny"
-              style="flex: 1"
-            />
-          </div>
         </div>
       </div>
     </div>
@@ -596,20 +538,6 @@ onUnmounted(() => {
   justify-content: space-between;
 }
 .time-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.layer-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: #f7f8fa;
-  padding: 6px 8px;
-  border-radius: 4px;
-}
-.layer-row {
   display: flex;
   align-items: center;
   gap: 8px;
