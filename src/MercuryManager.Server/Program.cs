@@ -189,6 +189,9 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         nativeMaterialConstantBytes = constants.Length,
         frameWrites,
         sceneInputs,
+        // Evaluate has already verified the time-only layout and read profile.
+        timeInputs = sceneInputs.Where(input => !collectionInputs.Any(c => c.BufferIndex == input.BufferIndex))
+            .Select(input => new { input.BufferIndex, gameTimeOffset = 2120, realTimeOffset = 2124 }).ToArray(),
         collectionInputs,
         slateBindings = bindings,
         time = now,

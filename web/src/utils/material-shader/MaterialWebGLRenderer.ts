@@ -96,6 +96,7 @@ export interface MaterialShaderContract {
   textureMappingError?: string | null
   blendMode?: string
   previewProfile?: string
+  timeInputs?: { bufferIndex: number; gameTimeOffset: number; realTimeOffset: number }[]
   sceneInputs?: { bufferIndex: number; data: string }[]
   collectionInputs?: { bufferIndex: number; data: string; assetPath: string; valueSource: string; defaults?: { scalars: Record<string, number>; vectors: Record<string, [number, number, number, number]> } }[]
   renderingReady: boolean
@@ -190,6 +191,7 @@ export class MaterialWebGLRenderer {
   private posBuffer: WebGLBuffer | null = null
   private uboBuffers: Map<number, WebGLBuffer> = new Map()
   private textures: Map<string, WebGLTexture> = new Map()
+  private uploadedImages = new Map<string, HTMLImageElement>()
 
   init(canvas: HTMLCanvasElement): boolean {
     if (this.gl && this.gl.canvas === canvas) return true
@@ -226,6 +228,8 @@ export class MaterialWebGLRenderer {
     const gl = this.gl
 
     key = `${key}#sampler=${samplerSource}`
+    if (this.uploadedImages.get(key) === image) return
+    this.uploadedImages.set(key, image)
     let tex = this.textures.get(key)
     if (!tex) {
       tex = gl.createTexture()!
@@ -365,6 +369,13 @@ export class MaterialWebGLRenderer {
           if (bytes.length !== blockSize) { gl.bindVertexArray(null); return false }
           data.set(bytes)
         }
+        for (const input of contract.timeInputs || []) {
+          if (input.bufferIndex !== bindingSlot) continue
+          if (!Number.isFinite(contract.time) || input.gameTimeOffset < 0 || input.realTimeOffset < 0 ||
+              input.gameTimeOffset + 4 > blockSize || input.realTimeOffset + 4 > blockSize) return false
+          view.setFloat32(input.gameTimeOffset, contract.time, true)
+          view.setFloat32(input.realTimeOffset, contract.time, true)
+        }
         // Populate Slate GammaValues if bound to this buffer
         const gamma = contract.slateBindings?.gammaValues
         if (gamma && gamma.bufferIndex === bindingSlot && gamma.numBytes >= 8) {
@@ -421,6 +432,7 @@ export class MaterialWebGLRenderer {
       gl.deleteTexture(tex)
     }
     this.textures.clear()
+    this.uploadedImages.clear()
     for (const buf of this.uboBuffers.values()) {
       gl.deleteBuffer(buf)
     }
