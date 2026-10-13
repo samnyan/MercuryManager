@@ -2,6 +2,8 @@
 // 供 ParticleSystemViewer (Cascade 面板) 与 UMG / Blueprint 预览器共同复用
 
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../material-shader/UMGMaterialBridge'
+import { MaterialSurface } from '../material-runtime/MaterialSurface'
+import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
 export interface ParticleModuleProp {
   Name: string
@@ -186,7 +188,8 @@ export function getEmitterMaterialPath(em: ParticleEmitterInfo): string | null {
 export async function buildParticleMaterialSprites(
   info: ParticleSystemData,
   loadImage: (texPath: string) => Promise<HTMLImageElement | null>,
-  externalMaterials?: Record<string, any>
+  externalMaterials?: Record<string, any>,
+  projectId?: string
 ): Promise<Map<string, HTMLCanvasElement>> {
   const result = new Map<string, HTMLCanvasElement>()
   const matPool: Record<string, any> = {
@@ -199,8 +202,43 @@ export async function buildParticleMaterialSprites(
     if (!matPath || result.has(matPath)) continue
     const rawMat = matPool[matPath]
     if (!rawMat) continue
-    const spec = normalizeMaterialEntry(rawMat)
+    const spec = normalizeMaterialEntry(rawMat, matPath)
     if (!spec) continue
+
+    // 1. 尝试从 fac847c 的 MaterialSurface / MaterialProgramCache 获取真实 WebGL2 着色器渲染
+    if (projectId) {
+      try {
+        const contract = await materialPrograms.load(projectId, matPath)
+        if (contract?.renderingReady && contract.uniformProgram && contract.blendMode !== 'BLEND_Additive') {
+          const surface = new MaterialSurface(contract, 128, 128)
+          try {
+            await surface.prepare(loadImage)
+            surface.instance.setParameters(
+              spec.scalars,
+              Object.fromEntries(Object.entries(spec.vectors).map(([k, v]) => [k, [v.r, v.g, v.b, v.a]]))
+            )
+            const drawn = surface.draw(0.35)
+            // 复制到独立 canvas 避免 surface 销毁后丢失
+            const outCanvas = document.createElement('canvas')
+            outCanvas.width = drawn.width
+            outCanvas.height = drawn.height
+            const ctx = outCanvas.getContext('2d')
+            if (ctx) {
+              ctx.drawImage(drawn, 0, 0)
+              result.set(matPath, outCanvas)
+              surface.dispose()
+              continue
+            }
+          } catch {
+            surface.dispose()
+          }
+        }
+      } catch {
+        // shader 不支持或加载失败时，平滑回退到下方的 2D 模拟管线
+      }
+    }
+
+    // 2. 回退：通用材质 2D 烘焙模拟 (renderUMGMaterialToCanvas)
     try {
       const canvas = await renderUMGMaterialToCanvas(spec, loadImage, 128, 128)
       if (canvas) {
@@ -689,10 +727,11 @@ export async function renderUMGParticleToCanvas(
   width = 256,
   height = 256,
   externalMaterials?: Record<string, any>,
-  simSeconds = 0.6
+  simSeconds = 0.6,
+  projectId?: string
 ): Promise<HTMLCanvasElement | null> {
   if (!info || !Array.isArray(info.Emitters)) return null
-  const sprites = await buildParticleMaterialSprites(info, loadImage, externalMaterials)
+  const sprites = await buildParticleMaterialSprites(info, loadImage, externalMaterials, projectId)
   const engine = new ParticleSimulationEngine(info)
   engine.setMaterialSprites(sprites)
 

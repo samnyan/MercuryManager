@@ -176,7 +176,9 @@ async function getParticleCanvasSource(
     },
     targetW,
     targetH,
-    props.materials
+    props.materials,
+    0.6,
+    project.id
   )
 
   particleCanvasCache.set(cacheKey, promise)

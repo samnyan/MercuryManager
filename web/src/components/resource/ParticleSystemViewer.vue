@@ -112,7 +112,7 @@ function initSelection() {
   }
 
   simEngine = new ParticleSimulationEngine(props.info)
-  buildParticleMaterialSprites(props.info, loadRawImage).then(sprites => {
+  buildParticleMaterialSprites(props.info, loadRawImage, undefined, project.id).then(sprites => {
     if (simEngine) {
       simEngine.setMaterialSprites(sprites)
     }
