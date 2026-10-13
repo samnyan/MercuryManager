@@ -51,8 +51,9 @@ const simPreset = ref<string>('auto')
 const shaderContract = ref<MaterialShaderContract | null>(null)
 const contractError = ref<string | null>(null)
 const usingCookedWebGL2 = computed(() => {
-  if (!shaderContract.value) return false
-  const { error } = resolveContractSamplerSlots(shaderContract.value)
+  const c = shaderContract.value
+  if (!c || c.schemaVersion !== 1 || c.renderingReady !== true) return false
+  const { error } = resolveContractSamplerSlots(c)
   return !error
 })
 

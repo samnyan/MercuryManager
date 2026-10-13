@@ -373,7 +373,7 @@ export class MaterialWebGLRenderer {
     blendMode = 'BLEND_Opaque'
   ): boolean {
     const gl = this.gl
-    if (!gl || !this.vao) return false
+    if (!gl || !this.vao || contract.schemaVersion !== 1 || contract.renderingReady !== true) return false
 
     const prog = this.ensureProgram(contract.glsl)
     if (!prog) return false
