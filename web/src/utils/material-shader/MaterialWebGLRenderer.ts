@@ -97,7 +97,7 @@ export interface MaterialShaderContract {
   blendMode?: string
   previewProfile?: string
   sceneInputs?: { bufferIndex: number; data: string }[]
-  collectionInputs?: { bufferIndex: number; data: string; assetPath: string; valueSource: string }[]
+  collectionInputs?: { bufferIndex: number; data: string; assetPath: string; valueSource: string; defaults?: { scalars: Record<string, number>; vectors: Record<string, [number, number, number, number]> } }[]
   renderingReady: boolean
   limitations?: string[]
 }

@@ -8,7 +8,8 @@ import {
   NButtonGroup,
   NIcon,
   NSlider,
-  NSelect
+  NSelect,
+  NInputNumber
 } from 'naive-ui'
 import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles } from '@lucide/vue'
 import { useProject } from '../../project'
@@ -39,7 +40,29 @@ const props = defineProps<{
   collectionOverrides?: Record<string, { scalars?: Record<string, number>; vectors?: Record<string, [number, number, number, number]> }>
 }>()
 
+type CollectionValues = { scalars?: Record<string, number>; vectors?: Record<string, [number, number, number, number]> }
+const localCollections = ref<Record<string, CollectionValues>>({})
+const collectionControls = computed(() => shaderContract.value?.collectionInputs?.filter(c => c.defaults) || [])
+function scalarValue(path: string, name: string, fallback: number) {
+  return localCollections.value[path]?.scalars?.[name] ?? props.collectionOverrides?.[path]?.scalars?.[name] ?? fallback
+}
+function vectorValue(path: string, name: string, channel: number, fallback: number[]) {
+  return (localCollections.value[path]?.vectors?.[name] ?? props.collectionOverrides?.[path]?.vectors?.[name] ?? fallback)[channel] ?? 0
+}
+function setScalar(path: string, name: string, value: number | null) {
+  if (value === null || !Number.isFinite(value)) return
+  const entry = localCollections.value[path] ??= {}
+  ;(entry.scalars ??= {})[name] = value
+}
+function setVector(path: string, name: string, channel: number, value: number | null, fallback: number[]) {
+  if (value === null || !Number.isFinite(value)) return
+  const entry = localCollections.value[path] ??= {}
+  const vector = [0, 1, 2, 3].map(i => vectorValue(path, name, i, fallback)) as [number, number, number, number]
+  vector[channel] = value
+  ;(entry.vectors ??= {})[name] = vector
+}
 const project = useProject()
+watch(() => [project.id, props.materialPath], () => { localCollections.value = {} })
 const webglCanvasRef = ref<HTMLCanvasElement | null>(null)
 const fallbackCanvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -160,9 +183,14 @@ function buildOverridesQuery(timeVal: number, prevTimeVal: number): URLSearchPar
   if (Object.keys(vectorObj).length > 0) {
     params.set('vectorOverrides', JSON.stringify(vectorObj))
   }
-  if (props.collectionOverrides && Object.keys(props.collectionOverrides).length > 0) {
-    params.set('collectionOverrides', JSON.stringify(props.collectionOverrides))
+  const collections: Record<string, CollectionValues> = { ...props.collectionOverrides }
+  for (const [path, local] of Object.entries(localCollections.value)) {
+    collections[path] = {
+      scalars: { ...collections[path]?.scalars, ...local.scalars },
+      vectors: { ...collections[path]?.vectors, ...local.vectors }
+    }
   }
+  if (Object.keys(collections).length > 0) params.set('collectionOverrides', JSON.stringify(collections))
   return params
 }
 
@@ -208,7 +236,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
 }
 
 watch(
-  () => [project.id, props.materialPath, props.scalars, props.vectors],
+  () => [project.id, props.materialPath, props.scalars, props.vectors, props.collectionOverrides, localCollections.value],
   () => {
     if (debounceTimer) window.clearTimeout(debounceTimer)
     debounceTimer = window.setTimeout(() => {
@@ -422,6 +450,27 @@ onUnmounted(() => {
         />
       </div>
 
+      <details v-if="collectionControls.length" class="collection-panel">
+        <summary>{{ tr('ui.collectionPreview') }}</summary>
+        <p>{{ tr('ui.collectionPreviewHint') }}</p>
+        <n-button size="tiny" @click="localCollections = {}">{{ tr('ui.collectionReset') }}</n-button>
+        <details v-for="collection in collectionControls" :key="collection.assetPath">
+          <summary>{{ collection.assetPath }}</summary>
+          <div v-for="(value, name) in collection.defaults!.scalars" :key="name" class="collection-row">
+            <label>{{ name }}</label>
+            <n-input-number size="tiny" :aria-label="`${collection.assetPath} ${name}`"
+              :value="scalarValue(collection.assetPath, String(name), value)"
+              @update:value="setScalar(collection.assetPath, String(name), $event)" />
+          </div>
+          <div v-for="(value, name) in collection.defaults!.vectors" :key="name" class="collection-vector">
+            <label>{{ name }}</label>
+            <n-input-number v-for="channel in 4" :key="channel" size="tiny"
+              :aria-label="`${collection.assetPath} ${name} ${'RGBA'[channel - 1]}`"
+              :value="vectorValue(collection.assetPath, String(name), channel - 1, value)"
+              @update:value="setVector(collection.assetPath, String(name), channel - 1, $event, value)" />
+          </div>
+        </details>
+      </details>
       <div class="sim-controls">
         <div class="ctrl-row">
           <n-space size="small" align="center">
@@ -474,6 +523,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.collection-panel { width: 100%; max-height: 300px; overflow: auto; font-size: 12px; }
+.collection-panel summary { cursor: pointer; overflow-wrap: anywhere; }
+.collection-panel p { color: #888; }
+.collection-row { display: grid; grid-template-columns: 1fr 120px; align-items: center; gap: 8px; margin-top: 4px; }
+.collection-vector { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.collection-vector label { grid-column: 1 / -1; }
 .sim-card {
   border-radius: 6px;
 }
