@@ -120,10 +120,11 @@ app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,R
 app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
 app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
 app.MapPost("/api/projects/{id}/resource-material-params",(string id,string path,SaveMaterialParamsRequest request,ResourceService r)=>r.SaveMaterialParams(id,path,request));
-app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, string? scalarOverrides, string? vectorOverrides, ResourceService r) =>
+app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, string? scalarOverrides, string? vectorOverrides, string? collectionOverrides, ResourceService r) =>
 {
     float now = time ?? 0, before = previousTime ?? now;
     if (!float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
+    var collectionValues = LegacyMaterialCollectionInputs.ParseOverrides(collectionOverrides);
     var context = MaterialPreviewOverrides.Parse(scalarOverrides, vectorOverrides, now, now);
     var resolved = r.Resolve(id, path);
     try
@@ -166,7 +167,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     try
     {
         collectionInputs = LegacyMaterialCollectionInputs.Evaluate(asset, matExport, cooked.Uniforms, bindings,
-            translation.Reflection, dependency => r.ResolveMaterialDependency(id, dependency));
+            translation.Reflection, dependency => r.ResolveMaterialDependency(id, dependency), collectionValues);
         var collectionBuffers = collectionInputs.Select(input => new LegacySlateBufferInput(input.BufferIndex, input.Data)).ToArray();
         sceneInputs = collectionBuffers.Concat(LegacySlateTimeInputs.Evaluate(translation.Reflection, translation.Glsl,
             bindings, now, now, collectionBuffers)).ToArray();
