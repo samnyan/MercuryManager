@@ -7,7 +7,7 @@ using UAssetAPI.PropertyTypes.Structs;
 namespace MercuryManager.Server;
 
 public sealed record LegacyMaterialPreviewSource(UAsset Asset, NormalExport Material, string Path,
-    MaterialUniformContext Context, string[] ParentChain);
+    MaterialUniformContext Context, string[] ParentChain, IReadOnlyDictionary<string, string> TextureOverrides);
 
 public static class LegacyMaterialInstanceResolver
 {
@@ -18,7 +18,8 @@ public static class LegacyMaterialInstanceResolver
         var chain = new List<string>();
         var scalars = new Dictionary<string, float>(StringComparer.Ordinal);
         var vectors = new Dictionary<string, Vector4>(StringComparer.Ordinal);
-        var instances = new List<NormalExport>();
+        var textures = new Dictionary<string, string>(StringComparer.Ordinal);
+        var instances = new List<(UAsset Asset, NormalExport Export)>();
         UAsset asset;
         NormalExport material;
         while (true)
@@ -33,14 +34,14 @@ public static class LegacyMaterialInstanceResolver
                 ?? throw new NotSupportedException("Material preview requires a master or constant instance.");
             if (instance.Data.OfType<BoolPropertyData>().Any(p => p.Name.ToString() == "bHasStaticPermutationResource" && p.Value))
                 throw new NotSupportedException("Instance static shader permutations are unsupported.");
-            foreach (var field in new[] { "TextureParameterValues", "StaticParameters" })
+            foreach (var field in new[] { "StaticParameters" })
                 if (instance.Data.FirstOrDefault(p => p.Name.ToString() == field) is { } value &&
                     (value is not ArrayPropertyData array || array.Value.Length != 0))
                     throw new NotSupportedException("Instance texture/static overrides require separate shader resource support.");
             if (instance.Data.FirstOrDefault(p => p.Name.ToString() == "BasePropertyOverrides") is StructPropertyData properties &&
                 properties.Value.OfType<BoolPropertyData>().Any(p => p.Name.ToString().StartsWith("bOverride_", StringComparison.Ordinal) && p.Value))
                 throw new NotSupportedException("Instance base-property overrides require permutation/blend validation.");
-            instances.Add(instance);
+            instances.Add((asset, instance));
             var parent = instance.Data.OfType<ObjectPropertyData>().SingleOrDefault(p => p.Name.ToString() == "Parent")
                 ?? throw new InvalidDataException("Material instance has no parent.");
             var reference = GenericResourceViewer.ResolveReference(parent.Value.Index, asset);
@@ -48,8 +49,20 @@ public static class LegacyMaterialInstanceResolver
                 ?? throw new NotSupportedException("Material parent cannot be resolved through the project overlay.");
             path = resolveDependency(dependency);
         }
-        foreach (var instance in instances.AsEnumerable().Reverse())
+        foreach (var (instanceAsset, instance) in instances.AsEnumerable().Reverse())
         {
+            Read(instance, "TextureParameterValues", (name, value) =>
+            {
+                if (value is not ObjectPropertyData reference || reference.Value.Index == 0)
+                    throw new NotSupportedException("Null instance texture overrides require native fallback validation.");
+                var target = GenericResourceViewer.ResolveReference(reference.Value.Index, instanceAsset);
+                string dependency = target["ContentFile"]?.ToString()
+                    ?? throw new NotSupportedException("Instance texture cannot be resolved through the project overlay.");
+                var textureAsset = new UAsset(resolveDependency(dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+                if (!textureAsset.Exports.OfType<NormalExport>().Any(e => e.GetExportClassType().ToString() == "Texture2D"))
+                    throw new NotSupportedException("Only Texture2D instance overrides are supported.");
+                textures[name] = dependency;
+            });
             Read(instance, "ScalarParameterValues", (name, value) =>
             {
                 if (value is not FloatPropertyData number || !float.IsFinite(number.Value))
@@ -68,7 +81,7 @@ public static class LegacyMaterialInstanceResolver
         }
         foreach (var value in overrides.Scalars) scalars[value.Key] = value.Value;
         foreach (var value in overrides.Vectors) vectors[value.Key] = value.Value;
-        return new(asset, material, path, new(scalars, vectors, overrides.Time, overrides.RealTime), chain.ToArray());
+        return new(asset, material, path, new(scalars, vectors, overrides.Time, overrides.RealTime), chain.ToArray(), textures);
     }
 
     private static void Read(NormalExport instance, string field, Action<string, PropertyData> accept)

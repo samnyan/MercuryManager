@@ -152,7 +152,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     {
         if (textureTable.Count == 0) textureTable = LegacyMaterialTextureTable.Read(asset, matExport,
             dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
-        textureExpressions = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, textureTable);
+        textureExpressions = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, textureTable, preview.TextureOverrides);
         samplerSlots = LegacyMaterialSamplerMapping.Resolve(LegacyShaderResourceTable.Read(psCandidate.ResourceTablePrefix),
             bindings.Material, textureExpressions, translation.CombinedSamplers);
     }
