@@ -9,9 +9,12 @@ import {
   NIcon,
   NSlider,
   NSelect,
-  NInputNumber
+  NInputNumber,
+  NDropdown,
+  NModal
 } from 'naive-ui'
-import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles } from '@lucide/vue'
+import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles, Maximize2 } from '@lucide/vue'
+import { materialPrograms } from '../../utils/material-runtime/MaterialProgramCache'
 import { MaterialInstance } from '../../utils/material-runtime/MaterialInstance'
 import { useProject } from '../../project'
 import { tr } from '../../i18n'
@@ -70,6 +73,114 @@ const fallbackCanvasRef = ref<HTMLCanvasElement | null>(null)
 const playing = ref(false)
 const simTime = ref(0)
 const bgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
+
+// 渲染倍率 (记录至 localStorage)
+const STORAGE_KEY_SCALE = 'mercurymanager_sim_render_scale'
+const renderScale = ref<number>(
+  (() => {
+    try {
+      const v = Number(localStorage.getItem(STORAGE_KEY_SCALE))
+      if (v === 0.5 || v === 1 || v === 1.5 || v === 2 || v === 3) return v
+    } catch {}
+    return 1
+  })()
+)
+
+function setRenderScale(scale: number) {
+  renderScale.value = scale
+  try {
+    localStorage.setItem(STORAGE_KEY_SCALE, String(scale))
+  } catch {}
+}
+
+// 宽高比 / 尺寸模式
+type AspectMode = 'auto' | '1:1' | '4:3' | '16:9' | '2:1'
+const aspectMode = ref<AspectMode>('auto')
+
+// 弹窗放大预览
+const showZoomModal = ref(false)
+const zoomCanvasRef = ref<HTMLCanvasElement | null>(null)
+
+// 主贴图宽高跟踪
+const primaryTextureSize = ref<{ width: number; height: number } | null>(null)
+
+// 计算当前应采用的基础渲染尺寸 (基于基准边长 240)
+const baseStageSize = computed<{ width: number; height: number }>(() => {
+  if (aspectMode.value === 'auto') {
+    if (primaryTextureSize.value && primaryTextureSize.value.width > 0 && primaryTextureSize.value.height > 0) {
+      const { width: tw, height: th } = primaryTextureSize.value
+      const maxDim = 240
+      if (tw >= th) {
+        return { width: maxDim, height: Math.max(32, Math.round((maxDim * th) / tw)) }
+      } else {
+        return { width: Math.max(32, Math.round((maxDim * tw) / th)), height: maxDim }
+      }
+    }
+    return { width: 240, height: 240 }
+  }
+  if (aspectMode.value === '1:1') return { width: 240, height: 240 }
+  if (aspectMode.value === '4:3') return { width: 240, height: 180 }
+  if (aspectMode.value === '16:9') return { width: 240, height: 135 }
+  if (aspectMode.value === '2:1') return { width: 240, height: 120 }
+  return { width: 240, height: 240 }
+})
+
+// 实际 canvas internal pixel 分辨率 (乘以渲染倍率)
+const canvasPixelSize = computed(() => {
+  const scale = renderScale.value || 1
+  return {
+    width: Math.round(baseStageSize.value.width * scale),
+    height: Math.round(baseStageSize.value.height * scale)
+  }
+})
+
+// 下拉层叠菜单选项 (类似 WebGL2 tag 样式，hover 展开层叠菜单)
+const settingsDropdownOptions = computed(() => [
+  {
+    type: 'group',
+    key: 'grp_scale',
+    label: `${tr('ui.simScale')}: ${renderScale.value}x`,
+    children: [
+      { label: '0.5x', key: 'scale_0.5' },
+      { label: '1.0x (100%)', key: 'scale_1.0' },
+      { label: '1.5x', key: 'scale_1.5' },
+      { label: '2.0x (HiDPI)', key: 'scale_2.0' },
+      { label: '3.0x (Ultra)', key: 'scale_3.0' }
+    ]
+  },
+  {
+    type: 'group',
+    key: 'grp_aspect',
+    label: `${tr('ui.simAspectRatio')}: ${aspectMode.value.toUpperCase()}`,
+    children: [
+      {
+        label: primaryTextureSize.value
+          ? `${tr('ui.simAspectAuto')} (${primaryTextureSize.value.width}×${primaryTextureSize.value.height})`
+          : tr('ui.simAspectAuto'),
+        key: 'aspect_auto'
+      },
+      { label: tr('ui.simAspectSquare'), key: 'aspect_1:1' },
+      { label: tr('ui.simAspect4_3'), key: 'aspect_4:3' },
+      { label: tr('ui.simAspect16_9'), key: 'aspect_16:9' },
+      { label: tr('ui.simAspect2_1'), key: 'aspect_2:1' }
+    ]
+  },
+  {
+    key: 'action_zoom',
+    label: tr('ui.simZoomModal')
+  }
+])
+
+function handleSettingsSelect(key: string) {
+  if (key.startsWith('scale_')) {
+    const val = Number(key.replace('scale_', ''))
+    setRenderScale(val)
+  } else if (key.startsWith('aspect_')) {
+    aspectMode.value = key.replace('aspect_', '') as AspectMode
+  } else if (key === 'action_zoom') {
+    showZoomModal.value = true
+  }
+}
 
 // Cooked WebGL2 shader contract state
 const shaderContract = ref<MaterialShaderContract | null>(null)
@@ -208,15 +319,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
   fetchController = controller
 
   try {
-    const params = buildOverridesQuery(timeVal, prevTimeVal)
-    const res = await fetch(
-      `/api/projects/${project.id}/resource-material-shader?` + params.toString(),
-      { method: 'GET', signal: controller.signal }
-    )
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = await res.json()
-    if (json.code !== 0 || !json.data) throw new Error(json.message || 'Shader request failed')
-    const data: MaterialShaderContract = json.data
+    const data = await materialPrograms.load(project.id, props.materialPath)
     if (controller.signal.aborted) return
     shaderContract.value = data
     materialInstance = data.uniformProgram ? new MaterialInstance(data) : null
@@ -239,7 +342,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
 }
 
 watch(
-  () => [project.id, props.materialPath, props.scalars, props.vectors, props.collectionOverrides, localCollections.value],
+  () => [project.id, props.materialPath, project.revision],
   () => {
     if (debounceTimer) window.clearTimeout(debounceTimer)
     debounceTimer = window.setTimeout(() => {
@@ -252,10 +355,15 @@ watch(
 watch(
   uniqueTextures,
   list => {
+    primaryTextureSize.value = null
     if (!list?.length) return
     for (const item of list) {
-      if (item.path && !loadedImages.has(item.path)) {
-        loadTextureImage(item.path)
+      if (item.path) {
+        const cached = loadedImages.get(item.path)
+        if (cached && cached.naturalWidth > 0 && !primaryTextureSize.value) {
+          primaryTextureSize.value = { width: cached.naturalWidth, height: cached.naturalHeight }
+        }
+        if (!cached) loadTextureImage(item.path)
       }
     }
   },
@@ -287,6 +395,9 @@ async function loadTextureImage(path: string): Promise<HTMLImageElement | null> 
       const img = new Image()
       img.onload = () => {
         loadedImages.set(path, img)
+        if (!primaryTextureSize.value && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          primaryTextureSize.value = { width: img.naturalWidth, height: img.naturalHeight }
+        }
         resolve(img)
       }
       img.onerror = () => resolve(null)
@@ -345,6 +456,11 @@ async function drawCanvas() {
             }
           }
           materialInstance?.setParameters(props.scalars, Object.fromEntries(Object.entries(props.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
+          const collections: Record<string, CollectionValues> = { ...props.collectionOverrides }
+          for (const [path, local] of Object.entries(localCollections.value)) collections[path] = {
+            scalars: { ...collections[path]?.scalars, ...local.scalars }, vectors: { ...collections[path]?.vectors, ...local.vectors }
+          }
+          materialInstance?.setCollections(collections)
           if (!playing.value) materialInstance?.update({ time: t, previousTime: t })
           const ok = webglRenderer.renderContract(
             glCanvas.width,
@@ -354,7 +470,17 @@ async function drawCanvas() {
             props.blendMode || 'BLEND_Opaque',
             bgMode.value
           )
-          if (ok) return
+          if (ok) {
+            if (showZoomModal.value && zoomCanvasRef.value) {
+              const zCanvas = zoomCanvasRef.value
+              const zCtx = zCanvas.getContext('2d')
+              if (zCtx) {
+                zCtx.clearRect(0, 0, zCanvas.width, zCanvas.height)
+                zCtx.drawImage(glCanvas, 0, 0, zCanvas.width, zCanvas.height)
+              }
+            }
+            return
+          }
         }
       }
     }
@@ -376,6 +502,14 @@ async function drawCanvas() {
       if (ctx) {
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height)
         ctx.drawImage(baked, 0, 0, targetCanvas.width, targetCanvas.height)
+      }
+      if (showZoomModal.value && zoomCanvasRef.value) {
+        const zCanvas = zoomCanvasRef.value
+        const zCtx = zCanvas.getContext('2d')
+        if (zCtx) {
+          zCtx.clearRect(0, 0, zCanvas.width, zCanvas.height)
+          zCtx.drawImage(baked, 0, 0, zCanvas.width, zCanvas.height)
+        }
       }
     }
   } finally {
@@ -409,28 +543,46 @@ onUnmounted(() => {
         <div class="sim-title">
           <n-icon :component="Sparkles" color="#18a058" />
           <span>{{ tr('ui.umgShaderSimulator') }}</span>
-          <n-tag v-if="usingCookedWebGL2" size="tiny" type="success" :bordered="false">
-            WebGL2 GLSL
-          </n-tag>
-          <n-tag
-            v-else-if="shaderContract && (!shaderContract.renderingReady || shaderContract.limitations?.length)"
-            size="tiny"
-            type="warning"
-            :bordered="false"
-            :title="shaderContract.limitations?.join('; ') || 'Shader rendering not ready'"
+          <n-dropdown
+            trigger="hover"
+            placement="bottom-start"
+            :options="settingsDropdownOptions"
+            @select="handleSettingsSelect"
           >
-            {{ tr('ui.simModeAuto') }} (Fallback)
-          </n-tag>
-          <n-tag
-            v-else-if="contractError"
-            size="tiny"
-            type="error"
-            :bordered="false"
-            :title="contractError"
-          >
-            Shader Error (Fallback)
-          </n-tag>
+            <n-tag
+              v-if="usingCookedWebGL2"
+              size="tiny"
+              type="success"
+              :bordered="false"
+              class="clickable-tag"
+            >
+              WebGL2 GLSL <span class="tag-meta">({{ renderScale }}x · {{ baseStageSize.width }}×{{ baseStageSize.height }}) ▾</span>
+            </n-tag>
+            <n-tag
+              v-else-if="shaderContract && (!shaderContract.renderingReady || shaderContract.limitations?.length)"
+              size="tiny"
+              type="warning"
+              :bordered="false"
+              :title="shaderContract.limitations?.join('; ') || 'Shader rendering not ready'"
+              class="clickable-tag"
+            >
+              {{ tr('ui.simModeAuto') }} (Fallback) <span class="tag-meta">({{ renderScale }}x) ▾</span>
+            </n-tag>
+            <n-tag
+              v-else-if="contractError"
+              size="tiny"
+              type="error"
+              :bordered="false"
+              :title="contractError"
+              class="clickable-tag"
+            >
+              Shader Error (Fallback) ▾
+            </n-tag>
+          </n-dropdown>
         </div>
+        <n-button size="tiny" quaternary circle :title="tr('ui.simZoomModal')" @click="showZoomModal = true">
+          <template #icon><n-icon :component="Maximize2" /></template>
+        </n-button>
       </div>
     </template>
 
@@ -439,18 +591,42 @@ onUnmounted(() => {
         <canvas
           v-show="usingCookedWebGL2"
           ref="webglCanvasRef"
-          width="240"
-          height="240"
+          :width="canvasPixelSize.width"
+          :height="canvasPixelSize.height"
+          :style="{ width: `${baseStageSize.width}px`, height: `${baseStageSize.height}px` }"
           class="sim-canvas"
         />
         <canvas
           v-show="!usingCookedWebGL2"
           ref="fallbackCanvasRef"
-          width="240"
-          height="240"
+          :width="canvasPixelSize.width"
+          :height="canvasPixelSize.height"
+          :style="{ width: `${baseStageSize.width}px`, height: `${baseStageSize.height}px` }"
           class="sim-canvas"
         />
       </div>
+
+      <!-- 放大预览弹窗 -->
+      <n-modal
+        v-model:show="showZoomModal"
+        preset="card"
+        :title="`${tr('ui.simZoomModal')} - ${props.materialPath?.split('/').pop() || ''}`"
+        style="width: 800px; max-width: 95vw;"
+        size="small"
+      >
+        <div class="modal-zoom-container" :class="`bg-${bgMode}`">
+          <canvas
+            ref="zoomCanvasRef"
+            :width="canvasPixelSize.width"
+            :height="canvasPixelSize.height"
+            :style="{
+              width: `${Math.min(720, baseStageSize.width * 2)}px`,
+              height: `${Math.min(540, baseStageSize.height * 2)}px`
+            }"
+            class="zoom-modal-canvas"
+          />
+        </div>
+      </n-modal>
 
       <details v-if="collectionControls.length" class="collection-panel">
         <summary>{{ tr('ui.collectionPreview') }}</summary>
@@ -579,9 +755,48 @@ onUnmounted(() => {
 }
 .sim-canvas {
   display: block;
-  width: 220px;
-  height: 220px;
+  max-width: 100%;
   border-radius: 4px;
+}
+.clickable-tag {
+  cursor: pointer;
+  user-select: none;
+}
+.tag-meta {
+  opacity: 0.8;
+  font-size: 10px;
+  margin-left: 2px;
+}
+.modal-zoom-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #dcdfe6;
+  min-height: 280px;
+}
+.modal-zoom-container.bg-checkerboard {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #cccccc 25%, transparent 25%),
+    linear-gradient(-45deg, #cccccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #cccccc 75%),
+    linear-gradient(-45deg, transparent 75%, #cccccc 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.modal-zoom-container.bg-dark {
+  background-color: #141418;
+}
+.modal-zoom-container.bg-light {
+  background-color: #ffffff;
+}
+.zoom-modal-canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 .sim-controls {
   width: 100%;
