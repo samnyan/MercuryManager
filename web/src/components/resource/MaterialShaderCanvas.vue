@@ -10,7 +10,7 @@ import {
   NSlider,
   NSelect
 } from 'naive-ui'
-import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles, Layers, Cpu } from '@lucide/vue'
+import { Play, Pause, RotateCcw, Grid, Moon, Sun, Sparkles } from '@lucide/vue'
 import { useProject } from '../../project'
 import { tr } from '../../i18n'
 import {
@@ -18,6 +18,11 @@ import {
   renderUMGMaterialToCanvas,
   type NormalizedMaterialSpec
 } from '../../utils/material-shader/UMGMaterialBridge'
+import {
+  MaterialWebGLRenderer,
+  resolveContractSamplerSlots,
+  type MaterialShaderContract
+} from '../../utils/material-shader/MaterialWebGLRenderer'
 
 export interface SimTextureItem {
   name: string
@@ -25,6 +30,7 @@ export interface SimTextureItem {
 }
 
 const props = defineProps<{
+  materialPath?: string
   blendMode?: string
   scalars: Record<string, number>
   vectors: Record<string, { r: number; g: number; b: number; a: number }>
@@ -33,14 +39,26 @@ const props = defineProps<{
 }>()
 
 const project = useProject()
-const canvasRef = ref<HTMLCanvasElement | null>(null)
 const webglCanvasRef = ref<HTMLCanvasElement | null>(null)
+const fallbackCanvasRef = ref<HTMLCanvasElement | null>(null)
 
 const playing = ref(false)
 const simTime = ref(0)
 const bgMode = ref<'checkerboard' | 'dark' | 'light'>('checkerboard')
 const simPreset = ref<string>('auto')
-const renderBackend = ref<'canvas' | 'webgl'>('webgl')
+
+// Cooked WebGL2 shader contract state
+const shaderContract = ref<MaterialShaderContract | null>(null)
+const contractError = ref<string | null>(null)
+const usingCookedWebGL2 = computed(() => {
+  if (!shaderContract.value) return false
+  const { error } = resolveContractSamplerSlots(shaderContract.value)
+  return !error
+})
+
+let webglRenderer: MaterialWebGLRenderer | null = null
+let fetchController: AbortController | null = null
+let debounceTimer: number | undefined
 
 // 贴图缓存: path -> HTMLImageElement
 const loadedImages = new Map<string, HTMLImageElement>()
@@ -59,7 +77,7 @@ const normalizedSpec = computed<NormalizedMaterialSpec>(() => {
       FunctionCalls: (props.functionNames || []).map(f => ({ FunctionName: f }))
     }
   }
-  const spec = normalizeMaterialEntry(rawEntry)
+  const spec = normalizeMaterialEntry(rawEntry, props.materialPath)
   if (spec && simPreset.value !== 'auto') {
     spec.preset = simPreset.value as any
   }
@@ -71,7 +89,8 @@ const normalizedSpec = computed<NormalizedMaterialSpec>(() => {
       vectors: props.vectors,
       textures: (props.textures || []).map(t => ({ name: t.name, path: t.path })),
       functionNames: props.functionNames || [],
-      preset: 'static'
+      preset: 'static',
+      assetPath: props.materialPath
     }
   )
 })
@@ -91,8 +110,15 @@ const detectedPreset = computed(() => {
   return spec?.preset || 'static'
 })
 
+const hasPerFrameExpressions = computed(() => {
+  const mb = shaderContract.value?.materialBindings
+  if (mb && (mb.perFrameScalarCount > 0 || mb.perFrameVectorCount > 0)) return true
+  if (shaderContract.value?.glsl?.includes('cb1_0._m0[132u]')) return true
+  return false
+})
+
 const hasTimeAnimation = computed(() => {
-  return detectedPreset.value !== 'static'
+  return hasPerFrameExpressions.value || detectedPreset.value !== 'static'
 })
 
 const presetOptions = computed(() => [
@@ -110,6 +136,12 @@ const presetOptions = computed(() => [
 const uniqueTextures = computed(() => {
   const seen = new Set<string>()
   const out: SimTextureItem[] = []
+  for (const expr of shaderContract.value?.textureExpressions || []) {
+    if (expr.assetPath && !seen.has(expr.assetPath)) {
+      seen.add(expr.assetPath)
+      out.push({ name: expr.parameterName || expr.assetPath.split('/').pop() || 'Texture', path: expr.assetPath })
+    }
+  }
   for (const t of props.textures || []) {
     if (!t.path || seen.has(t.path)) continue
     seen.add(t.path)
@@ -120,6 +152,83 @@ const uniqueTextures = computed(() => {
 
 const primaryTexPath = ref<string>('')
 const secondaryTexPath = ref<string>('')
+
+function buildOverridesQuery(timeVal: number, prevTimeVal: number): URLSearchParams {
+  const scalarObj: Record<string, number> = {}
+  for (const [k, v] of Object.entries(props.scalars || {})) {
+    if (typeof v === 'number' && Number.isFinite(v)) scalarObj[k] = v
+  }
+  const vectorObj: Record<string, [number, number, number, number]> = {}
+  for (const [k, v] of Object.entries(props.vectors || {})) {
+    if (v && Number.isFinite(v.r) && Number.isFinite(v.g) && Number.isFinite(v.b) && Number.isFinite(v.a)) {
+      vectorObj[k] = [v.r, v.g, v.b, v.a]
+    }
+  }
+  const params = new URLSearchParams({
+    path: props.materialPath || '',
+    time: String(timeVal),
+    previousTime: String(prevTimeVal)
+  })
+  if (Object.keys(scalarObj).length > 0) {
+    params.set('scalarOverrides', JSON.stringify(scalarObj))
+  }
+  if (Object.keys(vectorObj).length > 0) {
+    params.set('vectorOverrides', JSON.stringify(vectorObj))
+  }
+  return params
+}
+
+async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTime.value) {
+  if (!project.id || !props.materialPath || !props.materialPath.endsWith('.uasset')) {
+    shaderContract.value = null
+    contractError.value = null
+    return
+  }
+
+  fetchController?.abort()
+  const controller = new AbortController()
+  fetchController = controller
+
+  try {
+    const params = buildOverridesQuery(timeVal, prevTimeVal)
+    const res = await fetch(
+      `/api/projects/${project.id}/resource-material-shader?` + params.toString(),
+      { method: 'GET', signal: controller.signal }
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    if (json.code !== 0 || !json.data) throw new Error(json.message || 'Shader request failed')
+    const data: MaterialShaderContract = json.data
+    if (controller.signal.aborted) return
+    shaderContract.value = data
+    const { slots, error } = resolveContractSamplerSlots(data)
+    contractError.value = error
+
+    for (const slot of slots) {
+      if (slot.assetPath) {
+        const img = await loadTextureImage(slot.assetPath)
+        if (img && webglRenderer) {
+          webglRenderer.updateTexture(slot.assetPath, img, slot.samplerSource)
+        }
+      }
+    }
+  } catch (e: any) {
+    if (controller.signal.aborted) return
+    shaderContract.value = null
+    contractError.value = e?.message || null
+  }
+}
+
+watch(
+  () => [project.id, props.materialPath, props.scalars, props.vectors],
+  () => {
+    if (debounceTimer) window.clearTimeout(debounceTimer)
+    debounceTimer = window.setTimeout(() => {
+      fetchShaderContract(simTime.value, simTime.value)
+    }, 60)
+  },
+  { immediate: true, deep: true }
+)
 
 watch(
   uniqueTextures,
@@ -178,14 +287,21 @@ async function loadTextureImage(path: string): Promise<HTMLImageElement | null> 
 
 let rafId = 0
 let lastTs = 0
+let lastFrameContractPoll = 0
 
 function renderLoop(ts: number) {
   if (!lastTs) lastTs = ts
   const dt = Math.min(0.1, (ts - lastTs) / 1000)
   lastTs = ts
 
+  const prevT = simTime.value
   if (playing.value) {
     simTime.value = (simTime.value + dt) % 60
+    const mb = shaderContract.value?.materialBindings
+    if (mb && (mb.perFrameScalarCount > 0 || mb.perFrameVectorCount > 0) && ts - lastFrameContractPoll > 120) {
+      lastFrameContractPoll = ts
+      fetchShaderContract(simTime.value, prevT)
+    }
   }
 
   drawCanvas()
@@ -197,12 +313,45 @@ async function drawCanvas() {
   if (isRendering) return
   const t = simTime.value
 
-  const targetCanvas = renderBackend.value === 'webgl' ? webglCanvasRef.value : canvasRef.value
-  if (!targetCanvas) return
-
   isRendering = true
   try {
-    // 允许用户覆盖的主副贴图
+    // 1. Cooked WebGL2 path
+    if (usingCookedWebGL2.value && shaderContract.value && webglCanvasRef.value) {
+      const glCanvas = webglCanvasRef.value
+      if (!webglRenderer) {
+        webglRenderer = new MaterialWebGLRenderer()
+      }
+      if (webglRenderer.init(glCanvas)) {
+        const { slots, error } = resolveContractSamplerSlots(shaderContract.value)
+        if (!error) {
+          for (const slot of slots) {
+            const img = loadedImages.get(slot.assetPath)
+            if (img) {
+              webglRenderer.updateTexture(slot.assetPath, img, slot.samplerSource)
+            } else {
+              loadTextureImage(slot.assetPath).then(loaded => {
+                if (loaded && webglRenderer) {
+                  webglRenderer.updateTexture(slot.assetPath, loaded, slot.samplerSource)
+                }
+              })
+            }
+          }
+          const ok = webglRenderer.renderContract(
+            glCanvas.width,
+            glCanvas.height,
+            { ...shaderContract.value, time: t },
+            slots,
+            props.blendMode || 'BLEND_Opaque'
+          )
+          if (ok) return
+        }
+      }
+    }
+
+    // 2. Fallback Canvas 2D path
+    const targetCanvas = fallbackCanvasRef.value
+    if (!targetCanvas) return
+
     const specToRender = { ...normalizedSpec.value }
     if (primaryTexPath.value || secondaryTexPath.value) {
       const allTex = [...specToRender.textures]
@@ -244,6 +393,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId)
+  if (debounceTimer) window.clearTimeout(debounceTimer)
+  fetchController?.abort()
+  if (webglRenderer) {
+    webglRenderer.destroy()
+    webglRenderer = null
+  }
   for (const url of imageUrls.values()) {
     URL.revokeObjectURL(url)
   }
@@ -258,27 +413,13 @@ onUnmounted(() => {
         <div class="sim-title">
           <n-icon :component="Sparkles" color="#18a058" />
           <span>{{ tr('ui.umgShaderSimulator') }}</span>
+          <n-tag v-if="usingCookedWebGL2" size="tiny" type="success" :bordered="false">
+            WebGL2 GLSL
+          </n-tag>
         </div>
         <n-space size="small" align="center">
-          <n-button-group size="tiny">
-            <n-button
-              :type="renderBackend === 'webgl' ? 'primary' : 'default'"
-              :secondary="renderBackend !== 'webgl'"
-              @click="renderBackend = 'webgl'"
-            >
-              <template #icon><n-icon :component="Cpu" /></template>
-              WebGL
-            </n-button>
-            <n-button
-              :type="renderBackend === 'canvas' ? 'primary' : 'default'"
-              :secondary="renderBackend !== 'canvas'"
-              @click="renderBackend = 'canvas'"
-            >
-              <template #icon><n-icon :component="Layers" /></template>
-              Canvas
-            </n-button>
-          </n-button-group>
           <n-select
+            v-if="!usingCookedWebGL2"
             v-model:value="simPreset"
             :options="presetOptions"
             size="tiny"
@@ -291,15 +432,15 @@ onUnmounted(() => {
     <div class="sim-body">
       <div class="canvas-stage" :class="`bg-${bgMode}`">
         <canvas
-          v-show="renderBackend === 'canvas'"
-          ref="canvasRef"
+          v-show="usingCookedWebGL2"
+          ref="webglCanvasRef"
           width="240"
           height="240"
           class="sim-canvas"
         />
         <canvas
-          v-show="renderBackend === 'webgl'"
-          ref="webglCanvasRef"
+          v-show="!usingCookedWebGL2"
+          ref="fallbackCanvasRef"
           width="240"
           height="240"
           class="sim-canvas"
@@ -353,8 +494,8 @@ onUnmounted(() => {
           <n-slider v-model:value="simTime" :min="0" :max="10" :step="0.02" style="flex: 1" />
         </div>
 
-        <!-- 多图层复合分配管理 (Base / Overlay / Mask) -->
-        <div v-if="uniqueTextures.length > 0" class="layer-section">
+        <!-- 多图层复合分配管理 (仅回退模式显示) -->
+        <div v-if="!usingCookedWebGL2 && uniqueTextures.length > 0" class="layer-section">
           <div class="layer-row">
             <span class="t-label">{{ tr('ui.simPrimaryLayer') }}:</span>
             <n-select

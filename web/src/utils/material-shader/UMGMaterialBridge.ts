@@ -1,4 +1,8 @@
-import { MaterialWebGLRenderer } from './MaterialWebGLRenderer'
+import {
+  MaterialWebGLRenderer,
+  resolveContractSamplerSlots,
+  type MaterialShaderContract
+} from './MaterialWebGLRenderer'
 
 export interface NormalizedMaterialSpec {
   name: string
@@ -8,9 +12,10 @@ export interface NormalizedMaterialSpec {
   textures: Array<{ name: string; path: string }>
   functionNames: string[]
   preset: 'composite' | 'uv_crop' | 'glitch' | 'ring_gauge' | 'pan_rotate' | 'static' | 'color_tint'
+  assetPath?: string
 }
 
-export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | null {
+export function normalizeMaterialEntry(rawEntry: any, assetPath?: string): NormalizedMaterialSpec | null {
   if (!rawEntry) return null
 
   const type = rawEntry.Type
@@ -102,7 +107,6 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     }
   }
   if (Array.isArray(matInfo?.TextureNodes)) {
-    // 优先排列被多次采样的核心纹理节点（如 uM_Title009 中采样 4 次的 uT_Chara000_RT000），再排列单次节点，且 MaterialExpressionTextureSample 优先于 TextureObjectParameter（通常为遮罩）
     const counts = new Map<string, number>()
     for (const tn of matInfo.TextureNodes) {
       if (tn?.ContentFile) counts.set(tn.ContentFile, (counts.get(tn.ContentFile) || 0) + 1)
@@ -134,7 +138,7 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     }
   }
 
-  // 5. 自动识别材质渲染预设（与 MaterialShaderCanvas 保持完全一致的规则）
+  // 5. 自动识别材质渲染预设
   const sKeys = Object.keys(scalars).map(k => k.toLowerCase())
   const fnList = functionNames.map(f => f.toLowerCase())
   const nonMasks = textures.filter(t => !/mask/i.test(t.name) && !/mask/i.test(t.path))
@@ -144,7 +148,6 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     sKeys.some(k => k.includes('speed') || k.includes('pan') || k.includes('rotator') || k.includes('duration') || k.includes('move_'))
 
   let preset: NormalizedMaterialSpec['preset'] = 'color_tint'
-  // 必须真正有多个非遮罩纹理（如既有角色立绘又有独立 Logo 纹理）或显式 Glitch 函数才算 composite，不能仅因为有 move 参数误入
   if (
     nonMasks.length >= 2 &&
     textures.some(t => /ttlogo/i.test(t.name) || /ttlogo/i.test(t.path)) &&
@@ -169,6 +172,8 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     preset = 'static'
   }
 
+  const effectivePath = assetPath || (type === 'Material' ? rawEntry.MaterialInfo?.ContentFile : rawEntry.MaterialInstanceInfo?.ContentFile)
+
   return {
     name,
     blendMode,
@@ -176,7 +181,8 @@ export function normalizeMaterialEntry(rawEntry: any): NormalizedMaterialSpec | 
     vectors,
     textures,
     functionNames,
-    preset
+    preset,
+    assetPath: effectivePath
   }
 }
 
@@ -209,19 +215,75 @@ function linearToSrgb255(c: number): number {
 }
 
 /**
- * 将解析后的 UI 材质或材质实例离线烘焙为可供 UMG 画布/缩略图直接使用的 Canvas 图像源
+ * 将解析后的 UI 材质或材质实例烘焙为可供 UMG 画布/缩略图直接使用的 Canvas 图像源。
+ * 优先使用后端 /api/projects/{id}/resource-material-shader 的真实 WebGL2 着色器与 UBO 运行，
+ * 若未就绪或非主材质则无缝回退到高保真 2D 复合模拟。
  */
 export async function renderUMGMaterialToCanvas(
   spec: NormalizedMaterialSpec,
   loadImage: (assetPath: string) => Promise<HTMLImageElement | null>,
   targetW = 512,
   targetH = 512,
-  simTime = 0.35
+  simTime = 0.35,
+  shaderContract?: MaterialShaderContract | null
 ): Promise<HTMLCanvasElement | null> {
   const W = Math.max(64, Math.min(1024, Math.round(targetW)))
   const H = Math.max(64, Math.min(1024, Math.round(targetH)))
 
-  // 并行加载材质引用的全部贴图
+  // 1. 若提供了已验证的 Cooked Material Shader 契约，直接使用 WebGL2 物理着色管线渲染
+  if (shaderContract && shaderContract.glsl) {
+    const { slots, error } = resolveContractSamplerSlots(shaderContract)
+    if (!error) {
+      // 加载所有解析出的槽位纹理
+      const requiredTextures = new Map<string, HTMLImageElement>()
+      await Promise.all(
+        slots.map(async slot => {
+          if (!requiredTextures.has(slot.assetPath)) {
+            const img = await loadImage(slot.assetPath)
+            if (img && img.naturalWidth > 0) {
+              requiredTextures.set(slot.assetPath, img)
+            }
+          }
+        })
+      )
+
+      const glCanvas = document.createElement('canvas')
+      glCanvas.width = W
+      glCanvas.height = H
+      const webgl2 = new MaterialWebGLRenderer()
+      if (webgl2.init(glCanvas)) {
+        for (const slot of slots) {
+          const img = requiredTextures.get(slot.assetPath)
+          if (img) {
+            webgl2.updateTexture(slot.assetPath, img, slot.samplerSource)
+          }
+        }
+
+        const success = webgl2.renderContract(
+          W,
+          H,
+          { ...shaderContract, time: simTime },
+          slots,
+          spec.blendMode
+        )
+
+        if (success) {
+          const out2d = document.createElement('canvas')
+          out2d.width = W
+          out2d.height = H
+          const outCtx = out2d.getContext('2d')
+          if (outCtx) {
+            outCtx.drawImage(glCanvas, 0, 0)
+            webgl2.destroy()
+            return out2d
+          }
+        }
+        webgl2.destroy()
+      }
+    }
+  }
+
+  // 2. 回退：高保真模拟管线 (处理未提供契约、或材质函数/实例预览时的 2D 模拟)
   const loadedImages = new Map<string, HTMLImageElement>()
   await Promise.all(
     spec.textures.map(async t => {
@@ -251,53 +313,6 @@ export async function renderUMGMaterialToCanvas(
     nonMasks.find(t => t.path !== primaryPath && t.path !== objPath)
   const secondaryPath = secItem ? secItem.path : ''
 
-  // 1. 对于复合多图层材质（如 uM_Title008），优先使用已封装的 MaterialWebGLRenderer 渲染物理着色效果
-  // 注意：仅当材质具有对应的多图层调色盘特征时启用（排除一般的角色立绘/特效材质，以保证 2D 烘焙高保真度）
-  if (
-    spec.preset === 'composite' &&
-    Object.keys(spec.vectors).some(k => k.includes('color_') || k.includes('R_Color')) &&
-    spec.textures.some(t => /ttlogo/i.test(t.name) || /ttlogo/i.test(t.path))
-  ) {
-    const glCanvas = document.createElement('canvas')
-    glCanvas.width = W
-    glCanvas.height = H
-    const webgl = new MaterialWebGLRenderer()
-    if (webgl.init(glCanvas)) {
-      for (const [p, img] of loadedImages.entries()) {
-        webgl.updateTexture(p, img)
-      }
-      webgl.render(
-        W,
-        H,
-        {
-          time: simTime,
-          resolution: [W, H],
-          scalars: spec.scalars,
-          vectors: spec.vectors
-        },
-        {
-          primary: primaryPath,
-          secondary: secondaryPath,
-          mask: maskPath,
-          obj: objPath
-        },
-        spec.blendMode
-      )
-      // 拷贝到 2D Canvas 再销毁 WebGL 上下文，避免过多 WebGL Context 耗尽浏览器配额
-      const out2d = document.createElement('canvas')
-      out2d.width = W
-      out2d.height = H
-      const outCtx = out2d.getContext('2d')
-      if (outCtx) {
-        outCtx.drawImage(glCanvas, 0, 0)
-        webgl.destroy()
-        return out2d
-      }
-      webgl.destroy()
-    }
-  }
-
-  // 2. Canvas 2D 精确材质合成（处理 RingGauge、UV_Crop、Additive 滤黑透明、单图着色、角色叠层等）
   const canvas = document.createElement('canvas')
   canvas.width = W
   canvas.height = H
@@ -313,7 +328,6 @@ export async function renderUMGMaterialToCanvas(
   const isAdditive = (spec.blendMode || '').toUpperCase().includes('ADDITIVE')
 
   if (spec.preset === 'ring_gauge') {
-    // 环形进度条 / 音游外圈模拟 (如 uM_Ring00_3)
     const baseGauge = getScalar(spec.scalars, /gauge$/i, 0.75)
     const gauge = Math.min(1, Math.max(0.15, baseGauge > 0.01 ? baseGauge : 0.75))
     const widthRatio = Math.min(0.9, Math.max(0.08, getScalar(spec.scalars, /gauge_width/i, 0.45)))
@@ -357,7 +371,6 @@ export async function renderUMGMaterialToCanvas(
   if (mainImg) {
     ctx.drawImage(mainImg, 0, 0, W, H)
 
-    // 如果有次级叠加层（且非 Logo 遮挡整幅角色），按滤色叠加
     if (imgSecondary && imgSecondary !== mainImg && !/ttlogo/i.test(secondaryPath)) {
       ctx.save()
       ctx.globalCompositeOperation = 'screen'
@@ -366,7 +379,6 @@ export async function renderUMGMaterialToCanvas(
       ctx.restore()
     }
 
-    // 应用主向量颜色着色 (排除全黑或纯白无变化色)
     const hasTint =
       Object.keys(spec.vectors).length > 0 &&
       (col1.r > 0.02 || col1.g > 0.02 || col1.b > 0.02) &&
@@ -382,7 +394,6 @@ export async function renderUMGMaterialToCanvas(
       ctx.restore()
     }
 
-    // 若材质为 BLEND_Additive（如光晕 uM_Title004、流光 uM_CM_active01_3）或特定发光特效，将黑色背景转为 Alpha 透明通道，使其自然发光叠加
     if (isAdditive) {
       try {
         const imgData = ctx.getImageData(0, 0, W, H)
@@ -392,17 +403,13 @@ export async function renderUMGMaterialToCanvas(
           d[i + 3] = Math.round((d[i + 3] * lum) / 255)
         }
         ctx.putImageData(imgData, 0, 0)
-      } catch {
-        // ignore cross-origin if any
-      }
+      } catch {}
     }
 
-    // 若材质为 BLEND_Translucent，但纹理本身是不透明黑底（如发光/光芒特效），检测是否需要基于明度滤黑
     if (!isAdditive && (spec.blendMode || '').includes('Translucent')) {
       try {
         const imgData = ctx.getImageData(0, 0, W, H)
         const d = imgData.data
-        // 检查四角像素是否为纯黑或接近黑色
         const corners = [0, (W - 1) * 4, ((H - 1) * W) * 4, ((H - 1) * W + (W - 1)) * 4]
         const allCornersBlack = corners.every(idx => d[idx] < 15 && d[idx + 1] < 15 && d[idx + 2] < 15 && d[idx + 3] > 200)
         if (allCornersBlack) {
@@ -418,7 +425,6 @@ export async function renderUMGMaterialToCanvas(
     return canvas
   }
 
-  // 无贴图时的纯色/渐变材质回退
   const r = linearToSrgb255(col1.r)
   const g = linearToSrgb255(col1.g)
   const b = linearToSrgb255(col1.b)

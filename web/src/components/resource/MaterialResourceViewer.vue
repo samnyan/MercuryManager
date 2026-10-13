@@ -542,6 +542,7 @@ function getTextureImageUrl(targetPath: string): string {
       <!-- 右侧：UMG 实时材质动画模拟预览器 -->
       <div class="col-right-sim">
         <material-shader-canvas
+          :material-path="props.path"
           :blend-mode="info.BlendMode"
           :scalars="simScalars"
           :vectors="simVectors"

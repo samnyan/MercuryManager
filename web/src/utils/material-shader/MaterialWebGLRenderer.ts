@@ -1,5 +1,100 @@
-// 通用 WebGL 材质着色管线 (Material WebGL Pipeline)
-// 可供 MaterialShaderCanvas 与后续 UMG / Blueprint 预览器复用
+// WebGL2 Cooked Material Shader Pipeline (UE4.19 Slate UI Material Renderer)
+// Supports both cooked GLSL ES 300 shader contracts (/api/projects/{id}/resource-material-shader)
+// and legacy fallback rendering when a cooked shader contract is unavailable.
+
+export interface MaterialCombinedSampler {
+  uniformName: string
+  imageName: string
+  samplerName: string
+}
+
+export interface LegacyConstantBinding {
+  baseIndex: number
+  numBytes: number
+  bufferIndex: number
+}
+
+export interface LegacyResourceBinding {
+  baseIndex: number
+  numResources: number
+}
+
+export interface LegacyMaterialShaderBindings {
+  materialBufferIndex: number
+  materialBufferBound: boolean
+  vectorCount: number
+  scalarCount: number
+  texture2DCount: number
+  textureCubeCount: number
+  perFrameScalarCount: number
+  perFrameVectorCount: number
+}
+
+export interface LegacySlatePixelBindings {
+  material: LegacyMaterialShaderBindings
+  gammaValues: LegacyConstantBinding
+  shaderParams: LegacyConstantBinding
+  elementTextureSampler: LegacyResourceBinding
+  elementTexture: LegacyResourceBinding
+  frameBindings: LegacyConstantBinding[][]
+}
+
+export interface LegacyFrameConstantWrite {
+  bufferIndex: number
+  byteOffset: number
+  data: string // base64
+}
+
+export interface LegacyMaterialTextureExpression {
+  expressionIndex: number
+  assetPath: string
+  referencedTextureIndex: number
+  samplerSource: number
+  parameterName: string | null
+}
+
+export interface ReflectedUbo {
+  type: string
+  name: string
+  block_size: number
+  set: number
+  binding: number
+}
+
+export interface ReflectedResource {
+  type: string
+  name: string
+  set?: number
+  binding?: number
+  location?: number
+}
+
+export interface ShaderReflection {
+  ubos?: ReflectedUbo[]
+  inputs?: ReflectedResource[]
+  outputs?: ReflectedResource[]
+  separate_images?: ReflectedResource[]
+  separate_samplers?: ReflectedResource[]
+}
+
+export interface MaterialShaderContract {
+  schemaVersion: number
+  glsl: string
+  combinedSamplers?: MaterialCombinedSampler[]
+  reflection: ShaderReflection
+  materialBindings: LegacyMaterialShaderBindings
+  materialConstants: string // base64
+  nativeMaterialConstantBytes: number
+  frameWrites: LegacyFrameConstantWrite[]
+  slateBindings: LegacySlatePixelBindings
+  time: number
+  previousTime: number
+  referencedTextures: string[]
+  textureExpressions: LegacyMaterialTextureExpression[]
+  textureMappingError?: string | null
+  renderingReady: boolean
+  limitations?: string[]
+}
 
 export interface WebGLTextureBinding {
   samplerName: string
@@ -14,198 +109,161 @@ export interface WebGLMaterialUniforms {
   vectors: Record<string, { r: number; g: number; b: number; a: number }>
 }
 
-const VERTEX_SHADER_SRC = `
-attribute vec2 a_position;
-varying vec2 v_uv;
+const COOKED_VERTEX_SHADER_ES300 = `#version 300 es
+precision highp float;
+precision highp int;
+
+layout(location = 0) in vec2 a_position;
+out highp vec4 v0;
+out highp vec4 v1;
+out highp vec4 v2;
+out highp vec4 v3;
+out highp vec4 v4;
 
 void main() {
-  v_uv = (a_position + 1.0) * 0.5;
-  v_uv.y = 1.0 - v_uv.y; // 保持与 UE / WebGL UV 坐标系一致 (原点左上角)
+  vec2 uv = (a_position + 1.0) * 0.5;
+  uv.y = 1.0 - uv.y;
+  v0 = vec4(0.0, 0.0, 0.0, 1.0);
+  v1 = vec4(1.0, 1.0, 1.0, 1.0);
+  v2 = vec4(0.0, 0.0, 0.0, 0.0);
+  v3 = vec4(uv, 0.0, 0.0);
+  v4 = vec4(uv.x, uv.y, 1.0, 1.0);
   gl_Position = vec4(a_position, 0.0, 1.0);
 }
 `
 
-// UE Slate UI 材质的片元模拟着色器 (支持多贴图采样、CustomRotator、Panner、Mask Glitch 扰动与多图层 Lerp 混色)
-const FRAGMENT_SHADER_SRC = `
-precision mediump float;
-
-varying vec2 v_uv;
-
-uniform float u_time;
-uniform vec2 u_resolution;
-
-// 常用标量与向量参数
-uniform float u_scalar_Ran_1;
-uniform float u_scalar_Ran_2;
-uniform float u_scalar_Ran_3;
-uniform float u_scalar_Duration_1;
-uniform float u_scalar_Duration_2;
-uniform float u_scalar_Duration_3;
-uniform float u_scalar_Span_1;
-uniform float u_scalar_Span_2;
-uniform float u_scalar_Span_3;
-uniform float u_scalar_offset_1;
-uniform float u_scalar_offset_2;
-uniform float u_scalar_offset_3;
-uniform float u_scalar_Speed_1;
-uniform float u_scalar_Speed_2;
-uniform float u_scalar_Speed_3;
-uniform float u_scalar_Rotator_0;
-uniform float u_scalar_Rotator_3;
-uniform float u_scalar_widht_1;
-uniform float u_scalar_widht_2;
-uniform float u_scalar_widht_3;
-uniform float u_scalar_move_1;
-
-// 向量参数 (调色盘)
-uniform vec4 u_vec_color_1;
-uniform vec4 u_vec_color_2;
-uniform vec4 u_vec_color_4;
-uniform vec4 u_vec_R_Color;
-uniform vec4 u_vec_R_Color_1;
-
-// 纹理采样器
-uniform sampler2D u_tex_primary;    // 立绘或主图 (uT_Chara000_EV000)
-uniform sampler2D u_tex_secondary;  // 标题 Logo 或装饰图 (uT_TTlogo07)
-uniform sampler2D u_tex_mask;       // 故障遮罩 (uT_GlitchMaskV)
-uniform sampler2D u_tex_obj;        // 装饰物件 (uT_CM_obj05)
-
-uniform int u_has_tex_primary;
-uniform int u_has_tex_secondary;
-uniform int u_has_tex_mask;
-uniform int u_has_tex_obj;
-uniform int u_blend_mode; // 0=Opaque, 1=Masked, 2=Translucent, 3=Additive, 4=Modulate
-
-// UE CustomRotator: 围绕 center 顺时针旋转 angle (0~1 为 0~2PI)
-vec2 customRotator(vec2 uv, vec2 center, float angle) {
-  float rad = angle * 6.28318530718;
-  float c = cos(rad);
-  float s = sin(rad);
-  vec2 p = uv - center;
-  return vec2(p.x * c - p.y * s, p.x * s + p.y * c) + center;
+function decodeBase64Bytes(base64: string): Uint8Array {
+  if (!base64) return new Uint8Array(0)
+  const bin = atob(base64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) {
+    out[i] = bin.charCodeAt(i)
+  }
+  return out
 }
 
-// 模拟 UE uMF_TexCropRotate 中心缩放展开
-vec2 cropRotateUV(vec2 uv, float t, float speed) {
-  vec2 p = uv - vec2(0.5, 0.5);
-  float scale = 1.0 + mod(t * speed, 0.35);
-  return p / scale + vec2(0.5, 0.5);
+function parseImageRegisterIndex(imageName: string): number | null {
+  const m = /^t(\d+)$/.exec(imageName)
+  if (!m) return null
+  const idx = Number.parseInt(m[1], 10)
+  return Number.isFinite(idx) && idx >= 0 ? idx : null
 }
 
-void main() {
-  vec2 uv = v_uv;
-
-  // 1. 底层背景色彩渲染 (由 color_4 与 R_Color / R_Color_1 渐变构成)
-  vec4 bgColor = mix(u_vec_color_4, u_vec_R_Color, uv.y);
-  bgColor = mix(bgColor, u_vec_R_Color_1, uv.x * 0.5);
-
-  // 2. 几何物件层 (uT_CM_obj05: 经 uMF_TexCropRotate 旋转展开)
-  vec4 objLayer = vec4(0.0);
-  if (u_has_tex_obj > 0) {
-    vec2 objUV = cropRotateUV(uv, u_time, max(0.05, u_scalar_move_1 * 10.0));
-    if (objUV.x >= 0.0 && objUV.x <= 1.0 && objUV.y >= 0.0 && objUV.y <= 1.0) {
-      vec4 o = texture2D(u_tex_obj, objUV);
-      objLayer = o * u_vec_color_2;
-    }
-  }
-
-  // 3. 故障遮罩采样 (uMF_HorizontalGlitch / uMF_VerticalGlitch)
-  vec2 glitchOffset = vec2(0.0);
-  if (u_has_tex_mask > 0) {
-    float cycle = max(0.5, u_scalar_Duration_1 + u_scalar_Span_1);
-    float inGlitch = step(mod(u_time, cycle), u_scalar_Duration_1);
-    
-    // 纵向滚动的遮罩采样
-    vec2 maskUV_H = vec2(0.5, uv.y + u_time * (u_scalar_Speed_1 + 0.05));
-    vec4 maskSampleH = texture2D(u_tex_mask, maskUV_H);
-    
-    if (maskSampleH.r > 0.15) {
-      glitchOffset.x = (maskSampleH.r - 0.5) * 2.0 * max(0.01, u_scalar_offset_1 * 5.0) * inGlitch;
-    }
-
-    vec2 maskUV_V = vec2(uv.x + u_time * (u_scalar_Speed_2 + 0.02), 0.5);
-    vec4 maskSampleV = texture2D(u_tex_mask, maskUV_V);
-    if (maskSampleV.r > 0.3) {
-      glitchOffset.y = (maskSampleV.r - 0.5) * max(0.005, u_scalar_offset_2 * 3.0) * inGlitch;
-    }
-  }
-
-  // 4. 主立绘层采样 (接受 Glitch 偏移与 Rotator_0 / Rotator_3 旋转)
-  vec4 primaryLayer = vec4(0.0);
-  if (u_has_tex_primary > 0) {
-    vec2 charaUV = uv + glitchOffset;
-    if (u_scalar_Rotator_3 != 0.0) {
-      charaUV = customRotator(charaUV, vec2(0.5, 0.5), u_scalar_Rotator_3);
-    }
-    if (charaUV.x >= 0.0 && charaUV.x <= 1.0 && charaUV.y >= 0.0 && charaUV.y <= 1.0) {
-      primaryLayer = texture2D(u_tex_primary, charaUV);
-    }
-  }
-
-  // 5. 顶层标题 Logo 层 (uT_TTlogo07: 带有双向流光 Panner 与 color_1 调色)
-  vec4 secLayer = vec4(0.0);
-  if (u_has_tex_secondary > 0) {
-    vec2 pannerUV = uv + vec2(u_time * u_scalar_Speed_1 * 0.5, u_time * u_scalar_Speed_2 * 0.2);
-    vec4 s1 = texture2D(u_tex_secondary, fract(pannerUV));
-    vec4 s2 = texture2D(u_tex_secondary, uv);
-    secLayer = mix(s2, s1 * u_vec_color_1, 0.45);
-  }
-
-  // 复合混合 (Composite Blend)
-  vec4 finalColor = bgColor;
-  if (objLayer.a > 0.0) {
-    finalColor = mix(finalColor, objLayer, objLayer.a * 0.6);
-  }
-  if (primaryLayer.a > 0.0) {
-    finalColor = mix(finalColor, primaryLayer, primaryLayer.a);
-  }
-  if (secLayer.a > 0.0) {
-    finalColor = mix(finalColor, secLayer, secLayer.a);
-  }
-
-  // 混合模式输出过滤
-  if (u_blend_mode == 3) {
-    // Additive
-    gl_FragColor = finalColor;
-  } else if (u_blend_mode == 4) {
-    // Modulate
-    gl_FragColor = finalColor * bgColor;
-  } else {
-    // Opaque / Translucent
-    gl_FragColor = finalColor;
-  }
+export interface ResolvedSamplerSlot {
+  uniformName: string
+  imageName: string
+  samplerName: string
+  expressionIndex: number
+  assetPath: string
+  samplerSource: number
+  parameterName: string | null
 }
-`
+
+/**
+ * Maps SPIR-V combined samplers (t0/s0, t1/s1...) to resolved UE4 material 2D texture expressions.
+ * Accounts for Slate ElementTexture occupying base slots when bound.
+ */
+export function resolveContractSamplerSlots(
+  contract: MaterialShaderContract,
+  textureOverrides?: Record<string, string>
+): { slots: ResolvedSamplerSlot[]; error: string | null } {
+  if (contract.schemaVersion !== 1 || contract.renderingReady !== true) {
+    return { slots: [], error: contract.limitations?.join('; ') || 'Cooked material binding contract is not rendering-ready.' }
+  }
+  if (contract.textureMappingError) {
+    return { slots: [], error: contract.textureMappingError }
+  }
+
+  const samplers = contract.combinedSamplers ? [...contract.combinedSamplers] : []
+  if (samplers.length === 0 && contract.reflection?.separate_images?.length) {
+    // Fallback if server binary has not yet populated combinedSamplers
+    const imgs = contract.reflection.separate_images
+    const smps = contract.reflection.separate_samplers || []
+    for (let i = 0; i < imgs.length; i++) {
+      const imgName = imgs[i].name
+      const smpName = smps[i]?.name || imgName.replace(/^t/, 's')
+      const uniformName = `SPIRV_Cross_Combined${imgName}${smpName}`
+      if (contract.glsl.includes(uniformName)) {
+        samplers.push({ uniformName, imageName: imgName, samplerName: smpName })
+      }
+    }
+  }
+
+  const elementTexCount = contract.slateBindings?.elementTexture?.numResources || 0
+  const elementTexBase = contract.slateBindings?.elementTexture?.baseIndex || 0
+  const exprByIndex = new Map<number, LegacyMaterialTextureExpression>()
+  for (const expr of contract.textureExpressions || []) {
+    exprByIndex.set(expr.expressionIndex, expr)
+  }
+
+  const slots: ResolvedSamplerSlot[] = []
+  for (const item of samplers) {
+    const regIdx = parseImageRegisterIndex(item.imageName)
+    if (regIdx === null) {
+      return { slots: [], error: `Unsupported image register name: ${item.imageName}` }
+    }
+
+    // Check if this register is occupied by Slate's ElementTexture
+    if (elementTexCount > 0 && regIdx >= elementTexBase && regIdx < elementTexBase + elementTexCount) {
+      return { slots: [], error: `Slate ElementTexture slot (${item.imageName}) requires external brush texture.` }
+    }
+
+    const exprIdx = elementTexCount > 0 && regIdx >= elementTexBase + elementTexCount
+      ? regIdx - elementTexCount
+      : regIdx
+
+    const expr = exprByIndex.get(exprIdx)
+    if (!expr) {
+      return {
+        slots: [],
+        error: `Sampler ${item.uniformName} (${item.imageName}) has no matching Texture2D expression at index ${exprIdx}.`
+      }
+    }
+
+    let assetPath = expr.assetPath
+    if (expr.parameterName && textureOverrides && textureOverrides[expr.parameterName]) {
+      assetPath = textureOverrides[expr.parameterName]
+    }
+
+    slots.push({
+      uniformName: item.uniformName,
+      imageName: item.imageName,
+      samplerName: item.samplerName,
+      expressionIndex: exprIdx,
+      assetPath,
+      samplerSource: expr.samplerSource,
+      parameterName: expr.parameterName
+    })
+  }
+
+  return { slots, error: null }
+}
 
 export class MaterialWebGLRenderer {
-  private gl: WebGLRenderingContext | null = null
+  private gl: WebGL2RenderingContext | null = null
   private program: WebGLProgram | null = null
+  private currentGlsl = ''
+  private vao: WebGLVertexArrayObject | null = null
   private posBuffer: WebGLBuffer | null = null
+  private uboBuffers: Map<number, WebGLBuffer> = new Map()
   private textures: Map<string, WebGLTexture> = new Map()
+  private fallbackWhiteTex: WebGLTexture | null = null
 
   init(canvas: HTMLCanvasElement): boolean {
-    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: true })
+    if (this.gl && this.gl.canvas === canvas) return true
+    const gl = canvas.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: false,
+      antialias: true,
+      preserveDrawingBuffer: true
+    })
     if (!gl) return false
     this.gl = gl
 
-    const vs = this.compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SRC)
-    const fs = this.compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SRC)
-    if (!vs || !fs) return false
+    const vao = gl.createVertexArray()
+    gl.bindVertexArray(vao)
+    this.vao = vao
 
-    const prog = gl.createProgram()
-    if (!prog) return false
-    gl.attachShader(prog, vs)
-    gl.attachShader(prog, fs)
-    gl.linkProgram(prog)
-
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      console.error('WebGL Program Link Error:', gl.getProgramInfoLog(prog))
-      return false
-    }
-
-    this.program = prog
-
-    // 全屏矩形缓冲 (-1 到 1)
     const posBuf = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf)
     gl.bufferData(
@@ -213,100 +271,212 @@ export class MaterialWebGLRenderer {
       new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
       gl.STATIC_DRAW
     )
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
+    gl.bindVertexArray(null)
     this.posBuffer = posBuf
+
+    // 1x1 white fallback texture only when an image is still loading
+    const white = gl.createTexture()
+    if (white) {
+      gl.bindTexture(gl.TEXTURE_2D, white)
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        1,
+        1,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array([255, 255, 255, 255])
+      )
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      this.fallbackWhiteTex = white
+    }
 
     return true
   }
 
-  updateTexture(name: string, image: HTMLImageElement) {
+  updateTexture(key: string, image: HTMLImageElement, samplerSource = 0) {
     if (!this.gl || !image.complete || image.naturalWidth === 0) return
     const gl = this.gl
 
-    let tex = this.textures.get(name)
+    let tex = this.textures.get(key)
     if (!tex) {
       tex = gl.createTexture()!
-      this.textures.set(name, tex)
+      this.textures.set(key, tex)
     }
 
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+    // UE4 ESamplerSourceMode: 0=FromTextureAsset (default Repeat in UI/Vfx), 1=Wrap_WorldGroupSettings, 2=Clamp_WorldGroupSettings
+    const wrapMode = samplerSource === 2 ? gl.CLAMP_TO_EDGE : gl.REPEAT
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
   }
 
-  render(
+  private ensureProgram(fragmentGlsl: string): WebGLProgram | null {
+    if (!this.gl) return null
+    if (this.program && this.currentGlsl === fragmentGlsl) {
+      return this.program
+    }
+
+    const gl = this.gl
+    if (this.program) {
+      gl.deleteProgram(this.program)
+      this.program = null
+    }
+
+    const vs = this.compileShader(gl.VERTEX_SHADER, COOKED_VERTEX_SHADER_ES300)
+    const fs = this.compileShader(gl.FRAGMENT_SHADER, fragmentGlsl)
+    if (!vs || !fs) {
+      if (vs) gl.deleteShader(vs)
+      if (fs) gl.deleteShader(fs)
+      return null
+    }
+
+    const prog = gl.createProgram()
+    if (!prog) return null
+    gl.attachShader(prog, vs)
+    gl.attachShader(prog, fs)
+    gl.linkProgram(prog)
+    gl.deleteShader(vs)
+    gl.deleteShader(fs)
+
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error('WebGL2 Cooked Program Link Error:', gl.getProgramInfoLog(prog))
+      gl.deleteProgram(prog)
+      return null
+    }
+
+    this.program = prog
+    this.currentGlsl = fragmentGlsl
+    return prog
+  }
+
+  /**
+   * Renders a verified cooked material contract on WebGL2 using real UBOs and SPIR-V combined samplers.
+   */
+  renderContract(
     width: number,
     height: number,
-    uniforms: WebGLMaterialUniforms,
-    texBindings: { primary?: string; secondary?: string; mask?: string; obj?: string },
+    contract: MaterialShaderContract,
+    samplerSlots: ResolvedSamplerSlot[],
     blendMode = 'BLEND_Opaque'
-  ) {
+  ): boolean {
     const gl = this.gl
-    const prog = this.program
-    if (!gl || !prog || !this.posBuffer) return
+    if (!gl || !this.vao) return false
+
+    const prog = this.ensureProgram(contract.glsl)
+    if (!prog) return false
 
     gl.viewport(0, 0, width, height)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
 
+    // Configure blend state
+    const upperBlend = (blendMode || '').toUpperCase()
+    if (upperBlend.includes('ADDITIVE')) {
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.ONE, gl.ONE)
+    } else if (upperBlend.includes('MODULATE')) {
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.DST_COLOR, gl.ZERO)
+    } else if (upperBlend.includes('TRANSLUCENT') || upperBlend.includes('ALPHA')) {
+      gl.enable(gl.BLEND)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    } else {
+      gl.disable(gl.BLEND)
+    }
+
     gl.useProgram(prog)
+    gl.bindVertexArray(this.vao)
 
-    // 顶点位置设置
-    const posLoc = gl.getAttribLocation(prog, 'a_position')
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuffer)
-    gl.enableVertexAttribArray(posLoc)
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
+    // 1. Bind and populate reflected Uniform Buffer Objects (UBOs)
+    const ubos = contract.reflection?.ubos || []
+    const matBytes = decodeBase64Bytes(contract.materialConstants)
+    const matBindingIndex = contract.materialBindings?.materialBufferIndex
 
-    // 全局基础 Uniforms
-    this.setUniform1f('u_time', uniforms.time)
-    this.setUniform2f('u_resolution', width, height)
+    for (const ubo of ubos) {
+      const bindingSlot = ubo.binding
+      const blockSize = ubo.block_size
+      if (blockSize <= 0) continue
 
-    // 绑定标量参数
-    for (const [k, v] of Object.entries(uniforms.scalars)) {
-      this.setUniform1f(`u_scalar_${k}`, v)
-    }
+      const blockIndex = gl.getUniformBlockIndex(prog, ubo.name)
+      if (blockIndex === gl.INVALID_INDEX) continue
+      gl.uniformBlockBinding(prog, blockIndex, bindingSlot)
 
-    // 绑定向量参数
-    for (const [k, v] of Object.entries(uniforms.vectors)) {
-      this.setUniform4f(`u_vec_${k}`, v.r, v.g, v.b, v.a)
-    }
+      const data = new Uint8Array(blockSize)
+      const view = new DataView(data.buffer)
 
-    // 绑定纹理槽位
-    const bindTexSlot = (
-      uniformTex: string,
-      uniformHas: string,
-      slot: number,
-      key?: string
-    ) => {
-      const tex = key ? this.textures.get(key) : undefined
-      gl.activeTexture(gl.TEXTURE0 + slot)
-      if (tex) {
-        gl.bindTexture(gl.TEXTURE_2D, tex)
-        this.setUniform1i(uniformTex, slot)
-        this.setUniform1i(uniformHas, 1)
+      if (contract.materialBindings?.materialBufferBound && bindingSlot === matBindingIndex) {
+        // Material numeric constant buffer
+        data.set(matBytes.subarray(0, Math.min(matBytes.length, blockSize)), 0)
       } else {
-        gl.bindTexture(gl.TEXTURE_2D, null)
-        this.setUniform1i(uniformHas, 0)
+        // Populate View buffer (when block_size === 2128 / _m0[133])
+        // cb1_0._m0[132].z is View.RealTime / GameTime at byte offset 132 * 16 + 8 = 2120
+        if (blockSize >= 2128) {
+          const t = Number.isFinite(contract.time) ? contract.time : 0
+          view.setFloat32(132 * 16 + 0, t, true)
+          view.setFloat32(132 * 16 + 4, t, true)
+          view.setFloat32(132 * 16 + 8, t, true)
+          view.setFloat32(132 * 16 + 12, 0, true)
+        }
+
+        // Populate Slate GammaValues if bound to this buffer
+        const gamma = contract.slateBindings?.gammaValues
+        if (gamma && gamma.bufferIndex === bindingSlot && gamma.numBytes >= 8) {
+          if (gamma.baseIndex + 8 <= blockSize) {
+            // gammaValues.x = 1.0 (invDisplayGamma), gammaValues.y = 0.0 (enable built-in linear-to-sRGB conversion for browser display)
+            view.setFloat32(gamma.baseIndex, 1.0, true)
+            view.setFloat32(gamma.baseIndex + 4, 0.0, true)
+          }
+        }
+
+        // Apply per-frame expression writes targeting this buffer
+        for (const fw of contract.frameWrites || []) {
+          if (fw.bufferIndex === bindingSlot) {
+            const fwBytes = decodeBase64Bytes(fw.data)
+            if (fw.byteOffset >= 0 && fw.byteOffset + fwBytes.length <= blockSize) {
+              data.set(fwBytes, fw.byteOffset)
+            }
+          }
+        }
       }
+
+      let glBuf = this.uboBuffers.get(bindingSlot)
+      if (!glBuf) {
+        glBuf = gl.createBuffer()!
+        this.uboBuffers.set(bindingSlot, glBuf)
+      }
+      gl.bindBuffer(gl.UNIFORM_BUFFER, glBuf)
+      gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW)
+      gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingSlot, glBuf)
     }
 
-    bindTexSlot('u_tex_primary', 'u_has_tex_primary', 0, texBindings.primary)
-    bindTexSlot('u_tex_secondary', 'u_has_tex_secondary', 1, texBindings.secondary)
-    bindTexSlot('u_tex_mask', 'u_has_tex_mask', 2, texBindings.mask)
-    bindTexSlot('u_tex_obj', 'u_has_tex_obj', 3, texBindings.obj)
+    // 2. Bind combined texture samplers
+    for (let i = 0; i < samplerSlots.length; i++) {
+      const slot = samplerSlots[i]
+      const loc = gl.getUniformLocation(prog, slot.uniformName)
+      if (!loc) continue
 
-    // 混合模式配置
-    let bMode = 0
-    if (blendMode.includes('Additive')) bMode = 3
-    else if (blendMode.includes('Modulate')) bMode = 4
-    else if (blendMode.includes('Translucent')) bMode = 2
-    else if (blendMode.includes('Masked')) bMode = 1
-    this.setUniform1i('u_blend_mode', bMode)
+      gl.activeTexture(gl.TEXTURE0 + i)
+      const tex = this.textures.get(slot.assetPath) || this.fallbackWhiteTex
+      gl.bindTexture(gl.TEXTURE_2D, tex)
+      gl.uniform1i(loc, i)
+    }
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+    gl.bindVertexArray(null)
+    return true
   }
 
   destroy() {
@@ -316,35 +486,21 @@ export class MaterialWebGLRenderer {
       gl.deleteTexture(tex)
     }
     this.textures.clear()
+    if (this.fallbackWhiteTex) {
+      gl.deleteTexture(this.fallbackWhiteTex)
+      this.fallbackWhiteTex = null
+    }
+    for (const buf of this.uboBuffers.values()) {
+      gl.deleteBuffer(buf)
+    }
+    this.uboBuffers.clear()
     if (this.posBuffer) gl.deleteBuffer(this.posBuffer)
+    if (this.vao) gl.deleteVertexArray(this.vao)
     if (this.program) gl.deleteProgram(this.program)
     this.gl = null
     this.program = null
     this.posBuffer = null
-  }
-
-  private setUniform1f(name: string, val: number) {
-    if (!this.gl || !this.program) return
-    const loc = this.gl.getUniformLocation(this.program, name)
-    if (loc) this.gl.uniform1f(loc, val)
-  }
-
-  private setUniform2f(name: string, x: number, y: number) {
-    if (!this.gl || !this.program) return
-    const loc = this.gl.getUniformLocation(this.program, name)
-    if (loc) this.gl.uniform2f(loc, x, y)
-  }
-
-  private setUniform4f(name: string, x: number, y: number, z: number, w: number) {
-    if (!this.gl || !this.program) return
-    const loc = this.gl.getUniformLocation(this.program, name)
-    if (loc) this.gl.uniform4f(loc, x, y, z, w)
-  }
-
-  private setUniform1i(name: string, val: number) {
-    if (!this.gl || !this.program) return
-    const loc = this.gl.getUniformLocation(this.program, name)
-    if (loc) this.gl.uniform1i(loc, val)
+    this.vao = null
   }
 
   private compileShader(type: number, src: string): WebGLShader | null {
@@ -354,7 +510,7 @@ export class MaterialWebGLRenderer {
     this.gl.shaderSource(shader, src)
     this.gl.compileShader(shader)
     if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-      console.error('WebGL Shader Compile Error:', this.gl.getShaderInfoLog(shader))
+      console.error('WebGL2 Shader Compile Error:', this.gl.getShaderInfoLog(shader))
       this.gl.deleteShader(shader)
       return null
     }
