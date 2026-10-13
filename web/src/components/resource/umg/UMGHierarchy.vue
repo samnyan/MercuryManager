@@ -149,8 +149,7 @@ function renderLabel({ option }: { option: TreeOption }) {
   const isChild = !!n?.childWidget
   return h('div', { class: ['tree-node-row', isHidden ? 'is-node-hidden' : ''] }, [
     h('span', { class: 'node-label-name' }, option.label as string),
-    isChild ? h(NTag, { size: 'tiny', type: 'info', bordered: false, style: 'margin-left: 4px;' }, { default: () => 'Sub' }) : null,
-    isHidden ? h(NTag, { size: 'tiny', type: 'warning', bordered: false, style: 'margin-left: 4px;' }, { default: () => '隐藏' }) : null
+    isChild ? h(NTag, { size: 'tiny', type: 'info', bordered: false, style: 'margin-left: 4px;' }, { default: () => 'Sub' }) : null
   ])
 }
 
