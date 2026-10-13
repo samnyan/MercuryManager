@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { NTag, NButton, NSpin, NAlert, NModal } from 'naive-ui'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { NTag, NButton, NSpin, NAlert, NModal, NSelect } from 'naive-ui'
 import { useProject } from '../../../project'
 import { tr } from '../../../i18n'
-import type { UMGDocument, UMGNode } from './types'
+import type { UMGAnimation, UMGDocument, UMGNode } from './types'
 import { computeTreeLayout } from './layout'
 import UMGHierarchy from './UMGHierarchy.vue'
 import UMGStage from './UMGStage.vue'
 import UMGInspector from './UMGInspector.vue'
+import UMGAnimationTimeline from './UMGAnimationTimeline.vue'
 
 const props = defineProps<{
   path: string
@@ -18,6 +19,8 @@ const emit = defineEmits<{
   'navigate-path': [path: string]
   'fallback-generic': []
 }>()
+let loadController: AbortController | null = null
+
 
 const project = useProject()
 const loading = ref(false)
@@ -30,15 +33,67 @@ const hiddenIds = ref<Set<string>>(new Set())
 // WACCA 机台固定 1080 × 1920 竖屏
 const viewport = ref({ width: 1080, height: 1920 })
 const viewMode = ref<'appearance' | 'structure'>('appearance')
+const activeAnimationId = ref<string | null>(null)
+const animationFrame = ref(0)
+const animationPlaying = ref(false)
+const timelineVisible = ref(true)
+watch(animationFrame,()=>{if(animationTimer){window.clearInterval(animationTimer);animationTimer=undefined}if(animationPlaying.value){animationPlaying.value=false}})
+let animationTimer: number | undefined
+const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
+function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
+  const keys=channel.keys
+  if(!keys.length) return channel.hasDefault?channel.defaultValue:null
+  const right=keys.findIndex(key=>key.frame>=time)
+  if(right<0) return keys[keys.length-1].value
+  if(right===0) return keys[0].value
+  const left=keys[right-1],next=keys[right],duration=next.frame-left.frame
+  if(duration<=0) return next.value
+  const t=(time-left.frame)/duration
+  if(left.interpolation.toLowerCase().includes('cubic')){const t2=t*t,t3=t2*t;return (2*t3-3*t2+1)*left.value+(t3-2*t2+t)*(left.leaveTangent||0)*duration+(-2*t3+3*t2)*next.value+(t3-t2)*(next.arriveTangent||0)*duration}
+  return left.value+(next.value-left.value)*t
+}
+const animationMaterialParameters = computed(() => {
+  const result: Record<string, Record<string, number>> = {}
+  const a=activeAnimation.value
+  if(!a) return result
+  for(const track of a.tracks){
+    if (!track.materialParameters?.length) continue
+    const binding=a.bindings.find(item=>item.guid===track.targetGuid)
+    const node=binding&&doc.value?.nodes.find(item=>item.name===binding.widgetName&&item.treeId===activeRoot.value?.treeId)
+    if(!node) continue
+    const parameters=result[node.id]||(result[node.id]={})
+    for(const parameter of track.materialParameters){const value=sampleChannel(parameter.channel,animationFrame.value);if(value!==null)parameters[parameter.name]=value}
+  }
+  return result
+})
+const previewNodes = computed(() => {
+  if(!activeAnimation.value) return doc.value?.nodes||[]
+  const clones=new Map((doc.value?.nodes||[]).map(n=>[n.id,{...n,visual:{...n.visual,RenderTransform:n.visual.RenderTransform?{...n.visual.RenderTransform,Translation:{...n.visual.RenderTransform.Translation},Scale:{...n.visual.RenderTransform.Scale},Shear:{...n.visual.RenderTransform.Shear}}:undefined}}]))
+  for(const track of activeAnimation.value.tracks){
+    const binding=activeAnimation.value.bindings.find(b=>b.guid===track.targetGuid)
+    if(!binding) continue
+    const matchingNodes=[...clones.values()].filter(n=>n.name===binding.widgetName&&n.treeId===activeRoot.value?.treeId)
+    const node=matchingNodes.find(n=>n.id===selectedNodeId.value)||matchingNodes[0]
+    if(!node) continue
+    const values=new Map(track.channels.map(c=>[c.property,sampleChannel(c,animationFrame.value)]))
+    if(track.type.includes('Transform')){
+      const axis=(name:string,index:number)=>values.get(`${name}.${index}`)??values.get(`${name}${index===0?'X':'Y'}`)??null
+      const translation={X:axis('Translation',0)??node.visual.RenderTransform?.Translation?.X??0,Y:axis('Translation',1)??node.visual.RenderTransform?.Translation?.Y??0}
+      const scale={X:axis('Scale',0)??node.visual.RenderTransform?.Scale?.X??1,Y:axis('Scale',1)??node.visual.RenderTransform?.Scale?.Y??1}
+      const shear={X:axis('Shear',0)??node.visual.RenderTransform?.Shear?.X??0,Y:axis('Shear',1)??node.visual.RenderTransform?.Shear?.Y??0}
+      node.visual.RenderTransform={...(node.visual.RenderTransform||{}),Translation:translation,Scale:scale,Shear:shear,Angle:values.get('Rotation.0')??values.get('Rotation')??node.visual.RenderTransform?.Angle??0}
+    } else if(track.type.includes('Float')&&track.property==='RenderOpacity') node.visual.RenderOpacity=values.get('FloatCurve')??node.visual.RenderOpacity
+  }
+  return [...clones.values()]
+})
+function setAnimationPlaying(playing:boolean) { animationPlaying.value=playing;if(animationTimer)window.clearInterval(animationTimer);if(playing)animationTimer=window.setInterval(()=>{const a=activeAnimation.value;if(!a)return;if(animationFrame.value>=a.end)animationFrame.value=a.start;else animationFrame.value+=1/60},16) }
+function toggleAnimation() { setAnimationPlaying(!animationPlaying.value) }
+watch(activeAnimationId,()=>{animationFrame.value=activeAnimation.value?.start||0;animationPlaying.value=false;if(animationTimer)window.clearInterval(animationTimer)})
+onBeforeUnmount(()=>{if(animationTimer)window.clearInterval(animationTimer)})
 
 // Texture preview modal
-const previewPath = ref('')
-const previewUrl = computed(
-  () => `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: previewPath.value })
-)
-
-let loadController: AbortController | null = null
-
+const previewPath=ref('')
+const previewUrl=computed(()=>`/api/projects/${project.id}/resource-image?`+new URLSearchParams({path:previewPath.value}))
 async function loadDocument() {
   loadController?.abort()
   const controller = new AbortController()
@@ -124,6 +179,10 @@ const selectedLayout = computed(() => {
       </div>
 
       <div class="topbar-right">
+        <div v-if="doc?.animations?.length" class="animation-controls">
+          <n-button size="small" @click="timelineVisible = !timelineVisible">{{ timelineVisible ? '隐藏时间轴' : '显示时间轴' }}</n-button>
+          <n-select v-model:value="activeAnimationId" :options="(doc?.animations || []).map((a: UMGAnimation) => ({ label: a.name, value: a.id }))" placeholder="选择动画" style="width:190px" />
+        </div>
         <div class="mode-group">
           <n-button
             size="small"
@@ -162,8 +221,9 @@ const selectedLayout = computed(() => {
     </div>
 
     <!-- Three-Pane Workspace -->
-    <div v-else-if="doc" class="umg-workspace">
-      <UMGHierarchy
+    <div v-else-if="doc" class="umg-body">
+      <div class="umg-workspace">
+        <UMGHierarchy
         :roots="doc.roots"
         :active-root-id="activeRootId"
         :nodes="doc.nodes"
@@ -175,9 +235,11 @@ const selectedLayout = computed(() => {
       />
 
       <UMGStage
-        :nodes="doc.nodes"
+        :nodes="previewNodes"
         :layouts="layouts"
         :materials="doc.materials"
+        :particles="doc.particles"
+        :animation-material-parameters="animationMaterialParameters"
         :selected-id="selectedNodeId"
         :hidden-ids="hiddenIds"
         :viewport="viewport"
@@ -193,6 +255,18 @@ const selectedLayout = computed(() => {
         @navigate-path="p => emit('navigate-path', p)"
         @preview-texture="p => (previewPath = p)"
         @node-updated="loadDocument"
+      />
+      </div>
+      <UMGAnimationTimeline
+        v-if="doc.animations?.length"
+        v-show="timelineVisible"
+        :animations="doc.animations"
+        :active-animation-id="activeAnimationId"
+        :time="animationFrame"
+        :playing="animationPlaying"
+        @update:active-animation-id="activeAnimationId = $event"
+        @update:time="animationFrame = $event"
+        @update:playing="setAnimationPlaying($event)"
       />
     </div>
 
@@ -254,6 +328,7 @@ const selectedLayout = computed(() => {
   justify-content: center;
   padding: 24px;
 }
+.umg-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .umg-workspace {
   flex: 1;
   display: flex;

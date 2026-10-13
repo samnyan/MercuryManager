@@ -4,15 +4,18 @@ import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton } from 'naive-ui'
 import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
-import { useProject } from '../../../project'
+import { useProject, api } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
 import { widgetClip } from './clipping'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
+import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
 
 const props = defineProps<{
   nodes: UMGNode[]
   layouts: Map<string, ComputedLayout>
   materials?: Record<string, any>
+  particles?: Record<string, any>
+  animationMaterialParameters?: Record<string, Record<string, number>>
   selectedId: string | null
   hiddenIds: Set<string>
   viewport: { width: number; height: number }
@@ -41,6 +44,7 @@ const nodeIdByObject = new WeakMap<FabricObject, string>()
 const rawImageCache = new Map<string, Promise<HTMLImageElement | null>>()
 const tintedSourceCache = new Map<string, HTMLImageElement | HTMLCanvasElement>()
 const materialCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
+const particleCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
 
 const finite = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -82,15 +86,30 @@ function getMaterialRef(node: UMGNode): { assetPath: string; className: string }
 async function getMaterialCanvasSource(
   matPath: string,
   targetW: number,
-  targetH: number
+  targetH: number,
+  animatedScalars?: Record<string, number>
 ): Promise<HTMLCanvasElement | null> {
   if (!props.materials || !props.materials[matPath]) return null
-  const cacheKey = `${matPath}|${Math.round(targetW)}x${Math.round(targetH)}`
+  const key = Object.entries(animatedScalars || {}).map(([k,v])=>`${k}:${v}`).join(',')
+  const cacheKey = `${matPath}|${Math.round(targetW)}x${Math.round(targetH)}|${key}`
   const cached = materialCanvasCache.get(cacheKey)
   if (cached) return cached
 
-  const spec = normalizeMaterialEntry(props.materials[matPath])
+  const spec = normalizeMaterialEntry(props.materials[matPath], matPath)
   if (!spec) return null
+  if(animatedScalars) spec.scalars={...spec.scalars,...animatedScalars}
+
+  // 尝试获取后端 WebGL2 Shader 契约 (若为 Master Material)
+  let contract: any = null
+  if (project.id && matPath.endsWith('.uasset')) {
+    try {
+      const q = new URLSearchParams({ path: matPath, time: '0', previousTime: '0' })
+      if (animatedScalars && Object.keys(animatedScalars).length > 0) {
+        q.set('scalarOverrides', JSON.stringify(animatedScalars))
+      }
+      contract = await api(`/projects/${project.id}/resource-material-shader?` + q.toString())
+    } catch {}
+  }
 
   const promise = renderUMGMaterialToCanvas(
     spec,
@@ -100,10 +119,46 @@ async function getMaterialCanvasSource(
       return await loadRawImage(url)
     },
     targetW,
-    targetH
+    targetH,
+    0.35,
+    contract
   )
 
   materialCanvasCache.set(cacheKey, promise)
+  return promise
+}
+
+function getParticleRef(node: UMGNode): { assetPath: string; className: string } | null {
+  const isPart = (r: { className?: string | null; assetPath?: string }) =>
+    r.className === 'ParticleSystem' ||
+    (typeof r.assetPath === 'string' && r.assetPath.toLowerCase().includes('particle'))
+  const ref = node.resources?.find(isPart)
+  return ref && ref.assetPath ? { assetPath: ref.assetPath, className: ref.className || 'ParticleSystem' } : null
+}
+
+async function getParticleCanvasSource(
+  particlePath: string,
+  targetW: number,
+  targetH: number
+): Promise<HTMLCanvasElement | null> {
+  if (!props.particles || !props.particles[particlePath]) return null
+  const cacheKey = `${particlePath}|${Math.round(targetW)}x${Math.round(targetH)}`
+  const cached = particleCanvasCache.get(cacheKey)
+  if (cached) return cached
+
+  const promise = renderUMGParticleToCanvas(
+    props.particles[particlePath],
+    async (texPath: string) => {
+      if (!project.id || !texPath) return null
+      const url = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texPath, mip: '0' })
+      return await loadRawImage(url)
+    },
+    targetW,
+    targetH,
+    props.materials
+  )
+
+  particleCanvasCache.set(cacheKey, promise)
   return promise
 }
 
@@ -330,10 +385,33 @@ async function rebuildScene() {
     let fabricObj: FabricObject | null = null
     const imageUrl = props.viewMode === 'appearance' ? getImageUrl(node) : null
     const matRef = props.viewMode === 'appearance' ? getMaterialRef(node) : null
+    const partRef = props.viewMode === 'appearance' ? getParticleRef(node) : null
 
-    // 优先材质解析渲染 (Material / MaterialInstanceConstant)
-    if (matRef && rect.width > 0 && rect.height > 0) {
-      const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h)
+    // 优先粒子系统预览渲染 (ParticleSystem)
+    if (partRef && rect.width > 0 && rect.height > 0) {
+      const partCanvas = await getParticleCanvasSource(partRef.assetPath, w, h)
+      if (gen !== renderGeneration) return
+      if (partCanvas) {
+        fabricObj = new FabricImage(partCanvas, {
+          left,
+          top,
+          originX: tf.pivotX,
+          originY: tf.pivotY,
+          scaleX: (w / partCanvas.width) * absSx,
+          scaleY: (h / partCanvas.height) * absSy,
+          flipX,
+          flipY,
+          angle: tf.angle,
+          opacity,
+          clipPath: nodeClip
+        })
+      }
+    }
+
+    // 其次材质解析渲染 (Material / MaterialInstanceConstant)
+    if (!fabricObj && matRef && rect.width > 0 && rect.height > 0) {
+      const animatedScalars=props.animationMaterialParameters?.[node.id]
+      const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h, animatedScalars)
       if (gen !== renderGeneration) return
       if (matCanvas) {
         fabricObj = new FabricImage(matCanvas, {

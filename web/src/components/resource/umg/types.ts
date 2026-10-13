@@ -70,6 +70,19 @@ export type UMGDocument = {
   nodes: UMGNode[]
   diagnostics: DiagnosticIssue[]
   materials?: Record<string, any>
+  particles?: Record<string, any>
+  animations?: UMGAnimation[]
+}
+
+export type UMGAnimation = {
+  id: string
+  name: string
+  start: number
+  end: number
+  tickRate: number
+  displayRate: number
+  bindings: { guid: string; widgetName: string; slotWidgetName: string | null; isRoot: boolean }[]
+  tracks: { name: string; type: string; property: string | null; targetGuid: string; materialParameters?: { name: string; index: number; channel: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] } }[]; channels: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] }[] }[]
 }
 
 export type Rect = {

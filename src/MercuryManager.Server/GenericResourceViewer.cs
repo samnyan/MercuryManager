@@ -344,6 +344,19 @@ public static class GenericResourceViewer
             catch(Exception ex) when(ex is not OutOfMemoryException)
             {foreach(var node in ((JArray)data["Exports"]!).OfType<JObject>().Where(n=>n["Class"]?.ToString()=="SoundAtomCueSheet"))if(node["CustomSerialization"] is JObject raw)raw["CueSheetParseError"]=ex.Message;}
         }
+        var psExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="ParticleSystem");
+        if(psExport is not null)
+        {
+            try
+            {
+                var psInfo=ReadParticleSystemData(path,resolve);
+                if(psInfo is not null)data["ParticleSystemInfo"]=psInfo;
+            }
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {
+                data["ParticleSystemError"]=ex.Message;
+            }
+        }
         return new{isTexture=described.GetProperty("isTexture").GetBoolean(),data=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(data.ToString(Newtonsoft.Json.Formatting.None))};
     }
     public static byte[] ReadRaw(string path,int exportIndex)
@@ -756,6 +769,376 @@ public static class GenericResourceViewer
             ["TextureNodes"]=textureNodes,
             ["FunctionCalls"]=funcCalls,
             ["Expressions"]=allExpressions
+        };
+    }
+    private static JObject ParseDistribution(UAssetAPI.PropertyTypes.Structs.StructPropertyData? distStruct,UAsset asset)
+    {
+        var res=new JObject();
+        if(distStruct is null)return res;
+        res["StructType"]=distStruct.StructType?.ToString();
+        float? minVal=null,maxVal=null;
+        float[]? minVec=null,maxVec=null;
+        JArray? tableVals=null;
+        byte? tableOp=null,entryCount=null,entryStride=null;
+
+        foreach(var prop in distStruct.Value)
+        {
+            var pn=prop.Name.ToString();
+            if(pn=="MinValue" && prop is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fMin)minVal=fMin.Value;
+            else if(pn=="MaxValue" && prop is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fMax)maxVal=fMax.Value;
+            else if(pn=="MinValueVec" && prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData sMinVec && sMinVec.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.VectorPropertyData vMin)
+                minVec=[(float)vMin.Value.X,(float)vMin.Value.Y,(float)vMin.Value.Z];
+            else if(pn=="MaxValueVec" && prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData sMaxVec && sMaxVec.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.VectorPropertyData vMax)
+                maxVec=[(float)vMax.Value.X,(float)vMax.Value.Y,(float)vMax.Value.Z];
+            else if(pn=="Distribution" && prop is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData distRef && distRef.Value.Index!=0)
+            {
+                var r=ResolveReference(distRef.Value.Index,asset);
+                res["DistributionObject"]=r["ObjectName"]?.ToString();
+            }
+            else if(pn=="Table" && prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData tableStruct)
+            {
+                foreach(var tf in tableStruct.Value)
+                {
+                    var tfn=tf.Name.ToString();
+                    if(tfn=="Op" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bOp)tableOp=bOp.Value;
+                    else if(tfn=="EntryCount" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bCnt)entryCount=bCnt.Value;
+                    else if(tfn=="EntryStride" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bStr)entryStride=bStr.Value;
+                    else if(tfn=="Values" && tf is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData valsArr)
+                        tableVals=new JArray(valsArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.FloatPropertyData>().Select(fv=>fv.Value));
+                }
+            }
+        }
+
+        if(minVec!=null||maxVec!=null)
+        {
+            var mn=minVec??maxVec??[0f,0f,0f];
+            var mx=maxVec??minVec??[0f,0f,0f];
+            bool same=mn[0]==mx[0]&&mn[1]==mx[1]&&mn[2]==mx[2];
+            res["Kind"]=same?"ConstantVector":"UniformVector";
+            res["MinVector"]=new JArray(mn);
+            res["MaxVector"]=new JArray(mx);
+            res["Summary"]=same?$"({mn[0]:0.##}, {mn[1]:0.##}, {mn[2]:0.##})":$"({mn[0]:0.##}, {mn[1]:0.##}, {mn[2]:0.##}) ~ ({mx[0]:0.##}, {mx[1]:0.##}, {mx[2]:0.##})";
+        }
+        else if(minVal.HasValue||maxVal.HasValue)
+        {
+            var mn=minVal??maxVal??0f;
+            var mx=maxVal??minVal??0f;
+            bool same=mn==mx;
+            res["Kind"]=same?"ConstantFloat":"UniformFloat";
+            res["MinValue"]=mn;
+            res["MaxValue"]=mx;
+            res["Summary"]=same?$"{mn:0.###}":$"{mn:0.###} ~ {mx:0.###}";
+        }
+        else if(tableVals is {Count:>0})
+        {
+            if(tableVals.Count==3 && entryStride==3)
+            {
+                var v0=tableVals[0]!.Value<float>();var v1=tableVals[1]!.Value<float>();var v2=tableVals[2]!.Value<float>();
+                res["Kind"]="ConstantVector";
+                res["MinVector"]=new JArray(v0,v1,v2);
+                res["MaxVector"]=new JArray(v0,v1,v2);
+                res["Summary"]=$"({v0:0.##}, {v1:0.##}, {v2:0.##})";
+            }
+            else if(tableVals.Count==1)
+            {
+                var v0=tableVals[0]!.Value<float>();
+                res["Kind"]="ConstantFloat";
+                res["MinValue"]=v0;
+                res["MaxValue"]=v0;
+                res["Summary"]=$"{v0:0.###}";
+            }
+            else
+            {
+                res["Kind"]="CurveTable";
+                res["Summary"]=$"Table[{tableVals.Count}]";
+            }
+        }
+        else
+        {
+            res["Kind"]="Default";
+            res["Summary"]="0";
+        }
+        if(tableVals is {Count:>0})res["TableValues"]=tableVals;
+        if(tableOp.HasValue)res["TableOp"]=tableOp.Value;
+        if(entryCount.HasValue)res["EntryCount"]=entryCount.Value;
+        if(entryStride.HasValue)res["EntryStride"]=entryStride.Value;
+        return res;
+    }
+
+    private static JObject ParseParticleModule(int exportIndex1Based,UAsset asset)
+    {
+        if(exportIndex1Based<=0||exportIndex1Based>asset.Exports.Count||asset.Exports[exportIndex1Based-1] is not NormalExport mod)
+            return new JObject();
+        var cls=mod.GetExportClassType().ToString();
+        var name=mod.ObjectName.ToString();
+        string category=cls switch
+        {
+            _ when cls.Contains("Required",StringComparison.Ordinal)=>"Required",
+            _ when cls.Contains("Spawn",StringComparison.Ordinal)=>"Spawn",
+            _ when cls.Contains("TypeData",StringComparison.Ordinal)=>"TypeData",
+            _ when cls.Contains("Lifetime",StringComparison.Ordinal)=>"Lifetime",
+            _ when cls.Contains("Size",StringComparison.Ordinal)=>"Size",
+            _ when cls.Contains("Velocity",StringComparison.Ordinal)=>"Velocity",
+            _ when cls.Contains("Color",StringComparison.Ordinal)=>"Color",
+            _ when cls.Contains("Location",StringComparison.Ordinal)=>"Location",
+            _ when cls.Contains("Rotation",StringComparison.Ordinal)=>"Rotation",
+            _ when cls.Contains("Acceleration",StringComparison.Ordinal)=>"Acceleration",
+            _ when cls.Contains("Parameter",StringComparison.Ordinal)=>"Parameter",
+            _ when cls.Contains("SubUV",StringComparison.Ordinal)=>"SubUV",
+            _ when cls.Contains("Orbit",StringComparison.Ordinal)=>"Orbit",
+            _=>"Module"
+        };
+
+        var parsedProps=new JArray();
+        var distributions=new JObject();
+        var references=new JObject();
+        var rawProps=new JObject();
+        string summary="";
+
+        foreach(var prop in mod.Data)
+        {
+            var pn=prop.Name.ToString();
+            try
+            {
+                var rawToken=JToken.Parse(asset.SerializeJsonObject(prop));
+                AnnotateReferences(rawToken,asset);
+                rawProps[pn]=rawToken;
+            }
+            catch{}
+
+            if(pn=="LODValidity")continue;
+
+            if(prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData sp)
+            {
+                var st=sp.StructType?.ToString()??"";
+                if(st is "RawDistributionFloat" or "RawDistributionVector")
+                {
+                    var d=ParseDistribution(sp,asset);
+                    distributions[pn]=d;
+                    parsedProps.Add(new JObject{["Name"]=pn,["Kind"]=d["Kind"],["Value"]=d["Summary"],["Distribution"]=d});
+                    if(string.IsNullOrEmpty(summary))summary=$"{pn}: {d["Summary"]}";
+                }
+                else if(st=="Vector" && sp.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.VectorPropertyData vp)
+                {
+                    var vecStr=$"({vp.Value.X:0.##}, {vp.Value.Y:0.##}, {vp.Value.Z:0.##})";
+                    parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Vector",["Value"]=vecStr,["Vector"]=new JArray(vp.Value.X,vp.Value.Y,vp.Value.Z)});
+                }
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.ObjectPropertyData op)
+            {
+                var r=ResolveReference(op.Value.Index,asset);
+                var objName=r["ObjectName"]?.ToString()??"None";
+                var file=r["ContentFile"]?.ToString()??r["Package"]?.ToString();
+                var refObj=new JObject{["Index"]=op.Value.Index,["ObjectName"]=objName,["ContentFile"]=file,["Class"]=r["Class"]};
+                references[pn]=refObj;
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Object",["Value"]=objName,["ContentFile"]=file,["Reference"]=refObj});
+                if(pn is "Material" or "Mesh")summary=objName;
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.FloatPropertyData fp)
+            {
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Float",["Value"]=$"{fp.Value:0.###}",["Number"]=fp.Value});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.IntPropertyData ip)
+            {
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Int",["Value"]=ip.Value.ToString(),["Number"]=ip.Value});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.BoolPropertyData bp)
+            {
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Bool",["Value"]=bp.Value?"true":"false",["Bool"]=bp.Value});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.BytePropertyData byp)
+            {
+                var ev=byp.EnumValue?.ToString()??byp.Value.ToString();
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Enum",["Value"]=ev});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.EnumPropertyData ep)
+            {
+                var ev=ep.Value?.ToString()??"None";
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Enum",["Value"]=ev});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.NamePropertyData np)
+            {
+                parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Name",["Value"]=np.Value?.ToString()??""});
+            }
+            else if(prop is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData ap && pn=="BurstList")
+            {
+                var bursts=new JArray();
+                foreach(var item in ap.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                {
+                    int count=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="Count") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??0;
+                    int countLow=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="CountLow") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??-1;
+                    float time=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="Time") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0f;
+                    bursts.Add(new JObject{["Count"]=count,["CountLow"]=countLow,["Time"]=time});
+                }
+                parsedProps.Add(new JObject{["Name"]="BurstList",["Kind"]="BurstList",["Value"]=$"{bursts.Count} Burst(s)",["Bursts"]=bursts});
+                if(bursts.Count>0)summary=$"Rate: {distributions["Rate"]?["Summary"]??"0"} | Bursts: {bursts.Count}";
+            }
+        }
+
+        return new JObject
+        {
+            ["ExportIndex"]=exportIndex1Based-1,
+            ["Name"]=name,
+            ["Class"]=cls,
+            ["Category"]=category,
+            ["Summary"]=summary,
+            ["Properties"]=parsedProps,
+            ["Distributions"]=distributions,
+            ["References"]=references,
+            ["RawProperties"]=rawProps
+        };
+    }
+
+    public static JObject? ReadParticleSystemData(string path,Func<string,string>? resolve=null)
+    {
+        if(!File.Exists(path))return null;
+        try
+        {
+            var asset=new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+            var info=ExtractParticleSystemInfo(asset);
+            if(info!=null&&resolve!=null)
+            {
+                var materials=new JObject();
+                // 收集粒子发射器中的材质引用
+                var emitters=info["Emitters"] as JArray;
+                if(emitters!=null)
+                {
+                    foreach(var em in emitters)
+                    {
+                        var lods=em["LODLevels"] as JArray;
+                        if(lods==null)continue;
+                        foreach(var lod in lods)
+                        {
+                            var req=lod["RequiredModule"] as JObject;
+                            var matRef=req?["References"]?["Material"] as JObject;
+                            var cFile=matRef?["ContentFile"]?.ToString();
+                            if(!string.IsNullOrEmpty(cFile)&&materials[cFile]==null)
+                            {
+                                try
+                                {
+                                    var resolved=resolve(cFile);
+                                    var mData=ReadMaterialData(resolved,resolve);
+                                    if(mData!=null)materials[cFile]=mData;
+                                }
+                                catch {}
+                            }
+                        }
+                    }
+                }
+                if(materials.Count>0)info["Materials"]=materials;
+            }
+            return info;
+        }
+        catch { return null; }
+    }
+
+    internal static JObject? ExtractParticleSystemInfo(UAsset asset)
+    {
+        var psExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString()=="ParticleSystem");
+        if(psExport is null)return null;
+
+        var warmupTime=(psExport.Data.FirstOrDefault(p=>p.Name.ToString()=="WarmupTime") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0f;
+        var resetPeak=(psExport.Data.FirstOrDefault(p=>p.Name.ToString()=="bShouldResetPeakCounts") as UAssetAPI.PropertyTypes.Objects.BoolPropertyData)?.Value??false;
+        var lodDistances=new JArray();
+        if(psExport.Data.FirstOrDefault(p=>p.Name.ToString()=="LODDistances") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData lodDistArr)
+        {
+            foreach(var d in lodDistArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.FloatPropertyData>())
+                lodDistances.Add(d.Value);
+        }
+
+        var emitters=new JArray();
+        if(psExport.Data.FirstOrDefault(p=>p.Name.ToString()=="Emitters") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData emittersArr)
+        {
+            foreach(var emObjProp in emittersArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.ObjectPropertyData>())
+            {
+                int emIdx=emObjProp.Value.Index;
+                if(emIdx<=0||emIdx>asset.Exports.Count||asset.Exports[emIdx-1] is not NormalExport emExport)continue;
+
+                var emitterName=(emExport.Data.FirstOrDefault(p=>p.Name.ToString()=="EmitterName") as UAssetAPI.PropertyTypes.Objects.NamePropertyData)?.Value?.ToString()
+                    ??(emExport.Data.FirstOrDefault(p=>p.Name.ToString()=="EmitterName") as UAssetAPI.PropertyTypes.Objects.StrPropertyData)?.Value?.ToString()
+                    ??emExport.ObjectName.ToString();
+                var initAlloc=(emExport.Data.FirstOrDefault(p=>p.Name.ToString()=="InitialAllocationCount") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??0;
+
+                var lodLevels=new JArray();
+                string emitterType="Sprite";
+                int peakParticles=0;
+
+                if(emExport.Data.FirstOrDefault(p=>p.Name.ToString()=="LODLevels") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData lodArr)
+                {
+                    foreach(var lodObjProp in lodArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.ObjectPropertyData>())
+                    {
+                        int lodIdx=lodObjProp.Value.Index;
+                        if(lodIdx<=0||lodIdx>asset.Exports.Count||asset.Exports[lodIdx-1] is not NormalExport lodExport)continue;
+
+                        int level=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="Level") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??0;
+                        int peak=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="PeakActiveParticles") as UAssetAPI.PropertyTypes.Objects.IntPropertyData)?.Value??0;
+                        bool enabled=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="bEnabled") as UAssetAPI.PropertyTypes.Objects.BoolPropertyData)?.Value??true;
+                        if(peak>peakParticles)peakParticles=peak;
+
+                        int reqIdx=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="RequiredModule") as UAssetAPI.PropertyTypes.Objects.ObjectPropertyData)?.Value.Index??0;
+                        int spawnIdx=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="SpawnModule") as UAssetAPI.PropertyTypes.Objects.ObjectPropertyData)?.Value.Index??0;
+                        int tdIdx=(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="TypeDataModule") as UAssetAPI.PropertyTypes.Objects.ObjectPropertyData)?.Value.Index??0;
+
+                        var reqMod=reqIdx>0?ParseParticleModule(reqIdx,asset):null;
+                        var spawnMod=spawnIdx>0?ParseParticleModule(spawnIdx,asset):null;
+                        var tdMod=tdIdx>0?ParseParticleModule(tdIdx,asset):null;
+
+                        if(tdMod is not null)
+                        {
+                            var tdCls=tdMod["Class"]?.ToString()??"";
+                            if(tdCls.Contains("Mesh",StringComparison.Ordinal))emitterType="Mesh";
+                            else if(tdCls.Contains("Gpu",StringComparison.Ordinal))emitterType="GPU";
+                            else if(tdCls.Contains("Ribbon",StringComparison.Ordinal))emitterType="Ribbon";
+                            else if(tdCls.Contains("Beam",StringComparison.Ordinal))emitterType="Beam";
+                        }
+
+                        var modList=new JArray();
+                        if(lodExport.Data.FirstOrDefault(p=>p.Name.ToString()=="Modules") is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData modsArr)
+                        {
+                            foreach(var mProp in modsArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.ObjectPropertyData>())
+                            {
+                                if(mProp.Value.Index>0)
+                                    modList.Add(ParseParticleModule(mProp.Value.Index,asset));
+                            }
+                        }
+
+                        lodLevels.Add(new JObject
+                        {
+                            ["ExportIndex"]=lodIdx-1,
+                            ["Name"]=lodExport.ObjectName.ToString(),
+                            ["Level"]=level,
+                            ["Enabled"]=enabled,
+                            ["PeakActiveParticles"]=peak,
+                            ["RequiredModule"]=reqMod,
+                            ["SpawnModule"]=spawnMod,
+                            ["TypeDataModule"]=tdMod,
+                            ["Modules"]=modList
+                        });
+                    }
+                }
+
+                emitters.Add(new JObject
+                {
+                    ["ExportIndex"]=emIdx-1,
+                    ["Name"]=emExport.ObjectName.ToString(),
+                    ["EmitterName"]=emitterName,
+                    ["Class"]=emExport.GetExportClassType().ToString(),
+                    ["EmitterType"]=emitterType,
+                    ["InitialAllocationCount"]=initAlloc,
+                    ["PeakActiveParticles"]=peakParticles,
+                    ["LODLevels"]=lodLevels
+                });
+            }
+        }
+
+        return new JObject
+        {
+            ["ExportIndex"]=asset.Exports.IndexOf(psExport),
+            ["Name"]=psExport.ObjectName.ToString(),
+            ["WarmupTime"]=warmupTime,
+            ["ResetPeakCounts"]=resetPeak,
+            ["LODDistances"]=lodDistances,
+            ["Emitters"]=emitters
         };
     }
 }

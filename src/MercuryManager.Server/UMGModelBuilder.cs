@@ -1,13 +1,100 @@
 using UAssetAPI;
 using UAssetAPI.ExportTypes;
+using UAssetAPI.PropertyTypes.Objects;
+using UAssetAPI.PropertyTypes.Structs;
+using UAssetAPI.UnrealTypes;
 
 namespace MercuryManager.Server;
 
 internal static class UMGModelBuilder
 {
-    private static readonly string[] VisualFields=["Visibility","RenderOpacity","RenderTransform","RenderTransformPivot","Clipping","Brush","Background","BrushColor","ColorAndOpacity","ContentColorAndOpacity","Text","Font","Justification","AutoWrapText","WrapTextAt","MinDesiredWidth","Padding","HorizontalAlignment","VerticalAlignment","WidthOverride","HeightOverride","bOverride_WidthOverride","bOverride_HeightOverride","MinDesiredHeight","MaxDesiredWidth","MaxDesiredHeight","BlendMode","IsVariable"];
+    private static readonly string[] VisualFields=["Visibility","RenderOpacity","RenderTransform","RenderTransformPivot","Clipping","Brush","Background","BrushColor","ColorAndOpacity","ContentColorAndOpacity","Text","Font","Justification","AutoWrapText","WrapTextAt","MinDesiredWidth","Padding","HorizontalAlignment","VerticalAlignment","WidthOverride","HeightOverride","bOverride_WidthOverride","bOverride_HeightOverride","MinDesiredHeight","MaxDesiredWidth","MaxDesiredHeight","BlendMode","IsVariable","Template","ParticleSystem","EmitterTemplate","Effect"];
     private static readonly string[] SlotFields=["LayoutData","bAutoSize","ZOrder","Padding","HorizontalAlignment","VerticalAlignment","Size","Offset","Anchors","Alignment"];
     private static readonly HashSet<string> Supported=["CanvasPanel","Overlay","Border","SizeBox","HorizontalBox","VerticalBox","Image","TextBlock","Spacer"];
+    private static List<UMGAnimation> ReadAnimations(UAsset asset)
+    {
+        var result=new List<UMGAnimation>();
+        for(var i=0;i<asset.Exports.Count;i++)
+        {
+            if(asset.Exports[i] is not NormalExport animation||animation.GetExportClassType().ToString()!="WidgetAnimation")continue;
+            int Index(string name)=>animation.Data.OfType<ObjectPropertyData>().FirstOrDefault(p=>p.Name.ToString()==name)?.Value.Index??0;
+            var sceneIndex=Index("MovieScene");if(sceneIndex<=0||sceneIndex>asset.Exports.Count||asset.Exports[sceneIndex-1] is not NormalExport scene)continue;
+            var bindings=new List<UMGAnimationBinding>();
+            var animationBindings=animation.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="AnimationBindings");
+            if(animationBindings!=null)foreach(var item in animationBindings.Value.OfType<StructPropertyData>())
+            {
+                var fields=item.Value;var guid=(fields.FirstOrDefault(p=>p.Name.ToString()=="AnimationGuid") as StructPropertyData)?.Value.OfType<GuidPropertyData>().FirstOrDefault()?.Value.ToString();
+                var widget=(fields.FirstOrDefault(p=>p.Name.ToString()=="WidgetName") as NamePropertyData)?.Value.ToString()??string.Empty;
+                var slot=(fields.FirstOrDefault(p=>p.Name.ToString()=="SlotWidgetName") as NamePropertyData)?.Value.ToString();
+                var root=(fields.FirstOrDefault(p=>p.Name.ToString()=="bIsRootWidget") as BoolPropertyData)?.Value??false;
+                if(guid!=null)bindings.Add(new(guid,widget,slot,root));
+            }
+            var tracks=new List<UMGAnimationTrack>();
+            var interval=scene.Data.OfType<FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="FixedFrameInterval")?.Value??0;
+            var tick=interval>0?1d/interval:Rate(scene,"TickResolution");var display=tick>0?tick:Rate(scene,"DisplayRate");
+
+            var objectBindings=scene.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="ObjectBindings");
+            if(objectBindings!=null)foreach(var binding in objectBindings.Value.OfType<StructPropertyData>())
+            {
+                var bindingGuid=(binding.Value.FirstOrDefault(p=>p.Name.ToString()=="ObjectGuid") as StructPropertyData)?.Value.OfType<GuidPropertyData>().FirstOrDefault()?.Value.ToString();
+                var target=bindingGuid;
+                var bindingName=binding.Value.OfType<StrPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="BindingName")?.Value.ToString();
+                var trackRefs=binding.Value.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Tracks");if(trackRefs==null)continue;
+                foreach(var reference in trackRefs.Value.OfType<ObjectPropertyData>())
+                {
+                    var index=reference.Value.Index;if(index<=0||index>asset.Exports.Count||asset.Exports[index-1] is not NormalExport track)continue;
+                    var property=track.Data.OfType<NamePropertyData>().FirstOrDefault(p=>p.Name.ToString()=="PropertyName")?.Value.ToString() ?? track.Data.OfType<NamePropertyData>().FirstOrDefault(p=>p.Name.ToString()=="TrackName")?.Value.ToString();
+                    if(property==null&&track.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="BrushPropertyNamePath") is { } brushPath)property=string.Join(".",brushPath.Value.OfType<NamePropertyData>().Select(p=>p.Value.ToString()));
+                    var channels=new List<UMGAnimationChannel>();var materialParameters=new List<UMGAnimationMaterialParameter>();
+                    var sections=track.Data.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Sections");
+                    if(sections!=null)foreach(var sectionRef in sections.Value.OfType<ObjectPropertyData>())
+                    {
+                        var sectionIndex=sectionRef.Value.Index;if(sectionIndex<=0||sectionIndex>asset.Exports.Count||asset.Exports[sectionIndex-1] is not NormalExport section)continue;
+                        foreach(var prop in section.Data)
+                        {
+                            if((prop.Name.ToString() is "ScalarParameterNamesAndCurves" or "ColorParameterNamesAndCurves" or "VectorParameterNamesAndCurves")&&prop is ArrayPropertyData parameterArray)foreach(var parameter in parameterArray.Value.OfType<StructPropertyData>())
+                            {
+                                var parameterName=(parameter.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterName") as NamePropertyData)?.Value.ToString();var parameterIndex=parameter.Value.OfType<IntPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Index")?.Value??0;
+                                if(parameterName==null)continue;
+                                if(prop.Name.ToString()=="ScalarParameterNamesAndCurves"){var scalarCurve=parameter.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterCurve") as StructPropertyData;if(scalarCurve!=null)materialParameters.Add(new(parameterName,parameterIndex,RichCurveChannel(scalarCurve)));}
+                                else {var curveStruct=parameter.Value.FirstOrDefault(p=>p.Name.ToString()=="ParameterCurve") as StructPropertyData;if(curveStruct!=null)foreach(var component in curveStruct.Value.OfType<StructPropertyData>())if(component.StructType.ToString()=="RichCurve")materialParameters.Add(new($"{parameterName}.{component.Name}",parameterIndex,RichCurveChannel(component)));}
+                            }
+                            if(prop is MovieSceneFloatChannelPropertyData floatChannel)channels.Add(FloatChannel(prop.Name.ToString(),floatChannel.Value));
+                            else if(prop is MovieSceneDoubleChannelPropertyData doubleChannel)channels.Add(DoubleChannel(prop.Name.ToString(),doubleChannel.Value));
+                            if(prop is StructPropertyData curve&&curve.StructType.ToString()=="RichCurve")channels.Add(RichCurveChannel(curve));
+                        }
+                    }
+                    tracks.Add(new(bindingName??target??string.Empty,track.GetExportClassType().ToString(),property,bindingGuid??string.Empty,channels,materialParameters));
+                }
+            }
+            double start=0,end=0;
+            var rangeProperty=scene.Data.FirstOrDefault(p=>p.Name.ToString()=="PlaybackRange");double Bound(StructPropertyData? bound)=>bound?.Value.OfType<FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Value")?.Value??0;
+            if(rangeProperty is StructPropertyData rangeStruct){var lower=rangeStruct.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="LowerBound");var upper=rangeStruct.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="UpperBound");start=Bound(lower);end=Bound(upper);}
+            result.Add(new($"export:{i}",animation.ObjectName.ToString(),start,end,tick,display,bindings,tracks));
+        }
+        return result;
+
+        static double Rate(NormalExport export,string field)
+        {
+            var property=export.Data.FirstOrDefault(p=>p.Name.ToString()==field);
+            var rate=property?.GetType().GetProperty("Value")?.GetValue(property);
+            if(rate is FFrameRate frameRate)return frameRate.Denominator==0?0:(double)frameRate.Numerator/frameRate.Denominator;
+            var fields=rate as IEnumerable<PropertyData>;
+            var n=fields?.OfType<IntPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Numerator")?.Value??0;
+            var d=fields?.OfType<IntPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Denominator")?.Value??1;
+            return d==0?0:(double)n/d;
+        }
+        static UMGAnimationChannel RichCurveChannel(StructPropertyData curve)
+        {
+            var keys=curve.Value.OfType<ArrayPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Keys")?.Value.OfType<StructPropertyData>().Select(p=>p.Value.OfType<RichCurveKeyPropertyData>().FirstOrDefault()?.Value).Where(k=>k.HasValue).Select(k=>k!.Value).ToArray()??Array.Empty<FRichCurveKey>();
+            var defaultValue=curve.Value.OfType<FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="DefaultValue")?.Value??0;
+            var arrayIndex=curve.ArrayIndex;
+            var curveName=curve.Name.ToString();if(arrayIndex>0||curveName is "Translation" or "Scale" or "Shear" or "Rotation")curveName+="."+arrayIndex;
+            return new(curveName,"rich-curve",defaultValue,curve.Value.Any(p=>p.Name.ToString()=="DefaultValue"),keys.Select(k=>new UMGAnimationKey(k.Time,k.Value,k.InterpMode.ToString(),k.ArriveTangent,k.LeaveTangent)).ToList());
+        }
+        static UMGAnimationChannel FloatChannel(string name,FMovieSceneFloatChannel channel)=>new(name,"float",channel.DefaultValue,channel.bHasDefaultValue,channel.Times.Zip(channel.Values,(time,value)=>new UMGAnimationKey(time.Value,value.Value,value.InterpMode.ToString(),value.Tangent?.ArriveTangent??0,value.Tangent?.LeaveTangent??0)).ToList());
+        static UMGAnimationChannel DoubleChannel(string name,FMovieSceneDoubleChannel channel)=>new(name,"double",channel.DefaultValue,channel.bHasDefaultValue,channel.Times.Zip(channel.Values,(time,value)=>new UMGAnimationKey(time.Value,value.Value,value.InterpMode.ToString(),value.Tangent?.ArriveTangent??0,value.Tangent?.LeaveTangent??0)).ToList());
+    }
     public static UMGDocument Build(UAsset asset,string path,string revision)
     {
         string Id(int i)=>$"export:{i}";
@@ -87,6 +174,6 @@ internal static class UMGModelBuilder
             while(parent!=null&&byId.TryGetValue(parent,out var p)){if(!seen.Add(parent)){diagnostics.Add(new("parent-cycle","warning",n.Id,"Cyclic parent relationship."));break;}parent=p.ParentId;}
         }
         var suggested=roots.FirstOrDefault(r=>r.Kind=="archetype"&&r.RootNodeId!=null)??roots.FirstOrDefault(r=>r.Kind=="generated"&&r.RootNodeId!=null);
-        return new(1,revision,path,roots,suggested?.Id,nodes,diagnostics);
+        return new(1,revision,path,roots,suggested?.Id,nodes,diagnostics,Animations:ReadAnimations(asset));
     }
 }

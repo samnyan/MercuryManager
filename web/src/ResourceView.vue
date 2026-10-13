@@ -17,6 +17,7 @@ import MaterialInstanceViewer from './components/resource/MaterialInstanceViewer
 import MaterialFunctionViewer from './components/resource/MaterialFunctionViewer.vue'
 import MpcResourceViewer from './components/resource/MpcResourceViewer.vue'
 import MovieResourceViewer from './components/resource/MovieResourceViewer.vue'
+import ParticleSystemViewer from './components/resource/ParticleSystemViewer.vue'
 import ResourceViewerModal from './components/resource/ResourceViewerModal.vue'
 
 const props = withDefaults(
@@ -241,7 +242,7 @@ watch(
       )
       if (request !== generation) return
       data.value = result.data
-      isParticleSystem.value = result.data?.type === 'ParticleSystem'
+      isParticleSystem.value = !!result.data?.ParticleSystemInfo
       isAudio.value = (result.data as any)?.Exports?.some((e:any)=>['SoundAtomCueSheet','SoundAtomCue'].includes(e.Class)) ?? false
       if(isAudio.value)mode.value='awb'
       isTexture.value = result.isTexture
@@ -250,6 +251,10 @@ watch(
       isMaterialFunction.value = !!result.data?.MaterialFunctionInfo
       isMpc.value = !!result.data?.MpcInfo
       isMovie.value = !!result.data?.MovieInfo
+
+      if (isParticleSystem.value) {
+        mode.value = 'particle'
+      }
 
       if (isMovie.value) {
         mode.value = 'movie'
@@ -450,8 +455,15 @@ onBeforeUnmount(() => {
           @navigate-path="jumpToResource"
           @preview-texture="openExternalTexPreview"
         />
+        <particle-system-viewer
+          v-if="data?.ParticleSystemInfo && mode === 'particle'"
+          :info="data.ParticleSystemInfo"
+          :path="path"
+          @navigate-path="jumpToResource"
+          @preview-texture="openExternalTexPreview"
+        />
         <generic-resource-viewer
-          v-if="data && mode === 'generic' && !isParticleSystem"
+          v-if="data && mode === 'generic'"
           :data="data"
           :path="path"
           :preview-src="src"
@@ -459,18 +471,6 @@ onBeforeUnmount(() => {
           :raw-url="rawUrl"
           @navigate-path="jumpToResource"
         />
-        <div v-if="data && mode === 'particle' && isParticleSystem" class="particle-panel">
-          <n-tabs v-model:value="particleFilter" type="segment" size="small">
-            <n-tab-pane name="system" tab="系统与发射器" />
-            <n-tab-pane name="modules" tab="模块" />
-            <n-tab-pane name="all" tab="全部导出" />
-          </n-tabs>
-          <div v-for="entry in particleExports" :key="entry.Index" class="particle-export">
-            <strong>#{{ entry.Index }} {{ entry.Name }}</strong><n-tag size="small">{{ entry.Class }}</n-tag>
-            <div v-for="(val,key) in entry.Properties" :key="key" class="particle-property"><span>{{ key }}</span><code>{{ JSON.stringify(val) }}</code></div>
-          </div>
-          <p class="particle-note">几何顶点缓冲区等专有数据保持只读摘要，不在此面板中编辑。</p>
-        </div>
 
         <!-- Material Instance Sprite 裁切预览面板 -->
         <div v-if="mode === 'sprite' && isMaterialInstance" class="sprite-pane">

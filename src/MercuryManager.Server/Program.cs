@@ -73,18 +73,32 @@ app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceServ
         }
         catch {}
     }
-    return doc with { Materials = matDict };
+
+    var particlePaths = doc.Nodes.SelectMany(n => n.Resources)
+        .Where(res => res.ClassName == "ParticleSystem" || res.AssetPath.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) && res.AssetPath.Contains("Particle", StringComparison.OrdinalIgnoreCase))
+        .Select(res => res.AssetPath)
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+    var particleDict = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.OrdinalIgnoreCase);
+    foreach (var pp in particlePaths)
+    {
+        try
+        {
+            var resolved = r.Resolve(id, pp);
+            var pData = GenericResourceViewer.ReadParticleSystemData(resolved, p => r.Resolve(id, p));
+            if (pData != null)
+            {
+                var elem = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(pData.ToString(Newtonsoft.Json.Formatting.None));
+                particleDict[pp] = elem;
+            }
+        }
+        catch {}
+    }
+
+    return doc with { Materials = matDict, Particles = particleDict };
 });
 app.MapGet("/api/projects/{id}/resource-blueprint",(string id,string path,ResourceService r,BlueprintService b)=>b.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-blueprint-node",(string id,string path,int index,ResourceService r,BlueprintService b)=>b.Node(r.Resolve(id,path),index));
-app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>
-{
-    var resolved=r.Resolve(id,path);
-    var asset=new UAssetAPI.UAsset(resolved,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
-    if(asset.Exports.Any(e=>e.GetExportClassType().ToString() is "ParticleSystem" or "StaticMesh"))
-        return Results.Ok(ApiResult.Ok(GenericResourceViewer.DescribeParticles(asset)));
-    return Results.Ok(GenericResourceViewer.Read(resolved,p=>r.Resolve(id,p)));
-});
+app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>Results.Ok(GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p))));
 app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
 app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:CriAudio.Banks(target.Path);});
 app.MapGet("/api/projects/{id}/audio-inspection",(string id,string path,string? source,bool? deep,HttpContext context,AudioIntegrityService inspection)=>Task.Run(()=>inspection.Inspect(id,path,source,deep==true,context.RequestAborted),context.RequestAborted));
