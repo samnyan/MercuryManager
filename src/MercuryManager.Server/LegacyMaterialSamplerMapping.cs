@@ -26,17 +26,15 @@ public static class LegacyMaterialSamplerMapping
                 throw new NotSupportedException("Sampled texture is outside the Material 2D member layout.");
             var expr = expressions.SingleOrDefault(x => x.ExpressionIndex == resource / 2)
                 ?? throw new InvalidDataException("Missing Material texture expression identity.");
-            int expected = expr.SamplerSource switch
-            {
-                0 => resource + 1,
-                1 => expressions.Count * 2,
-                2 => expressions.Count * 2 + 1,
-                _ => throw new NotSupportedException("Unknown Material sampler source.")
-            };
-            if (sampler[0].ResourceIndex != expected)
-                throw new NotSupportedException("Sampled sampler does not match the expression's resource member.");
+            int samplerResource = sampler[0].ResourceIndex;
+            int samplerSource;
+            if (samplerResource == resource + 1) samplerSource = 0;
+            else if (samplerResource == expressions.Count * 2) samplerSource = 1;
+            else if (samplerResource == expressions.Count * 2 + 1) samplerSource = 2;
+            else throw new NotSupportedException("Cross-texture asset sampler metadata is required.");
+            // 编译后的采样可对同一图像使用多个共享 sampler，以资源 token 为准。
             result.Add(new(pair.UniformName, pair.ImageName, pair.SamplerName, expr.ExpressionIndex,
-                expr.AssetPath, expr.SamplerSource, expr.ParameterName));
+                expr.AssetPath, samplerSource, expr.ParameterName));
         }
         return result;
     }

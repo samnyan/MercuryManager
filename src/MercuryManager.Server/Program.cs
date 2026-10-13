@@ -126,6 +126,8 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     if (!float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
     var context = MaterialPreviewOverrides.Parse(scalarOverrides, vectorOverrides, now, now);
     var resolved = r.Resolve(id, path);
+    try
+    {
     var preview = LegacyMaterialInstanceResolver.Resolve(resolved, dependency => r.ResolveMaterialDependency(id, dependency), context);
     var asset = preview.Asset;
     var matExport = preview.Material;
@@ -194,6 +196,18 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         renderingReady = limitations.Count == 0,
         limitations
     });
+    }
+    catch (NotSupportedException ex)
+    {
+        // An unsupported cooked capability is a preview diagnostic, not a server failure.
+        return Results.Ok(new
+        {
+            schemaVersion = 1,
+            renderingReady = false,
+            previewProfile = "slate-rectangle-v1",
+            limitations = new[] { ex.Message }
+        });
+    }
 });
 app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
