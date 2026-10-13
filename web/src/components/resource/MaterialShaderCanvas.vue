@@ -350,7 +350,8 @@ async function drawCanvas() {
             glCanvas.height,
             { ...shaderContract.value, time: t },
             slots,
-            props.blendMode || 'BLEND_Opaque'
+            props.blendMode || 'BLEND_Opaque',
+            bgMode.value
           )
           if (ok) return
         }

@@ -231,7 +231,7 @@ export async function renderUMGMaterialToCanvas(
   const H = Math.max(64, Math.min(1024, Math.round(targetH)))
 
   // 1. 若提供了已验证的 Cooked Material Shader 契约，直接使用 WebGL2 物理着色管线渲染
-  if (shaderContract && shaderContract.glsl) {
+  if (shaderContract && shaderContract.glsl && shaderContract.blendMode !== 'BLEND_Additive') {
     const { slots, error } = resolveContractSamplerSlots(shaderContract)
     if (!error) {
       // 加载所有解析出的槽位纹理

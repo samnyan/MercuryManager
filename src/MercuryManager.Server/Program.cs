@@ -175,7 +175,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     }
     catch (NotSupportedException ex) { limitations.Add(ex.Message); }
     var blendMode = (matExport.Data.FirstOrDefault(p => p.Name.ToString() == "BlendMode") as UAssetAPI.PropertyTypes.Objects.BytePropertyData)?.EnumValue?.ToString()?.Split("::").Last() ?? "BLEND_Opaque";
-    if (blendMode is not ("BLEND_Opaque" or "BLEND_Masked" or "BLEND_Translucent"))
+    if (blendMode is not ("BLEND_Opaque" or "BLEND_Masked" or "BLEND_Translucent" or "BLEND_Additive"))
         limitations.Add("Destination-dependent blend modes are not supported by isolated rectangle preview.");
     using var reflection = System.Text.Json.JsonDocument.Parse(translation.Reflection);
     return Results.Ok(new
@@ -218,7 +218,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
 });
 app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
-app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.Resolve(id,path),mip),"image/png"));
+app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.ResolveMaterialDependency(id,path),mip),"image/png"));
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));
 app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19" });

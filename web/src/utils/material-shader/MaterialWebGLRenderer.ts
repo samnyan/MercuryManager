@@ -291,7 +291,8 @@ export class MaterialWebGLRenderer {
     height: number,
     contract: MaterialShaderContract,
     samplerSlots: ResolvedSamplerSlot[],
-    blendMode = 'BLEND_Opaque'
+    blendMode = 'BLEND_Opaque',
+    background: 'checkerboard' | 'dark' | 'light' = 'dark'
   ): boolean {
     const gl = this.gl
     if (!gl || !this.vao || contract.schemaVersion !== 1 || contract.renderingReady !== true) return false
@@ -304,12 +305,33 @@ export class MaterialWebGLRenderer {
     if (!prog) return false
 
     gl.viewport(0, 0, width, height)
-    gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-
-    // 单矩形离屏输出保留 shader 的 straight RGBA，避免先乘 alpha 再被 Canvas 二次乘。
     if (contract.blendMode && blendMode !== contract.blendMode) return false
+    gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
+    if (blendMode === 'BLEND_Additive') {
+      // Additive RGB has alpha zero: compose against an explicit opaque destination,
+      // not a transparent canvas (browser premultiplication would erase the emissive RGB).
+      const dark = background === 'dark'
+      gl.clearColor(dark ? 20 / 255 : 1, dark ? 20 / 255 : 1, dark ? 24 / 255 : 1, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      if (background === 'checkerboard') {
+        gl.enable(gl.SCISSOR_TEST)
+        gl.clearColor(0.8, 0.8, 0.8, 1)
+        for (let y = 0; y < height; y += 8) for (let x = 0; x < width; x += 8) {
+          if (((x / 8 + y / 8) % 2) === 0) continue
+          gl.scissor(x, y, Math.min(8, width - x), Math.min(8, height - y))
+          gl.clear(gl.COLOR_BUFFER_BIT)
+        }
+        gl.disable(gl.SCISSOR_TEST)
+      }
+      gl.enable(gl.BLEND)
+      gl.blendEquation(gl.FUNC_ADD)
+      gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE)
+    } else {
+      // Preserve straight RGBA for normal canvas composition.
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    }
 
     gl.useProgram(prog)
     gl.bindVertexArray(this.vao)
