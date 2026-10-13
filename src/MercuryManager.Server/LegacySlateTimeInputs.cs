@@ -10,7 +10,8 @@ public static class LegacySlateTimeInputs
 {
     // 只允许读取已验证的时间分量；未使用的字节置零不代表支持其他场景输入。
     public static IReadOnlyList<LegacySlateBufferInput> Evaluate(string reflection, string glsl,
-        LegacySlatePixelBindings bindings, float time, float realTime)
+        LegacySlatePixelBindings bindings, float time, float realTime,
+        IReadOnlyList<LegacySlateBufferInput>? suppliedInputs = null)
     {
         if (!float.IsFinite(time) || !float.IsFinite(realTime))
             throw new ArgumentException("Slate time inputs must be finite.");
@@ -20,6 +21,8 @@ public static class LegacySlateTimeInputs
         foreach (var ubo in root.GetProperty("ubos").EnumerateArray())
         {
             int slot = ubo.GetProperty("binding").GetInt32();
+            if (suppliedInputs?.Any(input => input.BufferIndex == slot &&
+                input.Data.Length == ubo.GetProperty("block_size").GetInt32()) == true) continue;
             if (slot == bindings.GammaValues.BufferIndex ||
                 (bindings.Material.MaterialBufferBound && slot == bindings.Material.MaterialBufferIndex)) continue;
             int size = ubo.GetProperty("block_size").GetInt32();

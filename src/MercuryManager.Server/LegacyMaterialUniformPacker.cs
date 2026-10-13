@@ -15,8 +15,8 @@ public static class LegacyMaterialUniformPacker
         if (set.Arrays[0].Length != bindings.VectorCount || set.Arrays[1].Length != bindings.ScalarCount ||
             set.Arrays[2].Length != bindings.Texture2DCount || set.Arrays[3].Length != bindings.TextureCubeCount)
             throw new InvalidDataException("Shader and uniform expression counts disagree.");
-        if (set.Collections.Length != 0 || set.Arrays[4].Length != 0)
-            throw new NotSupportedException("Collections and external textures require separate bindings.");
+        if (set.Arrays[4].Length != 0)
+            throw new NotSupportedException("External textures require separate bindings.");
         if (set.Arrays[5].Length != bindings.PerFrameScalarCount || set.Arrays[6].Length != bindings.PerFrameVectorCount)
             throw new InvalidDataException("Per-frame expression counts disagree.");
         var data = new byte[checked(bindings.VectorCount * 16 + ((bindings.ScalarCount + 3) / 4) * 16)];

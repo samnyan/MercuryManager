@@ -161,10 +161,15 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     catch (NotSupportedException ex) { textureMappingError = ex.Message; }
     var limitations = new List<string>();
     if (textureMappingError != null) limitations.Add(textureMappingError);
+    IReadOnlyList<LegacyMaterialCollectionInput> collectionInputs = [];
     IReadOnlyList<LegacySlateBufferInput> sceneInputs = [];
     try
     {
-        sceneInputs = LegacySlateTimeInputs.Evaluate(translation.Reflection, translation.Glsl, bindings, now, now);
+        collectionInputs = LegacyMaterialCollectionInputs.Evaluate(asset, matExport, cooked.Uniforms, bindings,
+            translation.Reflection, dependency => r.ResolveMaterialDependency(id, dependency));
+        var collectionBuffers = collectionInputs.Select(input => new LegacySlateBufferInput(input.BufferIndex, input.Data)).ToArray();
+        sceneInputs = collectionBuffers.Concat(LegacySlateTimeInputs.Evaluate(translation.Reflection, translation.Glsl,
+            bindings, now, now, collectionBuffers)).ToArray();
         LegacySlatePreviewInputs.Validate(translation.Reflection, bindings, sceneInputs);
     }
     catch (NotSupportedException ex) { limitations.Add(ex.Message); }
@@ -183,6 +188,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         nativeMaterialConstantBytes = constants.Length,
         frameWrites,
         sceneInputs,
+        collectionInputs,
         slateBindings = bindings,
         time = now,
         previousTime = before,

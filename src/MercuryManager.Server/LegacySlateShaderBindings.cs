@@ -4,12 +4,14 @@ namespace MercuryManager.Server;
 
 public sealed record LegacyConstantBinding(ushort BaseIndex, ushort NumBytes, ushort BufferIndex);
 public sealed record LegacyResourceBinding(ushort BaseIndex, ushort NumResources);
+public sealed record LegacyUniformBufferBinding(ushort BufferIndex, bool Bound);
 public sealed record LegacyMaterialShaderBindings(ushort MaterialBufferIndex, bool MaterialBufferBound,
     int VectorCount, int ScalarCount, int Texture2DCount, int TextureCubeCount, int PerFrameScalarCount, int PerFrameVectorCount);
 public sealed record LegacySlatePixelBindings(LegacyMaterialShaderBindings Material,
     LegacyConstantBinding GammaValues, LegacyConstantBinding ShaderParams,
     LegacyResourceBinding ElementTextureSampler, LegacyResourceBinding ElementTexture)
 {
+    public LegacyUniformBufferBinding[] CollectionBindings { get; init; } = [];
     public LegacyConstantBinding[][] FrameBindings { get; init; } = [[], [], [], []];
 }
 
@@ -28,7 +30,14 @@ public static class LegacySlateShaderBindings
         ushort materialIndex = reader.U16();
         int bound = reader.Int();
         if (bound is not (0 or 1)) throw new InvalidDataException("Invalid material buffer binding flag.");
-        reader.Array(6); // Collection uniform buffers.
+        var collections = new LegacyUniformBufferBinding[reader.Count()];
+        for (int i = 0; i < collections.Length; i++)
+        {
+            ushort slot = reader.U16();
+            int collectionBound = reader.Int();
+            if (collectionBound is not (0 or 1)) throw new InvalidDataException("Invalid collection buffer binding flag.");
+            collections[i] = new(slot, collectionBound != 0);
+        }
         reader.Skip(146); // Scene texture and uniform-buffer bindings.
         reader.Skip(8); // SceneColorCopy texture/sampler.
         int vectors = reader.Count(), scalars = reader.Count(), frameScalars = reader.Count(), frameVectors = reader.Count();
@@ -45,7 +54,7 @@ public static class LegacySlateShaderBindings
         }
         reader.Skip(18); // InstanceCount, InstanceOffset, VertexOffset.
         return new(new(materialIndex, bound != 0, vectors, scalars, textures, cubes, frameScalars, frameVectors),
-            reader.Constant(), reader.Constant(), reader.Resource(), reader.Resource()) { FrameBindings = frames };
+            reader.Constant(), reader.Constant(), reader.Resource(), reader.Resource()) { FrameBindings = frames, CollectionBindings = collections };
     }
 
     private sealed class BindingReader(byte[] data, int start, int end)
