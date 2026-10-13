@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { NTag, NButton, NSpin, NAlert, NModal, NSelect } from 'naive-ui'
+import { NTag, NButton, NSpin, NAlert, NModal, NSplit } from 'naive-ui'
 import { useProject } from '../../../project'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGDocument, UMGNode } from './types'
@@ -33,6 +33,9 @@ const hiddenIds = ref<Set<string>>(new Set())
 // WACCA 机台固定 1080 × 1920 竖屏
 const viewport = ref({ width: 1080, height: 1920 })
 const viewMode = ref<'appearance' | 'structure'>('appearance')
+const horizontalSize = ref(0.18)
+const rightPaneSize = ref(0.23)
+const timelineSize = ref(0.26)
 const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
@@ -180,8 +183,7 @@ const selectedLayout = computed(() => {
 
       <div class="topbar-right">
         <div v-if="doc?.animations?.length" class="animation-controls">
-          <n-button size="small" @click="timelineVisible = !timelineVisible">{{ timelineVisible ? '隐藏时间轴' : '显示时间轴' }}</n-button>
-          <n-select v-model:value="activeAnimationId" :options="(doc?.animations || []).map((a: UMGAnimation) => ({ label: a.name, value: a.id }))" placeholder="选择动画" style="width:190px" />
+          <n-button size="small" @click="timelineVisible = !timelineVisible">{{ timelineVisible ? tr('ui.umgTimelineHide') : tr('ui.umgTimelineShow') }}</n-button>
         </div>
         <div class="mode-group">
           <n-button
@@ -222,52 +224,69 @@ const selectedLayout = computed(() => {
 
     <!-- Three-Pane Workspace -->
     <div v-else-if="doc" class="umg-body">
-      <div class="umg-workspace">
-        <UMGHierarchy
-        :roots="doc.roots"
-        :active-root-id="activeRootId"
-        :nodes="doc.nodes"
-        :selected-id="selectedNodeId"
-        :hidden-ids="hiddenIds"
-        @update:active-root-id="id => (activeRootId = id)"
-        @select-node="id => (selectedNodeId = id)"
-        @update:hidden-ids="ids => (hiddenIds = ids)"
-      />
-
-      <UMGStage
-        :nodes="previewNodes"
-        :layouts="layouts"
-        :materials="doc.materials"
-        :particles="doc.particles"
-        :animation-material-parameters="animationMaterialParameters"
-        :selected-id="selectedNodeId"
-        :hidden-ids="hiddenIds"
-        :viewport="viewport"
-        :view-mode="viewMode"
-        @select-node="id => (selectedNodeId = id)"
-      />
-
-      <UMGInspector
-        :node="selectedNode"
-        :layout="selectedLayout"
-        :materials="doc.materials"
-        :asset-path="path"
-        @navigate-path="p => emit('navigate-path', p)"
-        @preview-texture="p => (previewPath = p)"
-        @node-updated="loadDocument"
-      />
-      </div>
-      <UMGAnimationTimeline
-        v-if="doc.animations?.length"
-        v-show="timelineVisible"
-        :animations="doc.animations"
-        :active-animation-id="activeAnimationId"
-        :time="animationFrame"
-        :playing="animationPlaying"
-        @update:active-animation-id="activeAnimationId = $event"
-        @update:time="animationFrame = $event"
-        @update:playing="setAnimationPlaying($event)"
-      />
+      <n-split v-model:size="timelineSize" direction="vertical" :min="0.15" :max="0.6" :resize-trigger-size="5" class="umg-vertical-split">
+        <template #1>
+          <n-split v-model:size="horizontalSize" direction="horizontal" :min="0.12" :max="0.35" :resize-trigger-size="5" class="umg-horizontal-split">
+            <template #1>
+              <UMGHierarchy
+                :roots="doc.roots"
+                :active-root-id="activeRootId"
+                :nodes="doc.nodes"
+                :selected-id="selectedNodeId"
+                :hidden-ids="hiddenIds"
+                @update:active-root-id="id => (activeRootId = id)"
+                @select-node="id => (selectedNodeId = id)"
+                @update:hidden-ids="ids => (hiddenIds = ids)"
+              />
+            </template>
+            <template #2>
+              <n-split v-model:size="rightPaneSize" direction="horizontal" :min="0.15" :max="0.38" :resize-trigger-size="5" class="umg-inspector-split">
+                <template #1>
+                  <UMGStage
+                    :nodes="previewNodes"
+                    :layouts="layouts"
+                    :materials="doc.materials"
+                    :particles="doc.particles"
+                    :animation-material-parameters="animationMaterialParameters"
+                    :selected-id="selectedNodeId"
+                    :hidden-ids="hiddenIds"
+                    :viewport="viewport"
+                    :view-mode="viewMode"
+                    @select-node="id => (selectedNodeId = id)"
+                  />
+                </template>
+                <template #2>
+                  <UMGInspector
+                    :node="selectedNode"
+                    :layout="selectedLayout"
+                    :materials="doc.materials"
+                    :asset-path="path"
+                    @navigate-path="p => emit('navigate-path', p)"
+                    @preview-texture="p => (previewPath = p)"
+                    @node-updated="loadDocument"
+                  />
+                </template>
+              </n-split>
+            </template>
+          </n-split>
+        </template>
+        <template #2>
+          <UMGAnimationTimeline
+            v-if="doc.animations?.length"
+            :animations="doc.animations"
+            :active-animation-id="activeAnimationId"
+            :time="animationFrame"
+            :playing="animationPlaying"
+            @update:active-animation-id="activeAnimationId = $event"
+            @update:time="animationFrame = $event"
+            @update:playing="setAnimationPlaying($event)"
+          />
+          <div v-else class="timeline-empty">
+            <n-button size="tiny" quaternary @click="timelineSize = timelineSize < 0.2 ? 0.26 : 0.12">{{ tr('ui.umgTimeline') }}</n-button>
+            <span>{{ tr('ui.umgAnimationNone') }}</span>
+          </div>
+        </template>
+      </n-split>
     </div>
 
     <n-modal
@@ -328,11 +347,13 @@ const selectedLayout = computed(() => {
   justify-content: center;
   padding: 24px;
 }
-.umg-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.umg-workspace {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  overflow: hidden;
-}
+.umg-body { flex: 1; min-height: 0; overflow: hidden; }
+.umg-vertical-split, .umg-horizontal-split, .umg-inspector-split { width: 100%; height: 100%; min-height: 0; }
+.umg-vertical-split :deep(.n-split-pane-1),
+.umg-vertical-split :deep(.n-split-pane-2),
+.umg-horizontal-split :deep(.n-split-pane-1),
+.umg-horizontal-split :deep(.n-split-pane-2),
+.umg-inspector-split :deep(.n-split-pane-1),
+.umg-inspector-split :deep(.n-split-pane-2) { min-width: 0; min-height: 0; overflow: hidden; }
+.timeline-empty { height: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 6px 10px; background: #fff; color: #555; font-size: 12px; }
 </style>
