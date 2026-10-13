@@ -143,6 +143,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     {
         schemaVersion = 1,
         glsl = translation.Glsl,
+        combinedSamplers = translation.CombinedSamplers,
         reflection = reflection.RootElement.Clone(),
         materialBindings = bindings.Material,
         materialConstants = uploadConstants,

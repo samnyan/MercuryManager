@@ -12,7 +12,10 @@ namespace MercuryManager.Server;
 public static class MaterialShaderCompiler
 {
     public sealed record ShaderCandidate(string Hash,string Stage,int Offset,byte[] Bytecode);
-    public sealed record Translation(string Hash,string Stage,string Glsl,string Reflection,string[] Diagnostics);
+    public sealed record Translation(string Hash,string Stage,string Glsl,string Reflection,string[] Diagnostics)
+    {
+        public IReadOnlyList<MaterialCombinedSampler> CombinedSamplers { get; init; } = [];
+    }
     private const int MaxDecodedBytes=4*1024*1024;
 
     // Discovery only: offsets are NOT shader-map identities or proof of a Slate permutation.
@@ -91,8 +94,11 @@ public static class MaterialShaderCompiler
             await Run("vkd3d-compiler",["-x","dxbc-tpf","-b","spirv-binary",dxbc,"-o",spirv],cancellationToken);
             await Run("spirv-cross",[spirv,"--es","--version","300","--output",glsl],cancellationToken);
             await Run("spirv-cross",[spirv,"--reflect","--output",reflection],cancellationToken);
-            return new(candidate.Hash,candidate.Stage,await File.ReadAllTextAsync(glsl,cancellationToken),await File.ReadAllTextAsync(reflection,cancellationToken),
-                ["Bytecode translated; UE uniform-expression evaluation and shader-map permutation identity are not yet resolved. Do not render with guessed bindings."]);
+            var source = await File.ReadAllTextAsync(glsl,cancellationToken);
+            var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source);
+            return new(candidate.Hash,candidate.Stage,source,await File.ReadAllTextAsync(reflection,cancellationToken),
+                ["Translation metadata does not establish native resource-table mapping or game rendering fidelity."])
+                { CombinedSamplers = samplers };
         }
         finally {Directory.Delete(job,true);}
     }
