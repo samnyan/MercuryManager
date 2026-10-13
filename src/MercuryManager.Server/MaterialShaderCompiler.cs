@@ -24,8 +24,14 @@ public static class MaterialShaderCompiler
         var asset=new UAsset(path,EngineVersion.VER_UE4_19);
         var export=asset.Exports.OfType<NormalExport>().SingleOrDefault(e=>e.GetExportClassType().ToString()=="Material")
             ??throw new InvalidDataException("Compiled shaders must be read from a master Material asset.");
-        var data=export.Extras??[];
-        var found=new Dictionary<string,ShaderCandidate>(StringComparer.Ordinal);
+        return Discover(export.Extras??[]);
+    }
+
+    public static IReadOnlyList<ShaderCandidate> Discover(byte[] data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        // 相同字节码可属于不同排列；必须保留各目录位置供身份选择。
+        var found=new Dictionary<(string Hash, int Offset),ShaderCandidate>();
         for(int offset=0;offset<data.Length-2;offset++)
         {
             if(data[offset]!=0x78||((data[offset]<<8|data[offset+1])%31)!=0)continue;
@@ -46,7 +52,7 @@ public static class MaterialShaderCompiler
                     if(!bytes.AsSpan(start,4).SequenceEqual("DXBC"u8))continue;
                     if(!TryReadContainer(bytes.AsSpan(start),out var bytecode,out var stage))continue;
                     var hash=Convert.ToHexStringLower(SHA256.HashData(bytecode));
-                    found.TryAdd(hash,new(hash,stage,offset,bytecode));
+                    found.TryAdd((hash,offset),new(hash,stage,offset,bytecode));
                     start+=bytecode.Length-1;
                 }
             }
