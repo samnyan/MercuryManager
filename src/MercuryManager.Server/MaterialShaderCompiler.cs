@@ -20,6 +20,40 @@ public static class MaterialShaderCompiler
         public IReadOnlyList<MaterialCombinedSampler> CombinedSamplers { get; init; } = [];
     }
     private const int MaxDecodedBytes=4*1024*1024;
+    private const int MaxCachedTranslations = 16;
+    private static readonly object TranslationLock = new();
+    private static readonly Dictionary<string, Lazy<Task<Translation>>> Translations = new(StringComparer.Ordinal);
+
+    // 只缓存成功转译所需的共享任务；调用者取消等待不能中断其他请求。
+    public static async Task<Translation> Translate(ShaderCandidate candidate, string cacheRoot, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var key = Convert.ToHexStringLower(SHA256.HashData(candidate.Bytecode));
+        Lazy<Task<Translation>> job;
+        lock (TranslationLock)
+        {
+            if (!Translations.TryGetValue(key, out job!))
+            {
+                if (Translations.Count >= MaxCachedTranslations)
+                {
+                    var finished = Translations.FirstOrDefault(x => x.Value.IsValueCreated && x.Value.Value.IsCompleted);
+                    if (finished.Key != null) Translations.Remove(finished.Key);
+                }
+                // 全部正在转译时不增加持久缓存，避免无界增长。
+                job = new(() => TranslateUncached(candidate, cacheRoot, CancellationToken.None), LazyThreadSafetyMode.ExecutionAndPublication);
+                if (Translations.Count < MaxCachedTranslations) Translations.Add(key, job);
+            }
+        }
+        var task = job.Value;
+        try { return await task.WaitAsync(cancellationToken); }
+        catch
+        {
+            if (task.IsFaulted || task.IsCanceled)
+                lock (TranslationLock)
+                    if (Translations.TryGetValue(key, out var current) && ReferenceEquals(current, job)) Translations.Remove(key);
+            throw;
+        }
+    }
 
     // Discovery only: offsets are NOT shader-map identities or proof of a Slate permutation.
     public static IReadOnlyList<ShaderCandidate> Discover(string path)
@@ -90,7 +124,7 @@ public static class MaterialShaderCompiler
         bytecode=input[..(int)size].ToArray();return true;
     }
 
-    public static async Task<Translation> Translate(ShaderCandidate candidate,string cacheRoot,CancellationToken cancellationToken=default)
+    private static async Task<Translation> TranslateUncached(ShaderCandidate candidate,string cacheRoot,CancellationToken cancellationToken)
     {
         // Isolate each job; caches belong outside project drafts and distribution directories.
         Directory.CreateDirectory(cacheRoot);
