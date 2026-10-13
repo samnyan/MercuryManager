@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
 import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
@@ -44,7 +45,7 @@ const nodeIdByObject = new WeakMap<FabricObject, string>()
 // 图像与着色缓存
 const rawImageCache = new Map<string, Promise<HTMLImageElement | null>>()
 const tintedSourceCache = new Map<string, HTMLImageElement | HTMLCanvasElement>()
-const materialCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
+const materialSurfaces = new Map<string, Promise<MaterialSurface>>()
 const particleCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
 
 const finite = (value: unknown, fallback: number) =>
@@ -88,13 +89,11 @@ async function getMaterialCanvasSource(
   matPath: string,
   targetW: number,
   targetH: number,
-  animatedScalars?: Record<string, number>
+  animatedScalars?: Record<string, number>,
+  nodeId = matPath
 ): Promise<HTMLCanvasElement | null> {
   if (!props.materials || !props.materials[matPath]) return null
-  const key = Object.entries(animatedScalars || {}).map(([k,v])=>`${k}:${v}`).join(',')
-  const cacheKey = `${matPath}|${Math.round(targetW)}x${Math.round(targetH)}|${key}`
-  const cached = materialCanvasCache.get(cacheKey)
-  if (cached) return cached
+  const cacheKey = `${project.id}|${nodeId}|${matPath}`
 
   const spec = normalizeMaterialEntry(props.materials[matPath], matPath)
   if (!spec) return null
@@ -114,6 +113,25 @@ async function getMaterialCanvasSource(
     } catch {}
   }
 
+  if (contract?.renderingReady && contract.uniformProgram && contract.blendMode !== 'BLEND_Additive') {
+    let pending = materialSurfaces.get(cacheKey)
+    if (!pending) {
+      pending = (async () => {
+        const surface = new MaterialSurface(contract, targetW, targetH)
+        try {
+          await surface.prepare(texPath => loadRawImage(`/api/projects/${project.id}/resource-image?` + new URLSearchParams({path:texPath,mip:'0'})))
+          return surface
+        } catch (error) { surface.dispose(); throw error }
+      })()
+      materialSurfaces.set(cacheKey, pending)
+      pending.catch(() => { if (materialSurfaces.get(cacheKey) === pending) materialSurfaces.delete(cacheKey) })
+    }
+    try {
+      const surface = await pending
+      surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
+      return surface.draw(0.35)
+    } catch { return null }
+  }
   const promise = renderUMGMaterialToCanvas(
     spec,
     async (texPath: string) => {
@@ -127,7 +145,6 @@ async function getMaterialCanvasSource(
     contract
   )
 
-  materialCanvasCache.set(cacheKey, promise)
   return promise
 }
 
@@ -414,7 +431,7 @@ async function rebuildScene() {
     // 其次材质解析渲染 (Material / MaterialInstanceConstant)
     if (!fabricObj && matRef && rect.width > 0 && rect.height > 0) {
       const animatedScalars=props.animationMaterialParameters?.[node.id]
-      const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h, animatedScalars)
+      const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h, animatedScalars, node.id)
       if (gen !== renderGeneration) return
       if (matCanvas) {
         fabricObj = new FabricImage(matCanvas, {
@@ -707,7 +724,13 @@ watch(
   }
 )
 
+function disposeMaterialSurfaces() {
+  for (const task of materialSurfaces.values()) task.then(s => s.dispose()).catch(() => {})
+  materialSurfaces.clear()
+}
+watch(() => [project.id, props.materials], disposeMaterialSurfaces)
 onBeforeUnmount(() => {
+  disposeMaterialSurfaces()
   resizeObserver?.disconnect()
   fabricCanvas?.dispose()
   fabricCanvas = null
