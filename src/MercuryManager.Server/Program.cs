@@ -106,8 +106,11 @@ app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,R
 app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
 app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
 app.MapPost("/api/projects/{id}/resource-material-params",(string id,string path,SaveMaterialParamsRequest request,ResourceService r)=>r.SaveMaterialParams(id,path,request));
-app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, ResourceService r) =>
+app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, string? scalarOverrides, string? vectorOverrides, ResourceService r) =>
 {
+    float now = time ?? 0, before = previousTime ?? now;
+    if (!float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
+    var context = MaterialPreviewOverrides.Parse(scalarOverrides, vectorOverrides, now, now);
     var resolved = r.Resolve(id, path);
     var asset = new UAssetAPI.UAsset(resolved, UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
     var matExport = asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>().FirstOrDefault(e => e.GetExportClassType().ToString() == "Material");
@@ -120,10 +123,6 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     var translation = await MaterialShaderCompiler.Translate(psCandidate, cacheDir);
     var psEntry = cooked.Shaders.First(s => s.Type == "TSlateMaterialShaderPSDefaultfalse");
     var bindings = LegacySlateShaderBindings.ReadDefaultFalse(matExport.Extras!, psEntry);
-    float now = time ?? 0, before = previousTime ?? now;
-    if (!float.IsFinite(now) || !float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
-    var context = new MaterialUniformContext(new Dictionary<string, float>(),
-        new Dictionary<string, System.Numerics.Vector4>(), now, now);
     var constants = LegacyMaterialUniformPacker.PackNumericConstants(cooked.Uniforms, bindings.Material, context);
     var uploadConstants = LegacySlateProgramSelector.PrepareMaterialBuffer(translation.Reflection, bindings.Material, constants);
     var frameWrites = LegacyMaterialFrameEvaluator.Evaluate(cooked.Uniforms, bindings, context,
@@ -156,7 +155,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         textureExpressions,
         textureMappingError,
         renderingReady = false,
-        limitations = new[] { "Texture/sampler resource mapping and Slate View/vertex/blend inputs are not supplied", "Master cooked defaults only; instance overrides are not supported" }
+        limitations = new[] { "Texture/sampler resource mapping and Slate View/vertex/blend inputs are not supplied", "Master materials with temporary numeric overrides only; instance inheritance and texture overrides are not supported" }
     });
 });
 app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));
