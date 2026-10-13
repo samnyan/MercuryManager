@@ -8,7 +8,12 @@ using UAssetAPI.UnrealTypes;
 
 namespace MercuryManager.Server;
 
-public sealed record LegacyMaterialCollectionInput(int BufferIndex, byte[] Data, string AssetPath, string ValueSource);
+public sealed record LegacyMaterialCollectionParameters(
+    IReadOnlyDictionary<string, float> Scalars, IReadOnlyDictionary<string, float[]> Vectors);
+public sealed record LegacyMaterialCollectionInput(int BufferIndex, byte[] Data, string AssetPath, string ValueSource)
+{
+    public LegacyMaterialCollectionParameters? Defaults { get; init; }
+}
 
 public static class LegacyMaterialCollectionInputs
 {
@@ -90,7 +95,10 @@ public static class LegacyMaterialCollectionInputs
                 throw new NotSupportedException("Collection reflected layout differs from the native vec4 layout.");
             // 编译器可裁掉末尾未访问参数，上传反射所需的原始前缀。
             data = data[..ubo.GetProperty("block_size").GetInt32()];
-            result.Add(new(binding.BufferIndex, data, path, values == null ? "asset-defaults" : "preview-overrides"));
+            result.Add(new(binding.BufferIndex, data, path, values == null ? "asset-defaults" : "preview-overrides")
+            {
+                Defaults = DescribeDefaults(collection)
+            });
         }
         if (overrides?.Keys.Any(path => !consumed.Contains(path)) == true)
             throw new ArgumentException("Collection override does not target a bound collection.");
@@ -99,6 +107,31 @@ public static class LegacyMaterialCollectionInputs
 
     private static Guid? State(IEnumerable<PropertyData> properties) =>
         (properties.FirstOrDefault(p => p.Name.ToString() == "StateId") as StructPropertyData)?.Value.OfType<GuidPropertyData>().SingleOrDefault()?.Value;
+
+    public static LegacyMaterialCollectionParameters DescribeDefaults(NormalExport collection)
+    {
+        // Decode the validated native layout; metadata and uploaded bytes share one source of truth.
+        var data = PackDefaults(collection);
+        string[] Names(string field) => (collection.Data.FirstOrDefault(p => p.Name.ToString() == field)
+            as ArrayPropertyData)?.Value.Cast<StructPropertyData>().Select(p => p.Value.OfType<NamePropertyData>()
+                .Single(n => n.Name.ToString() == "ParameterName").Value.ToString()).ToArray() ?? [];
+        var scalarNames = Names("ScalarParameters");
+        var vectorNames = Names("VectorParameters");
+        var scalars = new Dictionary<string, float>(StringComparer.Ordinal);
+        var vectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        float Read(int offset) => BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(offset, 4));
+        for (int i = 0; i < scalarNames.Length; i++)
+            if (!scalars.TryAdd(scalarNames[i], Read(i * 4)))
+                throw new InvalidDataException("Duplicate collection scalar parameter name.");
+        int vectorOffset = ((scalarNames.Length + 3) / 4) * 16;
+        for (int i = 0; i < vectorNames.Length; i++)
+        {
+            int offset = vectorOffset + i * 16;
+            if (!vectors.TryAdd(vectorNames[i], [Read(offset), Read(offset + 4), Read(offset + 8), Read(offset + 12)]))
+                throw new InvalidDataException("Duplicate collection vector parameter name.");
+        }
+        return new(scalars, vectors);
+    }
 
     public static byte[] PackDefaults(NormalExport collection, MaterialUniformContext? overrides = null)
     {
