@@ -219,9 +219,9 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         limitations
     });
     }
-    catch (NotSupportedException ex)
+    catch (Exception ex) when (ex is NotSupportedException or InvalidDataException)
     {
-        // An unsupported cooked capability is a preview diagnostic, not a server failure.
+        // An unsupported or ambiguous cooked capability is a preview diagnostic, not a server failure.
         return Results.Ok(new
         {
             schemaVersion = 1,
