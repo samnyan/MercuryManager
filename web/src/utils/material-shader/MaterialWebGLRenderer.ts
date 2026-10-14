@@ -200,9 +200,9 @@ export class MaterialWebGLRenderer {
   private textures: Map<string, WebGLTexture> = new Map()
   private uploadedImages = new Map<string, HTMLImageElement>()
 
-  init(canvas: HTMLCanvasElement): boolean {
-    if (this.gl && this.gl.canvas === canvas) return true
-    const gl = canvas.getContext('webgl2', {
+  init(canvas: HTMLCanvasElement, sharedContext?: WebGL2RenderingContext): boolean {
+    if (this.gl && (sharedContext ? this.gl === sharedContext : this.gl.canvas === canvas)) return true
+    const gl = sharedContext ?? canvas.getContext('webgl2', {
       alpha: true,
       premultipliedAlpha: false,
       antialias: true,

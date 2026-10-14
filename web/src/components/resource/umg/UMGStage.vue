@@ -11,6 +11,7 @@ import { useProject, api } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
 import { widgetClip } from './clipping'
 import { setRetainedClip } from './retainedClip'
+import { GpuStage, type GpuItem } from './GpuStage'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
 import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
 
@@ -57,6 +58,29 @@ const canvasEl = ref<HTMLCanvasElement | null>(null)
 const zoomPercent = ref(50)
 
 let fabricCanvas: Canvas | null = null
+let gpuStage: GpuStage | null = null
+const gpuItems = new Map<FabricObject, GpuItem>()
+function renderGpuStage() {
+  if (!gpuStage || !fabricCanvas) return
+  const appearance = props.viewMode === 'appearance'
+  gpuStage.canvas.style.display = appearance ? 'block' : 'none'
+  fabricCanvas.lowerCanvasEl.style.opacity = appearance ? '0' : '1'
+  if (!appearance) return
+  const items: GpuItem[] = []
+  for (const obj of fabricCanvas.getObjects()) {
+    const item = gpuItems.get(obj)
+    if (!item || !obj.visible) continue
+    item.matrix = obj.calcTransformMatrix() as Matrix
+    item.opacity = obj.opacity
+    const id = nodeIdByObject.get(obj)
+    const surface = id ? activeDynamicMaterials.get(id)?.surface : undefined
+    if (surface?.texture) { item.texture = surface.texture; item.flipY = true }
+    items.push(item)
+  }
+  const ratio = fabricCanvas.getRetinaScaling()
+  const v = fabricCanvas.viewportTransform.map(n => n * ratio) as Matrix
+  gpuStage.render(items, v, fabricCanvas.width * ratio, fabricCanvas.height * ratio)
+}
 let resizeObserver: ResizeObserver | null = null
 let renderGeneration = 0
 let syncingSelection = false
@@ -140,7 +164,7 @@ async function getMaterialCanvasSource(
     let pending = materialSurfaces.get(cacheKey)
     if (!pending) {
       pending = (async () => {
-        const surface = new MaterialSurface(contract, targetW, targetH, 'opaque-stage')
+        const surface = new MaterialSurface(contract, targetW, targetH, 'opaque-stage', gpuStage?.gl)
         try {
           await surface.prepare(texPath => loadRawImage(`/api/projects/${project.id}/resource-image?` + new URLSearchParams({path:texPath,mip:'0'})))
           return surface
@@ -154,7 +178,7 @@ async function getMaterialCanvasSource(
       if (materialSurfaces.get(cacheKey) !== pending) return null
       surface.resize(targetW, targetH)
       surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
-      return surface.draw(props.materialTime ?? 0)
+      return surface.draw(props.materialTime ?? autoShaderClock)
     } catch { return null }
   }
   const promise = renderUMGMaterialToCanvas(
@@ -346,6 +370,8 @@ async function rebuildScene() {
 
   fabricCanvas.discardActiveObject()
   fabricCanvas.clear()
+  gpuItems.clear()
+  gpuStage?.clearSources()
   objectByNodeId.clear()
   activeDynamicMaterials.clear()
 
@@ -492,7 +518,7 @@ async function rebuildScene() {
         if (surfPromise) {
           surfPromise.then(surf => {
             const entry = activeDynamicMaterials.get(node.id)
-            if (entry) entry.surface = surf
+            if (entry && gen === renderGeneration) { entry.surface = surf; fabricCanvas?.requestRenderAll() }
           }).catch(() => {})
         }
       }
@@ -599,11 +625,29 @@ async function rebuildScene() {
       rect.x+(isText ? intrinsicWidth : w)/2,rect.y+(isText ? intrinsicHeight : h)/2]
     util.applyTransformToObject(fabricObj, multiply(world,local))
     fabricObj.setCoords()
-    fabricObj.set({ perPixelTargetFind: props.viewMode === 'appearance' })
+    // GPU appearance is not present in Fabric's hit-test canvas.
+    fabricObj.set({ perPixelTargetFind: props.viewMode === 'appearance' && !gpuStage })
     if (props.viewMode === 'appearance') setRetainedClip(fabricObj, clipPoints)
     applySelectionStyle(fabricObj)
     objectByNodeId.set(node.id, fabricObj)
     nodeIdByObject.set(fabricObj, node.id)
+    if (gpuStage && props.viewMode === 'appearance') {
+      let source: TexImageSource
+      if (fabricObj instanceof FabricImage) source = fabricObj.getElement() as TexImageSource
+      else {
+        const tile = document.createElement('canvas')
+        tile.width = Math.max(1, Math.ceil(fabricObj.width))
+        tile.height = Math.max(1, Math.ceil(fabricObj.height))
+        const ctx = tile.getContext('2d')!
+        ctx.translate(tile.width / 2, tile.height / 2)
+        fabricObj.drawObject(ctx, false, {})
+        source = tile
+      }
+      gpuItems.set(fabricObj, { source, width: fabricObj.width, height: fabricObj.height,
+        matrix: fabricObj.calcTransformMatrix() as Matrix, opacity, additive: fabricObj.globalCompositeOperation === 'lighter', clip: clipPoints })
+      // Fabric keeps interaction/selection geometry; appearance is composed on GPU.
+      fabricObj.render = () => {}
+    }
     fabricCanvas.add(fabricObj)
 
     // 结构线框模式下绘制轻量节点名称标签
@@ -751,6 +795,18 @@ onMounted(async () => {
   })
   resizeObserver.observe(stageViewport.value)
 
+  const gpuCanvas = document.createElement('canvas')
+  gpuCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
+  stageViewport.value.prepend(gpuCanvas)
+  // Keep the established renderer as default until visual parity is verified.
+  // Opt in with ?umgRenderer=webgl while validating the shared-context backend.
+  const enableGpuStage = new URLSearchParams(window.location.search).get('umgRenderer') === 'webgl'
+  try { if (enableGpuStage) gpuStage = new GpuStage(gpuCanvas); else gpuCanvas.remove() } catch (error) { gpuCanvas.remove(); console.warn(error) }
+  fabricCanvas.on('before:render', renderGpuStage)
+  if (gpuStage) {
+    fabricCanvas.backgroundColor = 'transparent'
+    fabricCanvas.lowerCanvasEl.style.opacity = '0'
+  }
   // 启动常驻 Stage 渲染帧循环 (驱动时间 Shader 动画以及统计 FPS)
   function stageFrameLoop(now: number) {
     const dt = Math.min(0.1, (now - lastRafTime) / 1000)
@@ -815,7 +871,10 @@ function updateSceneFrame() {
       rect.x + (text ? iw : w) / 2, rect.y + (text ? ih : h) / 2]
     util.applyTransformToObject(obj, multiply(transforms.get(id) ?? [1,0,0,1,0,0], local))
     obj.set({ opacity: effectiveOpacity(node), visible: layout.visible })
-    setRetainedClip(obj, widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport))
+    const clip = widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport)
+    const item = gpuItems.get(obj)
+    if (item) item.clip = clip
+    else setRetainedClip(obj, clip)
     obj.setCoords()
   }
   for (const entry of activeDynamicMaterials.values()) {
@@ -891,6 +950,8 @@ onBeforeUnmount(() => {
   ++renderGeneration
   disposeMaterialSurfaces()
   resizeObserver?.disconnect()
+  gpuStage?.dispose()
+  gpuStage?.canvas.remove()
   fabricCanvas?.dispose()
   fabricCanvas = null
 })
