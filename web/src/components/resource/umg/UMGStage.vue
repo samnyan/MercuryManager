@@ -94,7 +94,7 @@ async function getMaterialCanvasSource(
   nodeId = matPath
 ): Promise<HTMLCanvasElement | null> {
   if (!props.materials || !props.materials[matPath]) return null
-  const cacheKey = `${project.id}|${nodeId}|${matPath}|${Math.round(targetW)}x${Math.round(targetH)}`
+  const cacheKey = `${project.id}|${nodeId}|${matPath}`
 
   const spec = normalizeMaterialEntry(props.materials[matPath], matPath)
   if (!spec) return null
@@ -129,6 +129,7 @@ async function getMaterialCanvasSource(
     }
     try {
       const surface = await pending
+      surface.resize(targetW, targetH)
       surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
       return surface.draw(props.materialTime ?? 0)
     } catch { return null }

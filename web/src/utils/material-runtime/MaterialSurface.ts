@@ -15,9 +15,18 @@ export class MaterialSurface {
     if (program.blendMode === 'BLEND_Additive') throw new Error('Additive requires destination-aware stage composition')
     this.slots = resolved.slots
     this.instance = new MaterialInstance(program)
-    this.canvas.width = Math.max(1, Math.min(1024, Math.round(width)))
-    this.canvas.height = Math.max(1, Math.min(1024, Math.round(height)))
+    this.resize(width, height)
     if (!this.renderer.init(this.canvas)) throw new Error('WebGL2 unavailable')
+  }
+  resize(width: number, height: number) {
+    if (this.disposed) throw new Error('Material surface disposed')
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+      throw new Error('Invalid material surface dimensions')
+    const scale = Math.min(1, 1024 / Math.max(width, height))
+    const w = Math.max(1, Math.round(width * scale))
+    const h = Math.max(1, Math.round(height * scale))
+    if (this.canvas.width !== w) this.canvas.width = w
+    if (this.canvas.height !== h) this.canvas.height = h
   }
   async prepare(loadImage: (path: string) => Promise<HTMLImageElement | null>) {
     const images = await Promise.all(this.slots.map(s => loadImage(s.assetPath)))
