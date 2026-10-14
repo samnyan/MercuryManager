@@ -5,7 +5,7 @@
 Open an audio resource and select **Inspect / repair**. Pending audio edits must be applied or removed before inspection/repair. The dialog provides:
 
 - Fast inspection of the UE envelope, CueName lookup order, references, stream slots/work capacity and physical AFS2 indexes.
-- Optional deep inspection of referenced HCA headers/frames, CRC, PCM decoding and stored bank MD5. This can scan large banks and take substantially longer.
+- Optional deep inspection of referenced HCA headers/frames, CRC, PCM decoding and stored bank MD5. This can scan large banks and take substantially longer. An entry may include the exact zero-filled tail to its next AFS2 alignment boundary; this is not counted as another HCA frame. Truncation, nonzero tails and surplus bytes beyond that boundary still fail inspection.
 - Read-only CueName/CueIndex and StreamAwb/header views; native lookup failures are shown independently of whether a name exists in the table.
 - Managed StreamAwbTocWork capacity editing: leave blank for the recommended zero-filled allocation, or specify a sufficiently large size (maximum 16 MiB).
 - Selected repairs, with confirmation, and downloadable JSON reports.

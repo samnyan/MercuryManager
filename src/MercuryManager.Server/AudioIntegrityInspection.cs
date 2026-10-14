@@ -174,7 +174,8 @@ public static class AudioIntegrityInspection
                     int size=tag switch{"comp"=>16,"dec"=>12,"vbr"=>8,"ath" or "ciph"=>6,"loop"=>16,"rva"=>8,"comm"=>5+header[pos+4],_=>header.Length};pos=checked(pos+size);
                 }
                 if(frameBytes==0){issue("hca-crc-unverified","Variable/unknown HCA frame layout: frame CRC checking skipped.","AWB",row,null,"warning",null);continue;}
-                if((long)info.HeaderSize+(long)frames*frameBytes!=entry.Length)throw new InvalidDataException("HCA frame count/size differs from AWB entry length.");
+                long payloadBytes=checked((long)info.HeaderSize+(long)frames*frameBytes);
+                ValidateHcaEntryLength(input,payloadBytes,entry,index.Alignment);
                 var frame=new byte[frameBytes];for(int i=0;i<frames;i++){cancellation.ThrowIfCancellationRequested();input.ReadExactly(frame);if(Crc(frame)!=0)throw new InvalidDataException("HCA frame CRC mismatch at frame "+i);}
                 if(info.EncryptionEnabled){issue("hca-encrypted-unverified","Encrypted HCA: no key was guessed; PCM validation skipped.","AWB",row,null,"warning",null);continue;}
                 input.Position=0;using var pcm=new HcaWaveStream(input,0,index.Subkey);var buffer=new byte[32768];bool nonzero=false;int n;
@@ -183,6 +184,23 @@ public static class AudioIntegrityInspection
             }
             catch(Exception e) when(IsDataError(e)){issue("hca-invalid",$"Entry {entry.Id}: {e.Message}","AWB",row,null,"error",null);}
         }
+    }
+    private static void ValidateHcaEntryLength(Stream input,long payloadBytes,AwbIndexEntry entry,ushort alignment)
+    {
+        if(payloadBytes<0||payloadBytes>entry.Length)throw new InvalidDataException("HCA frame count/size exceeds AWB entry length.");
+        long padding=entry.Length-payloadBytes;if(padding==0)return;
+        // Imported/repacked banks may count the zero alignment tail as part of the previous entry.
+        // Accept only the exact tail to the next AFS2 boundary, not arbitrary surplus/truncated audio.
+        long end=checked(entry.Offset+payloadBytes);
+        if(alignment==0||padding!=(alignment-end%alignment)%alignment)
+            throw new InvalidDataException("HCA frame count/size differs from AWB entry length.");
+        long position=input.Position;
+        try
+        {
+            input.Position=payloadBytes;var tail=new byte[checked((int)padding)];input.ReadExactly(tail);
+            if(tail.AsSpan().ContainsAnyExcept((byte)0))throw new InvalidDataException("Nonzero data after HCA frames; not AWB alignment padding.");
+        }
+        finally{input.Position=position;}
     }
     private static readonly ushort[] CrcTable=Enumerable.Range(0,256).Select(i=>{int c=i<<8;for(int j=0;j<8;j++)c=((c<<1)^((c&0x8000)!=0?0x8005:0))&0xffff;return (ushort)c;}).ToArray();
     private static ushort Crc(ReadOnlySpan<byte> bytes){ushort c=0;foreach(byte b in bytes)c=(ushort)((c<<8)^CrcTable[(c>>8)^b]);return c;}
