@@ -20,6 +20,7 @@ public static class LegacyParticleProgramDiagnostics
         MaterialShaderCompiler.Translation? Translation, string[] Limitations)
     {
         public IReadOnlyList<ParticleSceneResourceRequirements.Requirement> SceneResources { get; init; } = [];
+        public ParticleMaterialNumericInputs.Evidence? MaterialNumericInput { get; init; }
     }
     public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
     {
@@ -29,7 +30,8 @@ public static class LegacyParticleProgramDiagnostics
     /// <summary>Opt-in development payload. Translation is not browser execution readiness.</summary>
     public static async Task<IReadOnlyList<ProgramStages>> TranslateStages(
         IReadOnlyList<Evidence> evidence, IReadOnlyList<MaterialShaderCompiler.ShaderCandidate> candidates,
-        string cacheRoot, CancellationToken cancellationToken = default)
+        string cacheRoot, CancellationToken cancellationToken = default,
+        LegacyUniformSet? uniforms = null, MaterialUniformContext? context = null)
     {
         var result = new List<ProgramStages>();
         foreach (var program in evidence.Where(p => p.IdentityVerified))
@@ -44,11 +46,13 @@ public static class LegacyParticleProgramDiagnostics
                 try
                 {
                     var translation = await MaterialShaderCompiler.Translate(candidate, cacheRoot, cancellationToken, diagnosticSamplers: true);
+                    var binding = program.FogBindings.SingleOrDefault(f => f.Stage == stage);
                     stages.Add(new(stage, candidate.Offset, true, translation,
                         ["Translated source still requires WebGL validation and native resource/geometry adapters."])
                     {
-                        SceneResources = ParticleSceneResourceRequirements.Inspect(translation,
-                            program.FogBindings.SingleOrDefault(f => f.Stage == stage)?.Bindings)
+                        SceneResources = ParticleSceneResourceRequirements.Inspect(translation, binding?.Bindings),
+                        MaterialNumericInput = binding?.MaterialBindings is { } materialBinding && uniforms != null && context != null
+                            ? ParticleMaterialNumericInputs.Inspect(translation.Reflection, materialBinding, uniforms, context) : null
                     });
                 }
                 catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.ComponentModel.Win32Exception)

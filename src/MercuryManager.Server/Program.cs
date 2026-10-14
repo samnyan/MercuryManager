@@ -174,7 +174,8 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         // A particle fragment shader is not a valid Slate rectangle program.
         var particlePrograms = LegacyParticleProgramDiagnostics.Inspect(asset, matExport, cooked, candidates);
         var particleStages = includeParticleStages == true
-            ? await LegacyParticleProgramDiagnostics.TranslateStages(particlePrograms, candidates, cacheDir, httpContext.RequestAborted)
+            ? await LegacyParticleProgramDiagnostics.TranslateStages(particlePrograms, candidates, cacheDir,
+                httpContext.RequestAborted, cooked.Uniforms, context)
             : null;
         return Results.Ok(new
         {
