@@ -136,11 +136,29 @@ public static class MaterialShaderCompiler
             var glsl=Path.Combine(job,"program.glsl");var reflection=Path.Combine(job,"reflection.json");
             await File.WriteAllBytesAsync(dxbc,candidate.Bytecode,cancellationToken);
             await Run(MaterialShaderToolchain.GetVkd3dCompilerPath(),["-x","dxbc-tpf","-b","spirv-binary",dxbc,"-o",spirv],cancellationToken);
-            await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--es","--version","300","--output",glsl],cancellationToken);
             await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--reflect","--output",reflection],cancellationToken);
+            var reflected = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(reflection,cancellationToken))!;
+            var arguments = new List<string> { spirv, "--es", "--version", "300", "--output", glsl };
+            if (diagnosticSamplers && candidate.Stage is "vertex" or "fragment")
+            {
+                string direction = candidate.Stage == "vertex" ? "out" : "in";
+                string field = candidate.Stage == "vertex" ? "outputs" : "inputs";
+                var locations = new HashSet<int>();
+                foreach (var variable in reflected[field]?.AsArray() ?? [])
+                {
+                    int location = variable!["location"]?.GetValue<int>()
+                        ?? throw new NotSupportedException("Particle interface variable has no location.");
+                    if (location < 0 || !locations.Add(location))
+                        throw new NotSupportedException("Particle interface locations are ambiguous.");
+                    string name = $"mercury_varying_{location}";
+                    arguments.AddRange(["--rename-interface-variable", direction,
+                        location.ToString(System.Globalization.CultureInfo.InvariantCulture), name]);
+                    variable["name"] = name;
+                }
+            }
+            await Run(MaterialShaderToolchain.GetSpirvCrossPath(),arguments.ToArray(),cancellationToken);
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
             var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source, diagnosticSamplers);
-            var reflected = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(reflection,cancellationToken))!;
             foreach (var ubo in reflected["ubos"]!.AsArray())
             {
                 int slot = ubo!["binding"]!.GetValue<int>();
