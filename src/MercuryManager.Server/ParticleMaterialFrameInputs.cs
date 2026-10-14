@@ -12,7 +12,7 @@ public static class ParticleMaterialFrameInputs
         try
         {
             var writes = LegacyMaterialFrameEvaluator.Evaluate(uniforms, bindings, current, previous);
-            LegacySlateProgramSelector.ValidateFrameWrites(reflection, material, materialUploadBytes, writes);
+            LegacyMaterialBufferValidation.ValidateFrameWrites(reflection, material, materialUploadBytes, writes);
             return new(true, writes.ToArray(),
                 ["Individual frame writes only; untouched scene buffer bytes are not supplied."]);
         }

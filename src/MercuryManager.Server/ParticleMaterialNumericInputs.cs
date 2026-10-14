@@ -18,7 +18,7 @@ public static class ParticleMaterialNumericInputs
             var constants = LegacyMaterialUniformPacker.PackNumericConstants(uniforms, bindings, context);
             nativeBytes = constants.Length;
             // The validator accepts only a contiguous native register prefix, not arbitrary reflected members.
-            var upload = LegacySlateProgramSelector.PrepareMaterialBuffer(reflection, bindings, constants);
+            var upload = LegacyMaterialBufferValidation.PrepareMaterialBuffer(reflection, bindings, constants);
             return new(true, bindings.MaterialBufferIndex, true, nativeBytes, upload,
                 ["Material numeric prefix only; per-frame writes, textures and scene inputs are not supplied."]);
         }
