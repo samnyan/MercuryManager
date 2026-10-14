@@ -7,7 +7,10 @@ namespace MercuryManager.Server;
 /// 0x140EBB030, 0x140B10DB0, 0x140EBB4F0, 0x140BBCDB0 and 0x140BBCAB0.</summary>
 public static class LegacyBasePassFogLocator
 {
-    public sealed record Layout(int FogOffset, int FactoryPayloadStart, int FactoryPayloadEnd, int Frequency);
+    public sealed record Layout(int FogOffset, int FactoryPayloadStart, int FactoryPayloadEnd, int Frequency)
+    {
+        public LegacyMaterialShaderBindings Material { get; init; } = null!;
+    }
 
     public static int Locate(UAsset asset, byte[] extras, LegacyShaderEntry entry,
         long extrasFileOffset, string expectedFactory) => Inspect(asset, extras, entry, extrasFileOffset, expectedFactory).FogOffset;
@@ -26,10 +29,14 @@ public static class LegacyBasePassFogLocator
         int Count() { int n = Int(); if (n < 0 || n > 1048576) throw new InvalidDataException("Invalid BasePass count."); return n; }
         void Flag() { int n = Int(); if (n is not (0 or 1)) throw new InvalidDataException("Invalid BasePass binding flag."); }
         void Uniform() { Skip(2); Flag(); }
-        Uniform(); // Material.
+        int materialAt = p; Skip(2);
+        ushort materialIndex = BinaryPrimitives.ReadUInt16LittleEndian(extras.AsSpan(materialAt));
+        int materialBound = Int();
+        if (materialBound is not (0 or 1)) throw new InvalidDataException("Invalid Material binding flag.");
         int collections = Count(); for (int i = 0; i < collections; i++) Uniform();
         Skip(146 + 8); // Scene parameters and SceneColorCopy resource pair.
-        for (int i = 0; i < 6; i++) Count(); // Numeric/frame/texture counts.
+        int vectors = Count(), scalars = Count(), frameScalars = Count(), frameVectors = Count();
+        int textures = Count(), cubes = Count();
         Skip(16); Skip(Count()); // Uniform layout identity and bytes.
         int length = Int();
         if (Math.Abs((long)length) > 1048576) throw new InvalidDataException("Invalid BasePass description length.");
@@ -57,6 +64,9 @@ public static class LegacyBasePassFogLocator
         Uniform(); // PrecomputedLightingBuffer.
         if (pixel) Skip(134 + 66); // Native 0x140BD5520 and 0x140BD5A70 blocks.
         if (p > entry.EndOffset - 70) throw new InvalidDataException("Truncated BasePass fog block.");
-        return new(p, payloadStart, (int)factoryEnd, extras[frequencyAt]);
+        return new(p, payloadStart, (int)factoryEnd, extras[frequencyAt])
+        {
+            Material = new(materialIndex, materialBound != 0, vectors, scalars, textures, cubes, frameScalars, frameVectors)
+        };
     }
 }

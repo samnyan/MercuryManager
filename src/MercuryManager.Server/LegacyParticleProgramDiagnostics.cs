@@ -11,7 +11,10 @@ public static class LegacyParticleProgramDiagnostics
     {
         public IReadOnlyList<FogStageEvidence> FogBindings { get; init; } = [];
     }
-    public sealed record FogStageEvidence(string Stage, LegacyFogBindings Bindings);
+    public sealed record FogStageEvidence(string Stage, LegacyFogBindings Bindings)
+    {
+        public LegacyMaterialShaderBindings? MaterialBindings { get; init; }
+    }
 
     public sealed record StageEvidence(string Stage, int Offset, bool TranslationSucceeded,
         MaterialShaderCompiler.Translation? Translation, string[] Limitations)
@@ -93,9 +96,10 @@ public static class LegacyParticleProgramDiagnostics
                     try
                     {
                         var entry = maps.Single(m => m.VertexFactory == factory).Shaders.Single(s => s.Type == type);
-                        int offset = LegacyBasePassFogLocator.Locate(asset, material.Extras, entry,
+                        var layout = LegacyBasePassFogLocator.Inspect(asset, material.Extras, entry,
                             material.SerialOffset + material.SerialSize - material.Extras.Length, factory);
-                        fog.Add(new(stage, LegacyFogShaderBindings.Read(material.Extras, entry, offset)));
+                        fog.Add(new(stage, LegacyFogShaderBindings.Read(material.Extras, entry, layout.FogOffset))
+                            { MaterialBindings = layout.Material });
                     }
                     catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
                     {
