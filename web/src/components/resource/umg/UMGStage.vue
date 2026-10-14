@@ -4,7 +4,7 @@ import { hasNonSlateParticleDiagnostics } from '../../../utils/material-runtime/
 import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { NButton } from 'naive-ui'
+import { NButton, NDropdown } from 'naive-ui'
 import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject, api } from '../../../project'
@@ -41,6 +41,41 @@ interface DynamicMaterialEntry {
 const activeDynamicMaterials = new Map<string, DynamicMaterialEntry>()
 
 // FPS 统计 (使用原生 DOM 引用直接更新，避免触发 Vue 响应式依赖更新引起每 500ms 调度卡顿)
+const rendererStorageKey = 'mercury.umg.renderer'
+type StageRenderer = 'webgl' | 'canvas'
+const renderer = ref<StageRenderer>(localStorage.getItem(rendererStorageKey) === 'canvas' ? 'canvas' : 'webgl')
+const rendererOptions = computed(() => [
+  { label: `${renderer.value === 'webgl' ? '✓ ' : ''}WebGL2`, key: 'webgl' },
+  { label: `${renderer.value === 'canvas' ? '✓ ' : ''}Canvas (Fabric)`, key: 'canvas' },
+])
+function configureRenderer() {
+  if (!fabricCanvas || !stageViewport.value) return
+  ++renderGeneration
+  activeDynamicMaterials.clear()
+  disposeMaterialSurfaces()
+  gpuItems.clear()
+  gpuStage?.dispose()
+  gpuStage?.canvas.remove()
+  gpuStage = null
+  if (renderer.value === 'webgl') {
+    const canvas = document.createElement('canvas')
+    canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
+    stageViewport.value.prepend(canvas)
+    try { gpuStage = new GpuStage(canvas) }
+    catch (error) { canvas.remove(); renderer.value = 'canvas'; console.warn(error) }
+  }
+  fabricCanvas.backgroundColor = gpuStage ? 'transparent' : '#141418'
+  fabricCanvas.lowerCanvasEl.style.opacity = gpuStage && props.viewMode === 'appearance' ? '0' : '1'
+}
+function selectRenderer(key: string) {
+  if (key !== 'webgl' && key !== 'canvas') return
+  if (key !== renderer.value) {
+    renderer.value = key
+    configureRenderer()
+    void rebuildScene()
+  }
+  localStorage.setItem(rendererStorageKey, renderer.value)
+}
 const fpsSpanRef = ref<HTMLSpanElement | null>(null)
 let fpsFrameCount = 0
 let fpsLastTime = performance.now()
@@ -795,18 +830,8 @@ onMounted(async () => {
   })
   resizeObserver.observe(stageViewport.value)
 
-  const gpuCanvas = document.createElement('canvas')
-  gpuCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
-  stageViewport.value.prepend(gpuCanvas)
-  // Keep the established renderer as default until visual parity is verified.
-  // Opt in with ?umgRenderer=webgl while validating the shared-context backend.
-  const enableGpuStage = new URLSearchParams(window.location.search).get('umgRenderer') === 'webgl'
-  try { if (enableGpuStage) gpuStage = new GpuStage(gpuCanvas); else gpuCanvas.remove() } catch (error) { gpuCanvas.remove(); console.warn(error) }
+  configureRenderer()
   fabricCanvas.on('before:render', renderGpuStage)
-  if (gpuStage) {
-    fabricCanvas.backgroundColor = 'transparent'
-    fabricCanvas.lowerCanvasEl.style.opacity = '0'
-  }
   // 启动常驻 Stage 渲染帧循环 (驱动时间 Shader 动画以及统计 FPS)
   function stageFrameLoop(now: number) {
     const dt = Math.min(0.1, (now - lastRafTime) / 1000)
@@ -962,7 +987,11 @@ onBeforeUnmount(() => {
     <div class="stage-toolbar">
       <div class="stage-info">
         <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }}</span>
-        <span ref="fpsSpanRef" class="fps-badge">-- FPS</span>
+        <n-dropdown trigger="click" :options="rendererOptions" @select="selectRenderer">
+          <button type="button" class="fps-badge" aria-label="Renderer" aria-haspopup="menu">
+            <span ref="fpsSpanRef">-- FPS</span> · {{ renderer === 'webgl' ? 'WebGL2' : 'Canvas' }} ▾
+          </button>
+        </n-dropdown>
       </div>
       <div class="zoom-controls">
         <n-button size="tiny" @click="zoomBy(-0.1)" style="color:#e4e7eb">-</n-button>
@@ -1007,6 +1036,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .fps-badge {
+  cursor: pointer;
   background: rgba(16, 185, 129, 0.15);
   color: #10b981;
   border: 1px solid rgba(16, 185, 129, 0.3);
