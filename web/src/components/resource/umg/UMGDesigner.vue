@@ -33,14 +33,29 @@ const hiddenIds = ref<Set<string>>(new Set())
 // WACCA 机台固定 1080 × 1920 竖屏
 const viewport = ref({ width: 1080, height: 1920 })
 const viewMode = ref<'appearance' | 'structure'>('appearance')
-const horizontalSize = ref(0.18)
-const rightPaneSize = ref(0.23)
-const timelineSize = ref('220px')
+const timelineHeight = ref(220)
 const timelineCollapsed = ref(false)
-const toggleTimeline = () => {
-  timelineCollapsed.value = !timelineCollapsed.value
-  timelineSize.value = timelineCollapsed.value ? '30px' : '220px'
+const timelinePane = ref<HTMLElement | null>(null)
+let draggingTimeline = false
+function startTimelineResize(event: MouseEvent) {
+  if (timelineCollapsed.value || event.button !== 0) return
+  event.preventDefault()
+  draggingTimeline = true
+  const move = (e: MouseEvent) => {
+    if (!draggingTimeline) return
+    const bounds = timelinePane.value?.parentElement?.getBoundingClientRect()
+    if (!bounds) return
+    timelineHeight.value = Math.max(100, Math.min(bounds.height * 0.6, bounds.bottom - e.clientY))
+  }
+  const stop = () => {
+    draggingTimeline = false
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', stop)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', stop)
 }
+const toggleTimeline = () => { timelineCollapsed.value = !timelineCollapsed.value }
 const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
@@ -249,74 +264,62 @@ const selectedLayout = computed(() => {
 
     <!-- Three-Pane Workspace -->
     <div v-else-if="doc" class="umg-body">
-      <n-split v-model:size="timelineSize" direction="vertical" :min="timelineCollapsed ? '30px' : '90px'" :max="'55%'" :resize-trigger-size="12" class="umg-vertical-split">
-        <template #resize-trigger>
-          <div class="split-trigger" role="separator" :aria-label="tr('ui.umgTimeline')">
-            <button class="timeline-collapse" type="button" :title="timelineCollapsed ? tr('ui.umgTimelineExpand') : tr('ui.umgTimelineCollapse')" @pointerdown.stop @click.stop="toggleTimeline">{{ timelineCollapsed ? '▴' : '▾' }}</button>
-          </div>
-        </template>
-        <template #1>
-          <n-split v-model:size="horizontalSize" direction="horizontal" :min="0.12" :max="0.35" :resize-trigger-size="5" class="umg-horizontal-split">
-            <template #1>
-              <UMGHierarchy
-                :roots="doc.roots"
-                :active-root-id="activeRootId"
-                :nodes="doc.nodes"
-                :selected-id="selectedNodeId"
-                :hidden-ids="hiddenIds"
-                @update:active-root-id="id => (activeRootId = id)"
-                @select-node="id => (selectedNodeId = id)"
-                @update:hidden-ids="ids => (hiddenIds = ids)"
-              />
-            </template>
-            <template #2>
-              <n-split v-model:size="rightPaneSize" direction="horizontal" :min="0.15" :max="0.38" :resize-trigger-size="5" class="umg-inspector-split">
-                <template #1>
-                  <UMGStage
-                    :nodes="previewNodes"
-                    :layouts="layouts"
-                    :materials="doc.materials"
-                    :particles="doc.particles"
-                    :animation-material-parameters="animationMaterialParameters"
-                    :material-time="animationFrame"
-                    :selected-id="selectedNodeId"
-                    :hidden-ids="hiddenIds"
-                    :viewport="viewport"
-                    :view-mode="viewMode"
-                    @select-node="id => (selectedNodeId = id)"
-                  />
-                </template>
-                <template #2>
-                  <UMGInspector
-                    :node="selectedNode"
-                    :layout="selectedLayout"
-                    :materials="doc.materials"
-                    :asset-path="path"
-                    @navigate-path="p => emit('navigate-path', p)"
-                    @preview-texture="p => (previewPath = p)"
-                    @node-updated="loadDocument"
-                  />
-                </template>
-              </n-split>
-            </template>
-          </n-split>
-        </template>
-        <div ref="timelinePane" class="timeline-pane" :style="{ '--timeline-size': timelineSize }">
-          <UMGAnimationTimeline
-            v-if="doc.animations?.length"
-            :animations="doc.animations"
-            :active-animation-id="activeAnimationId"
-            :time="animationFrame"
-            :playing="animationPlaying"
-            @update:active-animation-id="activeAnimationId = $event"
-            @update:time="animationFrame = $event"
-            @update:playing="setAnimationPlaying($event)"
+      <section class="umg-workspace">
+        <div class="umg-left-pane">
+          <UMGHierarchy
+            :roots="doc.roots"
+            :active-root-id="activeRootId"
+            :nodes="doc.nodes"
+            :selected-id="selectedNodeId"
+            :hidden-ids="hiddenIds"
+            @update:active-root-id="id => (activeRootId = id)"
+            @select-node="id => (selectedNodeId = id)"
+            @update:hidden-ids="ids => (hiddenIds = ids)"
           />
-          <div v-else class="timeline-empty">
-            <span>{{ tr('ui.umgAnimationNone') }}</span>
-          </div>
         </div>
-      </n-split>
+        <div class="umg-stage-pane">
+          <UMGStage
+            :nodes="previewNodes"
+            :layouts="layouts"
+            :materials="doc.materials"
+            :particles="doc.particles"
+            :animation-material-parameters="animationMaterialParameters"
+            :material-time="animationFrame"
+            :selected-id="selectedNodeId"
+            :hidden-ids="hiddenIds"
+            :viewport="viewport"
+            :view-mode="viewMode"
+            @select-node="id => (selectedNodeId = id)"
+          />
+        </div>
+        <div class="umg-right-pane">
+          <UMGInspector
+            :node="selectedNode"
+            :layout="selectedLayout"
+            :materials="doc.materials"
+            :asset-path="path"
+            @navigate-path="p => emit('navigate-path', p)"
+            @preview-texture="p => (previewPath = p)"
+            @node-updated="loadDocument"
+          />
+        </div>
+      </section>
+      <div class="timeline-resize-handle" :class="{ collapsed: timelineCollapsed }" role="separator" @mousedown="startTimelineResize">
+        <button class="timeline-collapse" type="button" :title="timelineCollapsed ? tr('ui.umgTimelineExpand') : tr('ui.umgTimelineCollapse')" @mousedown.stop @click.stop="toggleTimeline">{{ timelineCollapsed ? '▴' : '▾' }}</button>
+      </div>
+      <div ref="timelinePane" class="timeline-pane" :style="{ height: timelineCollapsed ? '0px' : `${timelineHeight}px` }">
+        <UMGAnimationTimeline
+          v-if="doc.animations?.length"
+          :animations="doc.animations"
+          :active-animation-id="activeAnimationId"
+          :time="animationFrame"
+          :playing="animationPlaying"
+          @update:active-animation-id="activeAnimationId = $event"
+          @update:time="animationFrame = $event"
+          @update:playing="setAnimationPlaying($event)"
+        />
+        <div v-else class="timeline-empty"><span>{{ tr('ui.umgAnimationNone') }}</span></div>
+      </div>
     </div>
 
     <n-modal
@@ -377,19 +380,12 @@ const selectedLayout = computed(() => {
   justify-content: center;
   padding: 24px;
 }
-.umg-body { flex: 1; min-height: 0; overflow: hidden; }
-.umg-vertical-split, .umg-horizontal-split, .umg-inspector-split { width: 100%; height: 100%; min-height: 0; }
-.umg-vertical-split :deep(.n-split-pane-1),
-.umg-vertical-split :deep(.n-split-pane-2),
-.umg-horizontal-split :deep(.n-split-pane-1),
-.umg-horizontal-split :deep(.n-split-pane-2),
-.umg-inspector-split :deep(.n-split-pane-1),
-.umg-inspector-split :deep(.n-split-pane-2) { min-width: 0; min-height: 0; overflow: hidden; }
-.umg-horizontal-split :deep(.n-split-pane-1) { flex: 0 0 clamp(180px, 18%, 320px) !important; }
-.umg-inspector-split :deep(.n-split-pane-2) { flex: 0 0 clamp(260px, 23%, 420px) !important; }
-.umg-vertical-split :deep(.n-split-pane-2) { flex: 0 0 v-bind('timelineSize') !important; }
-.timeline-pane { height: var(--timeline-size); min-height: 0; overflow: hidden; }
-.split-trigger { height: 12px; display: flex; align-items: center; justify-content: center; background: #eceef1; border-top: 1px solid #d4d7dc; border-bottom: 1px solid #d4d7dc; }
+.umg-body { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
+.umg-workspace { display: grid; grid-template-columns: clamp(180px, 18vw, 320px) minmax(0, 1fr) clamp(260px, 23vw, 420px); flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
+.umg-left-pane, .umg-stage-pane, .umg-right-pane { min-width: 0; min-height: 0; overflow: hidden; }
+.timeline-pane { flex: 0 0 auto; min-height: 0; min-width: 0; width: 100%; overflow: hidden; transition: height 120ms ease; }
+.timeline-resize-handle { flex: 0 0 12px; width: 100%; display: flex; align-items: center; justify-content: center; cursor: row-resize; background: #eceef1; border-top: 1px solid #d4d7dc; border-bottom: 1px solid #d4d7dc; }
+.timeline-resize-handle.collapsed { cursor: default; }
 .timeline-collapse { border: 0; border-radius: 4px; background: #fff; color: #333; cursor: pointer; line-height: 14px; padding: 0 12px; font-size: 10px; }
 .timeline-collapse:hover { background: #e5e7eb; }
 .timeline-empty { height: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 6px 10px; background: #fff; color: #555; font-size: 12px; }
