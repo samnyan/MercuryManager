@@ -985,7 +985,9 @@ public static class GenericResourceViewer
             ["Properties"]=parsedProps,
             ["Distributions"]=distributions,
             ["References"]=references,
-            ["RawProperties"]=rawProps
+            ["RawProperties"]=rawProps,
+            ["CutoutConfiguration"]=cls == "ParticleModuleRequired"
+                ? JObject.FromObject(LegacyParticleCutoutConfiguration.Inspect(mod)) : null
         };
     }
 
