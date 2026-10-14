@@ -60,6 +60,7 @@ const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
 const timelineVisible = ref(true)
+const animationSoloHiddenIds = ref<Set<string>>(new Set())
 // Scrubbing pauses playback; timer updates must not pause themselves.
 watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
 let advancingAnimation = false
@@ -68,23 +69,29 @@ const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id ===
 watch(activeAnimationId, () => {
   animationFrame.value = activeAnimation.value?.start || 0
   hiddenIds.value = new Set()
+  animationSoloHiddenIds.value = new Set()
   setAnimationPlaying(false)
 })
-watch(() => activeAnimation.value?.id, () => {
+watch(() => [activeAnimation.value?.id, activeRoot.value?.treeId], () => {
   const animation = activeAnimation.value
+  animationSoloHiddenIds.value = new Set()
   if (!animation || !doc.value || !activeRoot.value) return
-  const names = new Set(animation.bindings.map(binding => binding.widgetName).filter(Boolean))
   const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
-  const targets = new Set(treeNodes.filter(node => names.has(node.name)).map(node => node.id))
-  const visible = new Set(targets)
-  for (const id of targets) {
-    let current = doc.value.nodes.find(node => node.id === id)
+  const validBindings = animation.bindings.filter(binding => treeNodes.some(node => node.name === binding.widgetName))
+  const targetNames = new Set(validBindings.map(binding => binding.widgetName))
+  const targets = new Set(treeNodes.filter(node => targetNames.has(node.name)).map(node => node.id))
+  if (!targets.size) return
+  const keepVisible = new Set<string>()
+  for (const id of targets) keepVisible.add(id)
+  for (const node of treeNodes) if (!hiddenIds.value.has(node.id)) keepVisible.add(node.id)
+  for (const id of [...keepVisible]) {
+    let current = treeNodes.find(node => node.id === id)
     while (current?.parentId) {
-      visible.add(current.parentId)
-      current = doc.value.nodes.find(node => node.id === current!.parentId)
+      keepVisible.add(current.parentId)
+      current = treeNodes.find(node => node.id === current!.parentId)
     }
   }
-  hiddenIds.value = new Set(treeNodes.filter(node => !visible.has(node.id)).map(node => node.id))
+  animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id) && !hiddenIds.value.has(node.id)).map(node => node.id))
 }, { immediate: true })
 function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
   const keys=channel.keys
@@ -113,8 +120,35 @@ const animationMaterialParameters = computed(() => {
   return result
 })
 const previewNodes = computed(() => {
-  if(!activeAnimation.value) return doc.value?.nodes||[]
-  const clones=new Map((doc.value?.nodes||[]).map(n=>[n.id,{...n,visual:{...n.visual,RenderTransform:n.visual.RenderTransform?{...n.visual.RenderTransform,Translation:{...n.visual.RenderTransform.Translation},Scale:{...n.visual.RenderTransform.Scale},Shear:{...n.visual.RenderTransform.Shear}}:undefined}}]))
+  if (!doc.value) return []
+  const combinedHidden = new Set([...hiddenIds.value, ...animationSoloHiddenIds.value])
+  if (!activeAnimation.value) return doc.value.nodes.filter(node => !animationSoloHiddenIds.value.has(node.id))
+  const names = new Set(activeAnimation.value.bindings.map(binding => binding.widgetName).filter(Boolean))
+  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
+  const targets = new Set(treeNodes.filter(node => names.has(node.name)).map(node => node.id))
+  const visible = new Set(treeNodes.filter(node => !combinedHidden.has(node.id)).map(node => node.id))
+  if (!targets.size) return doc.value.nodes.filter(node => !combinedHidden.has(node.id))
+  for (const id of targets) visible.add(id)
+  for (const id of [...visible]) {
+    let current = treeNodes.find(node => node.id === id)
+    while (current?.parentId) {
+      visible.add(current.parentId)
+      current = treeNodes.find(node => node.id === current!.parentId)
+    }
+  }
+  const clones = new Map((doc.value.nodes.filter(node => visible.has(node.id))).map(node => [node.id, {
+    ...node,
+    children: node.children.filter(id => visible.has(id)),
+    visual: {
+      ...node.visual,
+      RenderTransform: node.visual.RenderTransform ? {
+        ...node.visual.RenderTransform,
+        Translation: { ...node.visual.RenderTransform.Translation },
+        Scale: { ...node.visual.RenderTransform.Scale },
+        Shear: { ...node.visual.RenderTransform.Shear }
+      } : undefined
+    }
+  }]))
   for(const track of activeAnimation.value.tracks){
     const binding=activeAnimation.value.bindings.find(b=>b.guid===track.targetGuid)
     if(!binding) continue
@@ -210,6 +244,19 @@ const activeRoot = computed(() => {
 watch(activeRoot, r => {
   if (r && r.rootNodeId) {
     selectedNodeId.value = r.rootNodeId
+    if (activeAnimation.value) {
+      const animation = activeAnimation.value
+      const treeNodes = doc.value?.nodes.filter(node => node.treeId === r.treeId) || []
+      const targetNames = new Set(animation.bindings.filter(binding => treeNodes.some(node => node.name === binding.widgetName)).map(binding => binding.widgetName))
+      const targets = new Set(treeNodes.filter(node => targetNames.has(node.name)).map(node => node.id))
+      const keepVisible = new Set(targets)
+      for (const node of treeNodes) if (!hiddenIds.value.has(node.id)) keepVisible.add(node.id)
+      for (const id of [...keepVisible]) {
+        let current = treeNodes.find(node => node.id === id)
+        while (current?.parentId) { keepVisible.add(current.parentId); current = treeNodes.find(node => node.id === current!.parentId) }
+      }
+      animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id) && !hiddenIds.value.has(node.id)).map(node => node.id))
+    }
   }
 })
 
@@ -284,7 +331,7 @@ const selectedLayout = computed(() => {
     </div>
 
     <!-- Three-Pane Workspace -->
-    <div v-else-if="doc" class="umg-body">
+    <div v-else-if="doc" class="umg-body" @pointerdown="timelineVisible = true">
       <section class="umg-workspace">
         <div class="umg-left-pane">
           <UMGHierarchy
@@ -293,6 +340,7 @@ const selectedLayout = computed(() => {
             :nodes="doc.nodes"
             :selected-id="selectedNodeId"
             :hidden-ids="hiddenIds"
+            :animation-solo-hidden-ids="animationSoloHiddenIds"
             @update:active-root-id="id => (activeRootId = id)"
             @select-node="id => (selectedNodeId = id)"
             @update:hidden-ids="ids => (hiddenIds = ids)"

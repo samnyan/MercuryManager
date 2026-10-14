@@ -1,4 +1,11 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace MercuryManager.Server;
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(UMGDocument))]
+internal partial class UMGJsonContext : JsonSerializerContext;
 
 public sealed record UMGIssue(string Code,string Severity,string? NodeId,string Message);
 public sealed record UMGResource(string Role,string AssetPath,string? ClassName);

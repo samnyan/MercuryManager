@@ -115,6 +115,10 @@ public sealed class BlueprintService
             return cachedModel;
         }
     }
+    public List<UMGAnimation> Animations(string path)
+    {
+        lock(gate) return UMGModelBuilder.Build(Load(path), path, string.Empty).Animations ?? [];
+    }
     public object Read(string path)
     {
         lock(gate)

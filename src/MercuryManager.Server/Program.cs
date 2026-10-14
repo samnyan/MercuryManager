@@ -13,6 +13,7 @@ builder.Services.AddSingleton<TexturePreviewService>();
 builder.Services.AddSingleton<ResourceService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddResponseCompression(options=>{options.EnableForHttps=true;options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();});
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.TypeInfoResolverChain.Insert(0, UMGJsonContext.Default));
 builder.Services.AddSingleton<AudioJobs>();
 builder.Services.AddSingleton<AudioIntegrityService>();
 builder.Services.AddSingleton<VoiceLookupService>();
@@ -53,7 +54,8 @@ app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceS
 app.MapGet("/api/projects/{id}/resource-font",(string id,string path,ResourceService r,BlueprintService b)=>b.Font(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>
 {
-    var doc = UMGDependencyBuilder.Expand(b.UMG(r.Resolve(id,path),path),dependency=>b.UMG(r.Resolve(id,dependency),dependency));
+    var expanded = UMGDependencyBuilder.Expand(b.UMG(r.Resolve(id,path),path),dependency=>b.UMG(r.Resolve(id,dependency),dependency));
+    var doc = expanded with { Animations = b.Animations(r.Resolve(id,path)) };
     var matPaths = doc.Nodes.SelectMany(n => n.Resources)
         .Where(res => res.ClassName is "Material" or "MaterialInstanceConstant" or "MaterialInstance")
         .Select(res => res.AssetPath)
