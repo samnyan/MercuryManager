@@ -19,7 +19,6 @@ import {
   ExternalLink,
   Sparkles
 } from '@lucide/vue'
-import ResourceCardList, { type ResourceItem } from './ResourceCardList.vue'
 import { useProject } from '../../project'
 import {
   type ParticleModuleInfo,
@@ -77,21 +76,6 @@ const totalModulesCount = computed(() => {
 
 const totalPeakParticles = computed(() => {
   return (props.info.Emitters || []).reduce((acc, em) => acc + (em.PeakActiveParticles || 0), 0)
-})
-
-const selectedModuleResources = computed<ResourceItem[]>(() => {
-  if (!selectedModule.value?.References) return []
-  const list: ResourceItem[] = []
-  for (const [rKey, refItem] of Object.entries(selectedModule.value.References)) {
-    if (!refItem || !refItem.ContentFile) continue
-    list.push({
-      assetPath: refItem.ContentFile,
-      role: rKey,
-      className: refItem.Class || (rKey === 'Material' ? 'Material' : rKey === 'Mesh' ? 'StaticMesh' : undefined),
-      objectName: refItem.ObjectName
-    })
-  }
-  return list
 })
 
 // 材质贴图加载辅助
@@ -560,16 +544,33 @@ onBeforeUnmount(() => {
 
           <!-- 关联的外部引用 (如 Material / StaticMesh) -->
           <div
-            v-if="selectedModuleResources.length > 0"
+            v-if="selectedModule.References && Object.keys(selectedModule.References).length > 0"
             class="details-section"
           >
-            <ResourceCardList
-              title="关联引用资产"
-              :resources="selectedModuleResources"
-              :materials="info.Materials"
-              @navigate-path="emit('navigate-path', $event)"
-              @preview-texture="(p, l) => emit('preview-texture', p, l || 'Texture')"
-            />
+            <div class="sec-title">关联引用资产 (References)</div>
+            <div
+              v-for="(refItem, rKey) in selectedModule.References"
+              :key="rKey"
+              class="ref-card"
+            >
+              <div class="ref-info">
+                <div class="ref-top">
+                  <n-tag size="tiny" type="success" :bordered="false">{{ rKey }}</n-tag>
+                  <strong>{{ refItem.ObjectName }}</strong>
+                </div>
+                <span v-if="refItem.ContentFile" class="ref-path">{{ refItem.ContentFile }}</span>
+              </div>
+              <n-button
+                v-if="refItem.ContentFile"
+                size="tiny"
+                type="primary"
+                secondary
+                @click="emit('navigate-path', refItem.ContentFile)"
+              >
+                <template #icon><n-icon :component="ExternalLink" /></template>
+                打开
+              </n-button>
+            </div>
           </div>
 
           <!-- 结构化属性与分布 (Properties & Distributions) -->
@@ -590,31 +591,30 @@ onBeforeUnmount(() => {
                 </div>
 
                 <!-- 若是对象引用 -->
-                <div v-if="prop.Kind === 'Object'" class="prop-val-box">
+                <div v-if="prop.Kind === 'Object'" class="prop-val-row">
                   <code class="prop-code">{{ prop.Value }}</code>
-                  <a
+                  <n-button
                     v-if="prop.ContentFile"
-                    class="prop-path-link"
-                    href="javascript:void(0)"
+                    size="tiny"
+                    quaternary
+                    type="primary"
                     @click="emit('navigate-path', prop.ContentFile)"
                   >
                     {{ prop.ContentFile }}
-                  </a>
+                  </n-button>
                 </div>
 
                 <!-- 若是 BurstList -->
                 <div v-else-if="prop.Kind === 'BurstList' && prop.Bursts?.length" class="burst-table">
                   <div v-for="(b, bIdx) in prop.Bursts" :key="bIdx" class="burst-row">
-                    <span class="burst-tag">Burst #{{ bIdx }}</span>
-                    <span class="burst-meta">
-                      Count: <b>{{ b.Count }}</b>{{ b.CountLow >= 0 ? ` ~ ${b.CountLow}` : '' }} @ <b>{{ b.Time }}s</b>
-                    </span>
+                    <span>Burst #{{ bIdx }}</span>
+                    <code>Count: {{ b.Count }} (Low: {{ b.CountLow }}) @ Time: {{ b.Time }}s</code>
                   </div>
                 </div>
 
                 <!-- 若是分布曲线/范围 (Distribution) -->
                 <div v-else-if="prop.Distribution" class="dist-box">
-                  <div class="dist-row">
+                  <div class="dist-summary-row">
                     <span class="dist-label">取值范围:</span>
                     <code class="dist-val">{{ prop.Distribution.Summary }}</code>
                   </div>
@@ -623,12 +623,12 @@ onBeforeUnmount(() => {
                       prop.Distribution.TableValues &&
                       prop.Distribution.TableValues.length > 1
                     "
-                    class="dist-table-box"
+                    class="dist-table-vals"
                   >
                     <span class="dist-label">
                       LookupTable ({{ prop.Distribution.TableValues.length }}):
                     </span>
-                    <code class="dist-table-code">
+                    <code>
                       [{{
                         prop.Distribution.TableValues.slice(0, 8)
                           .map((v: number) => Number(v.toFixed(3)))
@@ -638,8 +638,8 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- 普通标量/枚举/布尔/向量 -->
-                <div v-else class="prop-val-box">
+                <!-- 普通标量/枚举/布尔 -->
+                <div v-else class="prop-val-row">
                   <code class="prop-code">{{ prop.Value }}</code>
                 </div>
               </div>
@@ -921,8 +921,7 @@ onBeforeUnmount(() => {
 
 /* 3. 右侧 Details 面板 */
 .cascade-details-pane {
-  width: 380px;
-  min-width: 300px;
+  width: 360px;
   flex-shrink: 0;
   border-left: 1px solid rgba(128, 128, 128, 0.2);
   padding: 12px;
@@ -1014,123 +1013,70 @@ onBeforeUnmount(() => {
 }
 
 .prop-item {
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 6px;
   background: rgba(128, 128, 128, 0.06);
   border: 1px solid rgba(128, 128, 128, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .prop-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
 }
 
 .prop-name {
   font-size: 12px;
   font-weight: 600;
-  word-break: break-all;
 }
 
-.prop-val-box {
+.prop-val-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
 }
 
 .prop-code {
   font-family: monospace;
   font-size: 11px;
-  word-break: break-word;
-  white-space: pre-wrap;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 3px 6px;
-  border-radius: 4px;
-  color: #10b981;
-}
-
-.prop-path-link {
-  font-size: 11px;
-  color: #2080f0;
   word-break: break-all;
-  line-height: 1.4;
-  text-decoration: none;
-}
-
-.prop-path-link:hover {
-  text-decoration: underline;
 }
 
 .dist-box {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   font-size: 11px;
 }
 
-.dist-row {
+.dist-summary-row,
+.dist-table-vals {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
 .dist-label {
   color: #888;
-  flex-shrink: 0;
 }
 
 .dist-val {
   font-family: monospace;
   font-weight: 600;
   color: #10b981;
-  word-break: break-all;
-}
-
-.dist-table-box {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.dist-table-code {
-  font-family: monospace;
-  font-size: 10px;
-  word-break: break-all;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 4px 6px;
-  border-radius: 4px;
-  color: #94a3b8;
 }
 
 .burst-table {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   font-size: 11px;
-}
-
-.burst-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.15);
-  padding: 3px 6px;
-  border-radius: 4px;
-}
-
-.burst-tag {
-  color: #888;
-  font-weight: 500;
-}
-
-.burst-meta {
-  font-family: monospace;
-  color: #10b981;
 }
 
 .burst-row {
