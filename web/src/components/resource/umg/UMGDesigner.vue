@@ -73,6 +73,8 @@ const animationFrame = ref(0)
 const animationPlaying = ref(false)
 const timelineVisible = ref(true)
 const animationSoloHiddenIds = ref<Set<string>>(new Set())
+// Keep identity stable across playback ticks; a fresh Set triggers stage rebuilds.
+const stageHiddenIds = computed(() => new Set([...hiddenIds.value, ...animationSoloHiddenIds.value]))
 // Scrubbing pauses playback; timer updates must not pause themselves.
 watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
 let advancingAnimation = false
@@ -343,7 +345,7 @@ const selectedLayout = computed(() => {
             :animation-material-parameters="animationMaterialParameters"
             :material-time="activeAnimation ? animationFrame : undefined"
             :selected-id="selectedNodeId"
-            :hidden-ids="new Set([...hiddenIds, ...animationSoloHiddenIds])"
+            :hidden-ids="stageHiddenIds"
             :viewport="viewport"
             :view-mode="viewMode"
             @select-node="id => (selectedNodeId = id)"
