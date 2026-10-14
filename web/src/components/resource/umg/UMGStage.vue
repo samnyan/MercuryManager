@@ -5,7 +5,7 @@ import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton, NDropdown } from 'naive-ui'
-import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Point, util, type FabricObject } from 'fabric'
+import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Textbox, Shadow, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject, api } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
@@ -13,6 +13,7 @@ import { widgetClip } from './clipping'
 import { setRetainedClip } from './retainedClip'
 import { GpuStage, type GpuItem } from './GpuStage'
 import { boxBrush } from './brush'
+import { gameFont } from './fonts'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
 import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
 
@@ -328,6 +329,10 @@ function isManuallyHidden(node: UMGNode): boolean {
   }
   return false
 }
+function textShift(node: UMGNode, allocated: number, measured: number): number {
+  const justify = String(node.visual.Justification ?? '').split('::').pop()
+  return justify === 'Center' ? (allocated - measured) / 2 : justify === 'Right' ? allocated - measured : 0
+}
 function effectiveOpacity(node: UMGNode): number {
   const seen = new Set<string>()
   let opacity = 1
@@ -596,14 +601,28 @@ async function rebuildScene() {
 
     if (!fabricObj && typeof node.visual.Text === 'string' && node.visual.Text.trim().length > 0) {
       const color = extractColor(node.visual.ColorAndOpacity)
+      const fontFamily = await gameFont(project.id!, node.visual.Font)
+      if (gen !== renderGeneration) return
       const fontSize = finite(node.visual.Font?.Size, 14) * (96 / 72)
-      fabricObj = new FabricText(node.visual.Text, {
+      const wrapWidth = finite(node.visual.WrapTextAt, 0) || (node.visual.AutoWrapText ? w : 0)
+      const TextClass = (wrapWidth > 0 ? Textbox : FabricText) as typeof FabricText
+      const outline = node.visual.Font?.OutlineSettings
+      const outlineColor = extractColor(outline?.OutlineColor)
+      const shadowColor = extractColor(node.visual.ShadowColorAndOpacity)
+      fabricObj = new TextClass(node.visual.Text, {
+        ...(wrapWidth > 0 ? { width: wrapWidth, splitByGrapheme: true } : {}),
+        charSpacing: finite(node.visual.Font?.LetterSpacing, 0),
+        lineHeight: finite(node.visual.LineHeightPercentage, 1),
+        stroke: outlineColor ? `rgba(${outlineColor.r},${outlineColor.g},${outlineColor.b},${outlineColor.a})` : '#000',
+        strokeWidth: Math.max(0, finite(outline?.OutlineSize, 0)) * 2,
+        paintFirst: 'stroke',
+        shadow: shadowColor && shadowColor.a > 0 ? new Shadow({ color: `rgba(${shadowColor.r},${shadowColor.g},${shadowColor.b},${shadowColor.a})`, offsetX: finite(node.visual.ShadowOffset?.X, 0), offsetY: finite(node.visual.ShadowOffset?.Y, 0), blur: 0 }) : undefined,
         left,
         top,
         originX: tf.pivotX,
         originY: tf.pivotY,
         fontSize,
-        fontFamily: 'sans-serif',
+        fontFamily,
         fill: color ? `rgb(${color.r}, ${color.g}, ${color.b})` : '#ffffff',
         textAlign:
           node.visual.Justification === 'Center'
@@ -669,7 +688,7 @@ async function rebuildScene() {
     const intrinsicWidth = fabricObj.width || w, intrinsicHeight = fabricObj.height || h
     const isText = fabricObj instanceof FabricText
     const local: Matrix = [isText ? 1 : w/intrinsicWidth,0,0,isText ? 1 : h/intrinsicHeight,
-      rect.x+(isText ? intrinsicWidth : w)/2,rect.y+(isText ? intrinsicHeight : h)/2]
+      rect.x+(isText ? intrinsicWidth : w)/2 + (isText ? textShift(node, w, intrinsicWidth) : 0),rect.y+(isText ? intrinsicHeight : h)/2]
     util.applyTransformToObject(fabricObj, multiply(world,local))
     fabricObj.setCoords()
     // GPU appearance is not present in Fabric's hit-test canvas.
@@ -905,7 +924,7 @@ function updateSceneFrame() {
     const iw = obj.width || w, ih = obj.height || h
     const text = obj instanceof FabricText
     const local: Matrix = [text ? 1 : w / iw, 0, 0, text ? 1 : h / ih,
-      rect.x + (text ? iw : w) / 2, rect.y + (text ? ih : h) / 2]
+      rect.x + (text ? iw : w) / 2 + (text ? textShift(node, w, iw) : 0), rect.y + (text ? ih : h) / 2]
     util.applyTransformToObject(obj, multiply(transforms.get(id) ?? [1,0,0,1,0,0], local))
     obj.set({ opacity: effectiveOpacity(node), visible: layout.visible && !isManuallyHidden(node) })
     const clip = widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport)

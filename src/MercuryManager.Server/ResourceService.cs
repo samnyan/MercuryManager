@@ -37,6 +37,17 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         if(source!="game"&&File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
         return content.Resolve(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path,Path.Combine(assets.WorkspaceDirectory(id),"SourceCache"));
     }
+    public byte[] FontFaceData(string id, string path)
+    {
+        Validate(path);
+        var relative = Path.ChangeExtension(path, ".ufont");
+        var root = assets.Get(id).ContentRoot ?? throw new InvalidOperationException("Import game first.");
+        var file = content.Resolve(root, relative, Path.Combine(assets.WorkspaceDirectory(id), "SourceCache"));
+        var bytes = File.ReadAllBytes(file);
+        if (bytes.Length < 12 || !(bytes.AsSpan(0,4).SequenceEqual(new byte[]{0,1,0,0}) || bytes.AsSpan(0,4).SequenceEqual("OTTO"u8) || bytes.AsSpan(0,4).SequenceEqual("ttcf"u8)))
+            throw new InvalidDataException("Unsupported cooked font payload.");
+        return bytes;
+    }
     public string ResolveMaterialDependency(string id, string path)
     {
         if (!path.StartsWith("/Engine/", StringComparison.Ordinal)) return Resolve(id, path);

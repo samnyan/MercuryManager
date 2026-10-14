@@ -51,6 +51,7 @@ app.Use(async (context, next) =>
 app.MapGet("/api/projects/{id}/texture", (string id,string table,string field,string value,TexturePreviewService textures)=>Results.File(textures.Load(id,table,field,value),"image/png"));
 app.MapGet("/api/projects/{id}/resource-sources",(string id,string path,ResourceService r)=>r.Sources(id,path));
 app.MapGet("/api/projects/{id}/resources",(string id,string? directory,ResourceService r)=>r.List(id,directory??""));
+app.MapGet("/api/projects/{id}/resource-font-face",(string id,string path,ResourceService r)=>Results.File(r.FontFaceData(id,path),"application/octet-stream"));
 app.MapGet("/api/projects/{id}/resource-font",(string id,string path,ResourceService r,BlueprintService b)=>b.Font(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceService r,BlueprintService b)=>
 {
