@@ -10,6 +10,7 @@ import type { UMGNode, ComputedLayout } from './types'
 import { useProject, api } from '../../../project'
 import { computeRenderTransforms, multiply, type Matrix } from './transforms'
 import { widgetClip } from './clipping'
+import { setRetainedClip } from './retainedClip'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
 import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
 
@@ -417,10 +418,7 @@ async function rebuildScene() {
     const tf = accumulatedTransform(node)
     const opacity = props.viewMode === 'structure' ? 1 : effectiveOpacity(node)
 
-    // 在外观模式下，完全透明（例如动画初始态 RenderOpacity=0）的节点默认不遮挡画面，仅在被选中时显示外框
-    if (props.viewMode === 'appearance' && opacity <= 0.001 && props.selectedId !== node.id) {
-      continue
-    }
+    // Retain transparent nodes: animation can make them visible without rebuilding.
 
     const left = rect.x + w * tf.pivotX + tf.tx
     const top = rect.y + h * tf.pivotY + tf.ty
@@ -602,6 +600,7 @@ async function rebuildScene() {
     util.applyTransformToObject(fabricObj, multiply(world,local))
     fabricObj.setCoords()
     fabricObj.set({ perPixelTargetFind: props.viewMode === 'appearance' })
+    if (props.viewMode === 'appearance') setRetainedClip(fabricObj, clipPoints)
     applySelectionStyle(fabricObj)
     objectByNodeId.set(node.id, fabricObj)
     nodeIdByObject.set(fabricObj, node.id)
@@ -627,6 +626,7 @@ async function rebuildScene() {
     }
   }
 
+  updateSceneFrame()
   syncSelectedObject()
   fabricCanvas.requestRenderAll()
 }
@@ -796,11 +796,47 @@ onMounted(async () => {
   await rebuildScene()
 })
 
-watch(
-  [() => props.nodes, () => props.layouts, () => props.viewMode, () => props.viewport, () => props.hiddenIds, () => props.materialTime, () => props.animationMaterialParameters],
-  () => {
-    rebuildScene()
+// Changes to animated transform/opacity are applied to retained objects.
+const sceneContentKey = computed(() => JSON.stringify(props.nodes.map(node => {
+  const { RenderTransform, RenderOpacity, ...visual } = node.visual
+  return { ...node, visual }
+})))
+function updateSceneFrame() {
+  if (!fabricCanvas || props.viewMode !== 'appearance') return
+  const transforms = computeRenderTransforms(props.nodes, props.layouts, props.layouts.keys().next().value ?? '')
+  for (const [id, obj] of objectByNodeId) {
+    const node = nodeById.value.get(id), layout = props.layouts.get(id)
+    if (!node || !layout) continue
+    const { rect } = layout
+    const w = Math.max(1, rect.width), h = Math.max(1, rect.height)
+    const iw = obj.width || w, ih = obj.height || h
+    const text = obj instanceof FabricText
+    const local: Matrix = [text ? 1 : w / iw, 0, 0, text ? 1 : h / ih,
+      rect.x + (text ? iw : w) / 2, rect.y + (text ? ih : h) / 2]
+    util.applyTransformToObject(obj, multiply(transforms.get(id) ?? [1,0,0,1,0,0], local))
+    obj.set({ opacity: effectiveOpacity(node), visible: layout.visible })
+    setRetainedClip(obj, widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport))
+    obj.setCoords()
   }
+  for (const entry of activeDynamicMaterials.values()) {
+    if (!entry.surface) continue
+    const spec = entry.spec
+    entry.surface.instance.setParameters(
+      { ...spec.scalars, ...props.animationMaterialParameters?.[entry.nodeId] },
+      Object.fromEntries(Object.entries(spec.vectors).map(([k, v]: [string, any]) => [k, [v.r, v.g, v.b, v.a]])))
+    entry.surface.draw(props.materialTime ?? autoShaderClock)
+    entry.fabricObj.dirty = true
+  }
+  fabricCanvas.requestRenderAll()
+}
+watch(
+  [sceneContentKey, () => props.viewMode, () => props.viewport, () => props.hiddenIds, () => props.materials, () => props.particles],
+  () => { rebuildScene() }
+)
+watch(
+  [() => props.nodes, () => props.layouts, () => props.materialTime, () => props.animationMaterialParameters],
+  () => { if (props.viewMode === 'structure') rebuildScene(); else updateSceneFrame() },
+  { flush: 'post' }
 )
 
 watch(

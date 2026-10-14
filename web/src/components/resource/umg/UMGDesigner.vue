@@ -178,12 +178,11 @@ const previewNodes = computed(() => {
 })
 function setAnimationPlaying(playing: boolean) {
   animationPlaying.value = playing
-  if (animationTimer) window.clearInterval(animationTimer)
+  if (animationTimer) window.cancelAnimationFrame(animationTimer)
   animationTimer = undefined
   if (!playing) return
   let last = performance.now()
-  animationTimer = window.setInterval(() => {
-    const now = performance.now()
+  const tick = (now: number) => {
     const delta = Math.min(0.1, Math.max(0, (now - last) / 1000))
     last = now
     const a = activeAnimation.value
@@ -193,11 +192,13 @@ function setAnimationPlaying(playing: boolean) {
       const next = animationFrame.value + delta
       animationFrame.value = next >= a.end ? a.start + (next - a.start) % (a.end - a.start) : next
     } finally { advancingAnimation = false }
-  }, 16)
+    if (animationPlaying.value) animationTimer = window.requestAnimationFrame(tick)
+  }
+  animationTimer = window.requestAnimationFrame(tick)
 }
 function toggleAnimation() { setAnimationPlaying(!animationPlaying.value) }
-watch(activeAnimationId,()=>{animationFrame.value=activeAnimation.value?.start||0;animationPlaying.value=false;if(animationTimer)window.clearInterval(animationTimer)})
-onBeforeUnmount(()=>{if(animationTimer)window.clearInterval(animationTimer)})
+watch(activeAnimationId,()=>{animationFrame.value=activeAnimation.value?.start||0;animationPlaying.value=false;if(animationTimer)window.cancelAnimationFrame(animationTimer)})
+onBeforeUnmount(()=>{if(animationTimer)window.cancelAnimationFrame(animationTimer)})
 
 // Texture preview modal
 const previewPath=ref('')
