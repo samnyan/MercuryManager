@@ -129,6 +129,7 @@ async function getMaterialCanvasSource(
     }
     try {
       const surface = await pending
+      if (materialSurfaces.get(cacheKey) !== pending) return null
       surface.resize(targetW, targetH)
       surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
       return surface.draw(props.materialTime ?? 0)
@@ -731,6 +732,26 @@ watch(
     }
   }
 )
+
+function releaseInactiveMaterialSurfaces() {
+  const nodes = nodeById.value
+  for (const [key, task] of materialSurfaces) {
+    const nodeId = key.split('|')[1]!
+    let node = nodes.get(nodeId)
+    let inactive = !node || props.viewMode !== 'appearance'
+    const visited = new Set<string>()
+    while (node && !visited.has(node.id)) {
+      visited.add(node.id)
+      if (props.hiddenIds.has(node.id)) { inactive = true; break }
+      node = node.parentId ? nodes.get(node.parentId) : undefined
+    }
+    if (inactive) {
+      materialSurfaces.delete(key)
+      task.then(surface => surface.dispose()).catch(() => {})
+    }
+  }
+}
+watch(() => [props.hiddenIds, props.nodes, props.viewMode], releaseInactiveMaterialSurfaces, { deep: true })
 
 function disposeMaterialSurfaces() {
   for (const task of materialSurfaces.values()) task.then(s => s.dispose()).catch(() => {})
