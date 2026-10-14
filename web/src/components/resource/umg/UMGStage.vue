@@ -25,6 +25,13 @@ const props = defineProps<{
   viewMode: 'appearance' | 'structure'
 }>()
 
+const fpsDisplay = ref<number>(0)
+let fpsFrameCount = 0
+let fpsLastTime = performance.now()
+let stageRafId = 0
+let autoShaderClock = 0
+let lastRafTime = performance.now()
+
 const emit = defineEmits<{
   'select-node': [id: string]
 }>()
@@ -710,6 +717,41 @@ onMounted(async () => {
   })
   resizeObserver.observe(stageViewport.value)
 
+  // 启动常驻 Stage 渲染帧循环 (驱动时间 Shader 动画以及统计 FPS)
+  function stageFrameLoop(now: number) {
+    const dt = Math.min(0.1, (now - lastRafTime) / 1000)
+    lastRafTime = now
+    autoShaderClock += dt
+
+    // 帧率统计
+    fpsFrameCount++
+    if (now - fpsLastTime >= 500) {
+      fpsDisplay.value = Math.round((fpsFrameCount * 1000) / (now - fpsLastTime))
+      fpsFrameCount = 0
+      fpsLastTime = now
+    }
+
+    // 当未处于主动时间轴播放 (或显式传入固定 materialTime) 时，若舞台上存活活跃的 MaterialSurface，使用真实时间驱动更新
+    if (props.materialTime === undefined && materialSurfaces.size > 0 && fabricCanvas) {
+      const tasks = [...materialSurfaces.values()]
+      Promise.all(tasks).then(surfaces => {
+        let anyRendered = false
+        for (const surface of surfaces) {
+          try {
+            surface.draw(autoShaderClock)
+            anyRendered = true
+          } catch {}
+        }
+        if (anyRendered && fabricCanvas) {
+          fabricCanvas.requestRenderAll()
+        }
+      }).catch(() => {})
+    }
+
+    stageRafId = requestAnimationFrame(stageFrameLoop)
+  }
+  stageRafId = requestAnimationFrame(stageFrameLoop)
+
   fit()
   await rebuildScene()
 })
@@ -768,6 +810,7 @@ const stopMaterialInvalidation = materialPrograms.onInvalidate(changedProject =>
 })
 watch(() => [project.id, props.materials], disposeMaterialSurfaces)
 onBeforeUnmount(() => {
+  if (stageRafId) cancelAnimationFrame(stageRafId)
   stopMaterialInvalidation()
   ++renderGeneration
   disposeMaterialSurfaces()
@@ -780,7 +823,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="umg-stage-container">
     <div class="stage-toolbar">
-      <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }} (Fabric.js)</span>
+      <div class="stage-info">
+        <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }}</span>
+        <span v-if="fpsDisplay > 0" class="fps-badge">{{ fpsDisplay }} FPS</span>
+      </div>
       <div class="zoom-controls">
         <n-button size="tiny" @click="zoomBy(-0.1)">-</n-button>
         <span class="zoom-label">{{ zoomPercent }}%</span>
@@ -817,6 +863,21 @@ onBeforeUnmount(() => {
   color: #aaa;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+}
+.stage-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fps-badge {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
 }
 .zoom-controls {
   display: flex;
