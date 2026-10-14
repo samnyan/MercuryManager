@@ -736,8 +736,19 @@ function disposeMaterialSurfaces() {
   for (const task of materialSurfaces.values()) task.then(s => s.dispose()).catch(() => {})
   materialSurfaces.clear()
 }
+const stopMaterialInvalidation = materialPrograms.onInvalidate(changedProject => {
+  if (changedProject && changedProject !== project.id) return
+  ++renderGeneration
+  disposeMaterialSurfaces()
+  rawImageCache.clear()
+  tintedSourceCache.clear()
+  particleCanvasCache.clear()
+  rebuildScene()
+})
 watch(() => [project.id, props.materials], disposeMaterialSurfaces)
 onBeforeUnmount(() => {
+  stopMaterialInvalidation()
+  ++renderGeneration
   disposeMaterialSurfaces()
   resizeObserver?.disconnect()
   fabricCanvas?.dispose()

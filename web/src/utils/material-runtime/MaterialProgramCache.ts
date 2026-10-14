@@ -3,6 +3,11 @@ import type { MaterialShaderContract } from '../material-shader/MaterialWebGLRen
 /** Bounded, project-scoped immutable contracts. Invalidate on asset writes/reimport. */
 class MaterialProgramCache {
   private entries = new Map<string, Promise<MaterialShaderContract>>()
+  private invalidationListeners = new Set<(project?: string) => void>()
+  onInvalidate(listener: (project?: string) => void): () => void {
+    this.invalidationListeners.add(listener)
+    return () => { this.invalidationListeners.delete(listener) }
+  }
   load(project: string, path: string): Promise<MaterialShaderContract> {
     const key = JSON.stringify([project, path])
     const existing = this.entries.get(key)
@@ -20,6 +25,7 @@ class MaterialProgramCache {
   }
   invalidate(project?: string) {
     for (const key of this.entries.keys()) if (!project || JSON.parse(key)[0] === project) this.entries.delete(key)
+    for (const listener of this.invalidationListeners) listener(project)
   }
 }
 export const materialPrograms = new MaterialProgramCache()
