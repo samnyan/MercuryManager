@@ -372,6 +372,75 @@ export async function renderUMGMaterialToCanvas(
     return canvas
   }
 
+  if (spec.preset === 'glitch') {
+    const mainImg = imgPrimary || imgObj || imgSecondary
+    if (mainImg) {
+      const isVertical = spec.functionNames.some(f => /verticalglitch/i.test(f)) ||
+        spec.textures.some(t => /glitchmaskv/i.test(t.path))
+      const isHorizontal = spec.functionNames.some(f => /horizontalglitch/i.test(f)) ||
+        spec.textures.some(t => /glitchmaskh/i.test(t.path)) ||
+        (!isVertical) // 默认横向为主
+
+      const span1 = getScalar(spec.scalars, /span_1|span/i, 2.5)
+      const dur1 = getScalar(spec.scalars, /duration_1|duration/i, 0.8)
+      const offset1 = getScalar(spec.scalars, /offset_1|offset/i, 0.03)
+      const width1 = getScalar(spec.scalars, /widht_1|width_1|widht|width/i, 8)
+
+      // 计算当前是否处于故障触发窗口内
+      const cycleTime = span1 > 0 ? (simTime % span1) : simTime
+      const isGlitching = cycleTime < dur1 || dur1 <= 0
+
+      ctx.clearRect(0, 0, W, H)
+      if (!isGlitching) {
+        ctx.drawImage(mainImg, 0, 0, W, H)
+      } else {
+        const sliceCount = Math.max(4, Math.min(32, Math.round(width1)))
+        const step = isHorizontal ? H / sliceCount : W / sliceCount
+
+        for (let i = 0; i < sliceCount; i++) {
+          // 基于伪随机噪声哈希生成切片位移
+          const seed = Math.sin(i * 127.1 + Math.floor(simTime * 15) * 311.7) * 43758.5453
+          const rand = seed - Math.floor(seed)
+          const shiftFactor = (rand - 0.5) * 2.0 * offset1 * (isHorizontal ? W : H) * 2.0
+
+          if (isHorizontal) {
+            const sy = i * step
+            const sh = Math.min(step, H - sy)
+            ctx.drawImage(mainImg, 0, (sy / H) * mainImg.naturalHeight, mainImg.naturalWidth, (sh / H) * mainImg.naturalHeight,
+              shiftFactor, sy, W, sh)
+          } else {
+            const sx = i * step
+            const sw = Math.min(step, W - sx)
+            ctx.drawImage(mainImg, (sx / W) * mainImg.naturalWidth, 0, (sw / W) * mainImg.naturalWidth, mainImg.naturalHeight,
+              sx, shiftFactor, sw, H)
+          }
+        }
+
+        // 添加轻微色差 RGB 分离效果 (Chromatic Aberration)
+        try {
+          ctx.save()
+          ctx.globalCompositeOperation = 'screen'
+          ctx.globalAlpha = 0.4
+          if (col1 && (col1.r > 0 || col1.g > 0 || col1.b > 0)) {
+            ctx.fillStyle = `rgb(${linearToSrgb255(col1.r)}, 0, 0)`
+            ctx.fillRect(0, 0, W, H)
+          }
+          ctx.restore()
+        } catch {}
+      }
+
+      if (imgSecondary && imgSecondary !== mainImg) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'screen'
+        ctx.globalAlpha = 0.6
+        ctx.drawImage(imgSecondary, 0, 0, W, H)
+        ctx.restore()
+      }
+
+      return canvas
+    }
+  }
+
   const mainImg = imgPrimary || imgObj || imgSecondary
   if (mainImg) {
     ctx.drawImage(mainImg, 0, 0, W, H)

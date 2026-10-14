@@ -65,6 +65,27 @@ watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false
 let advancingAnimation = false
 let animationTimer: number | undefined
 const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
+watch(activeAnimationId, () => {
+  animationFrame.value = activeAnimation.value?.start || 0
+  hiddenIds.value = new Set()
+  setAnimationPlaying(false)
+})
+watch(() => activeAnimation.value?.id, () => {
+  const animation = activeAnimation.value
+  if (!animation || !doc.value || !activeRoot.value) return
+  const names = new Set(animation.bindings.map(binding => binding.widgetName).filter(Boolean))
+  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
+  const targets = new Set(treeNodes.filter(node => names.has(node.name)).map(node => node.id))
+  const visible = new Set(targets)
+  for (const id of targets) {
+    let current = doc.value.nodes.find(node => node.id === id)
+    while (current?.parentId) {
+      visible.add(current.parentId)
+      current = doc.value.nodes.find(node => node.id === current!.parentId)
+    }
+  }
+  hiddenIds.value = new Set(treeNodes.filter(node => !visible.has(node.id)).map(node => node.id))
+}, { immediate: true })
 function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
   const keys=channel.keys
   if(!keys.length) return channel.hasDefault?channel.defaultValue:null
@@ -307,10 +328,10 @@ const selectedLayout = computed(() => {
       <div class="timeline-resize-handle" :class="{ collapsed: timelineCollapsed }" role="separator" @mousedown="startTimelineResize">
         <button class="timeline-collapse" type="button" :title="timelineCollapsed ? tr('ui.umgTimelineExpand') : tr('ui.umgTimelineCollapse')" @mousedown.stop @click.stop="toggleTimeline">{{ timelineCollapsed ? '▴' : '▾' }}</button>
       </div>
-      <div ref="timelinePane" class="timeline-pane" :style="{ height: timelineCollapsed ? '0px' : `${timelineHeight}px` }">
+      <div ref="timelinePane" class="timeline-pane" :style="{ height: timelineCollapsed ? '12px' : `${timelineHeight}px` }">
         <UMGAnimationTimeline
           v-if="doc.animations?.length"
-          :animations="doc.animations"
+          :animations="doc.animations || []"
           :active-animation-id="activeAnimationId"
           :time="animationFrame"
           :playing="animationPlaying"
