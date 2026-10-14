@@ -23,6 +23,7 @@ export interface ParticleProgramStages {
   vertexFactory: string
   renderingReady: false
   stages: ParticleStageEvidence[]
+  stageInterface?: { compatible: boolean; varyings: { location: number; type: string; vertexName: string; fragmentName: string; linkName: string }[]; limitations: string[] } | null
 }
 export interface NonSlateParticleDiagnostics {
   schemaVersion: 1

@@ -11,7 +11,10 @@ public static class LegacyParticleProgramDiagnostics
 
     public sealed record StageEvidence(string Stage, int Offset, bool TranslationSucceeded,
         MaterialShaderCompiler.Translation? Translation, string[] Limitations);
-    public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages);
+    public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
+    {
+        public ParticleStageInterface.Evidence? StageInterface { get; init; }
+    }
 
     /// <summary>Opt-in development payload. Translation is not browser execution readiness.</summary>
     public static async Task<IReadOnlyList<ProgramStages>> TranslateStages(
@@ -39,7 +42,13 @@ public static class LegacyParticleProgramDiagnostics
                     stages.Add(new(stage, candidate.Offset, false, null, [ex.Message]));
                 }
             }
-            result.Add(new(program.VertexFactory, false, stages.ToArray()));
+            var vertex = stages.Single(s => s.Stage == "vertex").Translation;
+            var fragment = stages.Single(s => s.Stage == "fragment").Translation;
+            result.Add(new(program.VertexFactory, false, stages.ToArray())
+            {
+                StageInterface = vertex != null && fragment != null
+                    ? ParticleStageInterface.Inspect(vertex.Reflection, fragment.Reflection) : null
+            });
         }
         return result;
     }
