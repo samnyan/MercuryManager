@@ -27,16 +27,8 @@ public static class LegacyMaterialSamplerMapping
                 var samplerOwners = Enumerable.Range(0, 32).SelectMany(table.Samplers)
                     .Where(x => pair.SamplerName == "s" + x.BindIndex).ToArray();
 
-                // View resource mapping (Buffer 1):
-                // Resource 35: PerlinNoiseGradientTexture, Resource 36: PerlinNoiseGradientTextureSampler
-                if (imageOwners.Length == 1 && samplerOwners.Length == 1 &&
-                    imageOwners[0].BufferIndex == 1 && samplerOwners[0].BufferIndex == 1 &&
-                    imageOwners[0].ResourceIndex == 35 && samplerOwners[0].ResourceIndex == 36)
-                {
-                    result.Add(new(pair.UniformName, pair.ImageName, pair.SamplerName, -1,
-                        "/Engine/EngineResources/PerlinNoiseGradientTexture", 0, null));
-                    continue;
-                }
+                // View resources 35/36 are generated Perlin noise, not an asset path.
+                // Keep unsupported until the generated-source and sampler adapter is verified.
 
                 static string Owners(IEnumerable<LegacyShaderResourceToken> tokens) =>
                     string.Join(", ", tokens.Select(x => $"buffer={x.BufferIndex}/resource={x.ResourceIndex}/register={x.BindIndex}"));
