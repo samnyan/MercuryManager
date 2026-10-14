@@ -4,12 +4,15 @@ using System.Text.RegularExpressions;
 
 namespace MercuryManager.Server;
 
-public sealed record MaterialCombinedSampler(string UniformName, string ImageName, string SamplerName);
+public sealed record MaterialCombinedSampler(string UniformName, string ImageName, string SamplerName)
+{
+    public string SamplerType { get; init; } = "sampler2D";
+}
 
 public static class MaterialCombinedSamplerReader
 {
     // 从 OpSampledImage 的真实操作数回溯 OpLoad，不从 descriptor binding 猜寄存器。
-    public static IReadOnlyList<MaterialCombinedSampler> Read(byte[] spirv, string glsl)
+    public static IReadOnlyList<MaterialCombinedSampler> Read(byte[] spirv, string glsl, bool allowNon2D = false)
     {
         if (spirv.Length < 20 || spirv.Length % 4 != 0 || BinaryPrimitives.ReadUInt32LittleEndian(spirv) != 0x07230203)
             throw new InvalidDataException("Invalid SPIR-V module.");
@@ -48,9 +51,11 @@ public static class MaterialCombinedSamplerReader
                 !names.TryGetValue(imageId, out var imageName) || !names.TryGetValue(samplerId, out var samplerName))
                 throw new NotSupportedException("Indirect sampled image operands are unsupported.");
             string uniform = "SPIRV_Cross_Combined" + imageName + samplerName;
-            if (!Regex.IsMatch(glsl, @"\buniform\s+(?:(?:lowp|mediump|highp)\s+)?sampler2D\s+" + Regex.Escape(uniform) + @"\s*;"))
+            var declarations = Regex.Matches(glsl, @"\buniform\s+(?:(?:lowp|mediump|highp)\s+)?(sampler2D|sampler3D|samplerCube)\s+" + Regex.Escape(uniform) + @"\s*;");
+            if (declarations.Count != 1 || (!allowNon2D && declarations[0].Groups[1].Value != "sampler2D"))
                 throw new NotSupportedException("Combined sampler naming/type is not verified in generated GLSL.");
-            result.TryAdd(uniform, new(uniform, imageName, samplerName));
+            result.TryAdd(uniform, new(uniform, imageName, samplerName)
+                { SamplerType = declarations[0].Groups[1].Value });
         }
         return result.Values.ToArray();
     }

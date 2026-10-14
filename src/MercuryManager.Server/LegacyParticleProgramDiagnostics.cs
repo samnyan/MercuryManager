@@ -30,7 +30,7 @@ public static class LegacyParticleProgramDiagnostics
                 var candidate = matches[0];
                 try
                 {
-                    var translation = await MaterialShaderCompiler.Translate(candidate, cacheRoot, cancellationToken);
+                    var translation = await MaterialShaderCompiler.Translate(candidate, cacheRoot, cancellationToken, diagnosticSamplers: true);
                     stages.Add(new(stage, candidate.Offset, true, translation,
                         ["Translated source still requires WebGL validation and native resource/geometry adapters."]));
                 }

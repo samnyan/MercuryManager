@@ -25,10 +25,10 @@ public static class MaterialShaderCompiler
     private static readonly Dictionary<string, Lazy<Task<Translation>>> Translations = new(StringComparer.Ordinal);
 
     // 只缓存成功转译所需的共享任务；调用者取消等待不能中断其他请求。
-    public static async Task<Translation> Translate(ShaderCandidate candidate, string cacheRoot, CancellationToken cancellationToken = default)
+    public static async Task<Translation> Translate(ShaderCandidate candidate, string cacheRoot, CancellationToken cancellationToken = default, bool diagnosticSamplers = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var key = Convert.ToHexStringLower(SHA256.HashData(candidate.Bytecode));
+        var key = Convert.ToHexStringLower(SHA256.HashData(candidate.Bytecode)) + (diagnosticSamplers ? ":diagnostic" : ":2d");
         Lazy<Task<Translation>> job;
         lock (TranslationLock)
         {
@@ -40,7 +40,7 @@ public static class MaterialShaderCompiler
                     if (finished.Key != null) Translations.Remove(finished.Key);
                 }
                 // 全部正在转译时不增加持久缓存，避免无界增长。
-                job = new(() => TranslateUncached(candidate, cacheRoot, CancellationToken.None), LazyThreadSafetyMode.ExecutionAndPublication);
+                job = new(() => TranslateUncached(candidate, cacheRoot, CancellationToken.None, diagnosticSamplers), LazyThreadSafetyMode.ExecutionAndPublication);
                 if (Translations.Count < MaxCachedTranslations) Translations.Add(key, job);
             }
         }
@@ -124,7 +124,7 @@ public static class MaterialShaderCompiler
         bytecode=input[..(int)size].ToArray();return true;
     }
 
-    private static async Task<Translation> TranslateUncached(ShaderCandidate candidate,string cacheRoot,CancellationToken cancellationToken)
+    private static async Task<Translation> TranslateUncached(ShaderCandidate candidate,string cacheRoot,CancellationToken cancellationToken,bool diagnosticSamplers)
     {
         // Isolate each job; caches belong outside project drafts and distribution directories.
         Directory.CreateDirectory(cacheRoot);
@@ -139,7 +139,7 @@ public static class MaterialShaderCompiler
             await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--es","--version","300","--output",glsl],cancellationToken);
             await Run(MaterialShaderToolchain.GetSpirvCrossPath(),[spirv,"--reflect","--output",reflection],cancellationToken);
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
-            var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source);
+            var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source, diagnosticSamplers);
             var reflected = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(reflection,cancellationToken))!;
             foreach (var ubo in reflected["ubos"]!.AsArray())
             {
