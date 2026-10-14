@@ -11,7 +11,13 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:5087',
-        changeOrigin: true
+        changeOrigin: true,
+        configure(proxy) {
+          // Dev-only same-origin bridge; retain backend Host/Origin validation.
+          proxy.on('proxyReq', (proxyReq, req) => {
+            if (req.headers.origin) proxyReq.setHeader('Origin', 'http://127.0.0.1:5087')
+          })
+        }
       }
     }
   }
