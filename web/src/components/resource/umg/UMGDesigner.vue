@@ -62,6 +62,11 @@ const toggleTimeline = () => {
   timelineCollapsed.value = !timelineCollapsed.value
   if (!timelineCollapsed.value && timelineHeight.value < 100) timelineHeight.value = 220
 }
+const activeRoot = computed(() => {
+  if (!doc.value) return null
+  return doc.value.roots.find(r => r.id === activeRootId.value) || doc.value.roots[0] || null
+})
+
 const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
@@ -241,10 +246,6 @@ watch(
   { immediate: true }
 )
 
-const activeRoot = computed(() => {
-  if (!doc.value) return null
-  return doc.value.roots.find(r => r.id === activeRootId.value) || doc.value.roots[0] || null
-})
 
 watch(activeRoot, r => {
   if (r && r.rootNodeId) selectedNodeId.value = r.rootNodeId

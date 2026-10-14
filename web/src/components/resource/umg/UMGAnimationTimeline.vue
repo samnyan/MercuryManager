@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { NSelect } from 'naive-ui'
+import { NSelect, NButton } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
 
@@ -98,11 +98,10 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 <template>
   <section class="umg-timeline">
     <header class="timeline-header">
-      <n-select v-if="animations.length" :value="activeAnimationId" :options="animations.map(a => ({ label: a.name, value: a.id }))" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:190px" @update:value="emit('update:activeAnimationId',$event)" />
-      <span v-else class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
+      <n-select :value="activeAnimationId" :options="animations.map(a => ({ label: a.name, value: a.id }))" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:190px" @update:value="emit('update:activeAnimationId',$event)" />
       <n-button size="tiny" quaternary :disabled="!activeAnimationId" @click="clearAnimation">{{ tr('ui.umgAnimationClear') }}</n-button>
       <template v-if="animation">
-        <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', animation!.start)">⏮</n-button>
+        <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', (animation?.start ?? 0))">⏮</n-button>
         <n-button size="tiny" quaternary :title="playing ? tr('ui.umgTimelinePause') : tr('ui.umgTimelinePlay')" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</n-button>
         <span class="time-readout">{{ time.toFixed(3) }}s / {{ animation.end.toFixed(3) }}s</span>
         <span class="track-count">{{ tracks.length }} {{ tr('ui.umgAnimationChannels') }}</span>
@@ -121,14 +120,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <div class="timeline-scroll" ref="scrollRef" @scroll="event => { if (trackListRef) trackListRef.scrollTop = (event.target as HTMLElement).scrollTop; if (rulerRef) rulerRef.scrollLeft = (event.target as HTMLElement).scrollLeft; syncInspectorPosition() }" @pointerdown="seekFromPointer">
         <div class="timeline-content" :style="{ width: timelineWidth }">
           <div ref="rulerRef" class="ruler" :style="{ width: `max(100%, ${timelineWidth})` }">
-            <span v-for="mark in tickMarks" :key="mark" :style="{ left: `${((mark - animation!.start) / span) * contentWidth}px` }">{{ mark.toFixed(2) }}</span>
+            <span v-for="mark in tickMarks" :key="mark" :style="{ left: `${((mark - (animation?.start ?? 0)) / span) * contentWidth}px` }">{{ mark.toFixed(2) }}</span>
           </div>
           <div class="track-rows">
             <div v-for="row in tracks" :key="row.id" class="track-lane">
-              <span v-for="(key,index) in row.keys" :key="`${row.id}-${index}`" class="key-dot" :title="`${row.track.name} · ${row.label}`" @pointerenter="showKey(row.track.name, row.label, key.frame, key.value, key.interpolation, $event)" @pointerleave="hideKey" :style="{ left: `${((key.frame - animation!.start) / span) * contentWidth}px` }" />
+              <span v-for="(key,index) in row.keys" :key="`${row.id}-${index}`" class="key-dot" :title="`${row.track.name} · ${row.label}`" @pointerenter="showKey(row.track.name, row.label, key.frame, key.value, key.interpolation, $event)" @pointerleave="hideKey" :style="{ left: `${((key.frame - (animation?.start ?? 0)) / span) * contentWidth}px` }" />
             </div>
           </div>
-          <div class="playhead" :style="{ left: `${Math.max(0, Math.min(contentWidth, ((time - animation!.start) / span) * contentWidth))}px` }"><span class="playhead-head"></span></div>
+          <div v-if="animation" class="playhead" :style="{ left: `${Math.max(0, Math.min(contentWidth, ((time - (animation?.start ?? 0)) / span) * contentWidth))}px` }"><span class="playhead-head"></span></div>
         </div>
       </div>
     </div>
@@ -141,7 +140,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 </template>
 
 <style scoped>
-.umg-timeline { width:100%; flex:1; min-height:0; display:flex; flex-direction:column; position:relative; border-top:1px solid #d9d9d9; background:#fff; color:#222; overflow:hidden; }
+.umg-timeline { height:100%; width:100%; flex:1; min-height:0; display:flex; flex-direction:column; position:relative; border-top:1px solid #d9d9d9; background:#fff; color:#222; overflow:hidden; }
 .timeline-header { flex:0 0 34px; height:34px; display:flex; align-items:center; gap:8px; padding:0 10px; overflow:hidden; }
 .time-readout,.empty-hint,.track-count { font:12px monospace; color:#555; white-space:nowrap; }
 .binding-scope { font:9px sans-serif; color:#6b7280; flex:0 0 62px; }
