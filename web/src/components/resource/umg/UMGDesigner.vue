@@ -242,21 +242,13 @@ const activeRoot = computed(() => {
 })
 
 watch(activeRoot, r => {
-  if (r && r.rootNodeId) {
-    selectedNodeId.value = r.rootNodeId
-    if (activeAnimation.value) {
-      const animation = activeAnimation.value
-      const treeNodes = doc.value?.nodes.filter(node => node.treeId === r.treeId) || []
-      const targetNames = new Set(animation.bindings.filter(binding => treeNodes.some(node => node.name === binding.widgetName)).map(binding => binding.widgetName))
-      const targets = new Set(treeNodes.filter(node => targetNames.has(node.name)).map(node => node.id))
-      const keepVisible = new Set(targets)
-      for (const node of treeNodes) if (!hiddenIds.value.has(node.id)) keepVisible.add(node.id)
-      for (const id of [...keepVisible]) {
-        let current = treeNodes.find(node => node.id === id)
-        while (current?.parentId) { keepVisible.add(current.parentId); current = treeNodes.find(node => node.id === current!.parentId) }
-      }
-      animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id) && !hiddenIds.value.has(node.id)).map(node => node.id))
-    }
+  if (r && r.rootNodeId) selectedNodeId.value = r.rootNodeId
+})
+watch(() => activeRoot.value?.treeId, () => {
+  if (activeAnimation.value) {
+    const current = activeAnimationId.value
+    activeAnimationId.value = null
+    requestAnimationFrame(() => { activeAnimationId.value = current })
   }
 })
 
@@ -355,7 +347,7 @@ const selectedLayout = computed(() => {
             :animation-material-parameters="animationMaterialParameters"
             :material-time="animationFrame"
             :selected-id="selectedNodeId"
-            :hidden-ids="hiddenIds"
+            :hidden-ids="new Set([...hiddenIds, ...animationSoloHiddenIds])"
             :viewport="viewport"
             :view-mode="viewMode"
             @select-node="id => (selectedNodeId = id)"

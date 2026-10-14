@@ -9,6 +9,7 @@ const props = defineProps<{
   nodes: UMGNode[]
   selectedId: string | null
   hiddenIds: Set<string>
+  animationSoloHiddenIds: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -146,8 +147,9 @@ watch(search, q => {
 function renderLabel({ option }: { option: TreeOption }) {
   const n = option.rawNode as UMGNode | undefined
   const isHidden = n ? props.hiddenIds.has(n.id) : false
+  const isSoloHidden = n ? props.animationSoloHiddenIds.has(n.id) : false
   const isChild = !!n?.childWidget
-  return h('div', { class: ['tree-node-row', isHidden ? 'is-node-hidden' : ''] }, [
+  return h('div', { class: ['tree-node-row', isHidden ? 'is-node-hidden' : '', isSoloHidden ? 'is-animation-solo-hidden' : ''] }, [
     h('span', { class: 'node-label-name' }, option.label as string),
     isChild ? h(NTag, { size: 'tiny', type: 'info', bordered: false, style: 'margin-left: 4px;' }, { default: () => 'Sub' }) : null
   ])
@@ -252,9 +254,9 @@ function handleSelectKeys(keys: Array<string | number>) {
   align-items: center;
   font-size: 12px;
 }
-.tree-node-row.is-node-hidden {
-  opacity: 0.45;
-  text-decoration: line-through;
+.tree-node-row.is-node-hidden, .tree-node-row.is-animation-solo-hidden {
+opacity: 0.45;
+text-decoration: line-through;
 }
 .node-label-name {
   word-break: break-all;
