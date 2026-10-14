@@ -118,6 +118,7 @@ function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{fr
   if(right===0) return keys[0].value
   const left=keys[right-1],next=keys[right],duration=next.frame-left.frame
   if(duration<=0) return next.value
+  if(left.interpolation.toLowerCase().includes('constant')) return left.value
   const t=(time-left.frame)/duration
   if(left.interpolation.toLowerCase().includes('cubic')){const t2=t*t,t3=t2*t;return (2*t3-3*t2+1)*left.value+(t3-2*t2+t)*(left.leaveTangent||0)*duration+(-2*t3+3*t2)*next.value+(t3-t2)*(next.arriveTangent||0)*duration}
   return left.value+(next.value-left.value)*t
@@ -140,8 +141,9 @@ const previewNodes = computed(() => {
   if (!doc.value) return []
   if (!activeAnimation.value) return doc.value.nodes
   // Preserve every nested tree and the original layout/draw order. Visibility is a separate mask.
-  const clones = new Map(doc.value.nodes.map(node => [node.id, {
+  const clones = new Map<string, UMGNode>(doc.value.nodes.map(node => [node.id, {
     ...node,
+    slot: node.slot ? { ...node.slot, values: { ...node.slot.values, LayoutData: { ...node.slot.values.LayoutData, Offsets: { ...node.slot.values.LayoutData?.Offsets } } } } : node.slot,
     visual: {
       ...node.visual,
       RenderTransform: node.visual.RenderTransform ? {
@@ -165,6 +167,24 @@ const previewNodes = computed(() => {
       const shear={X:axis('Shear',0)??node.visual.RenderTransform?.Shear?.X??0,Y:axis('Shear',1)??node.visual.RenderTransform?.Shear?.Y??0}
       node.visual.RenderTransform={...(node.visual.RenderTransform||{}),Translation:translation,Scale:scale,Shear:shear,Angle:values.get('Rotation.0')??values.get('Rotation')??node.visual.RenderTransform?.Angle??0}
     } else if(track.type.includes('Float')&&track.property==='RenderOpacity') node.visual.RenderOpacity=values.get('FloatCurve')??node.visual.RenderOpacity
+    else if(track.type.includes('Margin') && track.property==='Offsets' && node.slot) {
+      const data = node.slot.values.LayoutData ??= {}
+      const offsets = data.Offsets ??= {}
+      for (const side of ['Left','Top','Right','Bottom']) {
+        const value = values.get(`${side}Curve`)
+        if (value != null) offsets[side] = value
+      }
+    } else if(track.type.includes('Color')) {
+      const property = track.property
+      if (!property || !['ColorAndOpacity','ContentColorAndOpacity','BrushColor','Color'].includes(property)) continue
+      const original = node.visual[property] ?? {}
+      const color = { ...(original.SpecifiedColor ?? original) }
+      for (const [channel, component] of [['RedCurve','R'],['GreenCurve','G'],['BlueCurve','B'],['AlphaCurve','A']]) {
+        const value = values.get(channel)
+        if (value != null) color[component] = value
+      }
+      node.visual[property] = original.SpecifiedColor ? { ...original, SpecifiedColor: color } : color
+    }
   }
   return [...clones.values()]
 })
@@ -255,7 +275,7 @@ watch(() => activeRoot.value?.treeId, () => {
 
 const layouts = computed(() => {
   if (!doc.value || !activeRoot.value?.rootNodeId) return new Map()
-  return computeTreeLayout(doc.value.nodes, activeRoot.value.rootNodeId, viewport.value)
+  return computeTreeLayout(previewNodes.value, activeRoot.value.rootNodeId, viewport.value)
 })
 
 const selectedNode = computed<UMGNode | null>(() => {

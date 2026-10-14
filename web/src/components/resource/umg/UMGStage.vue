@@ -342,6 +342,11 @@ function effectiveOpacity(node: UMGNode): number {
     opacity *= finite(current.visual.RenderOpacity, 1)
     const color = extractColor(current.visual.ColorAndOpacity)
     if (color) opacity *= color.a
+    // Border content tint affects descendants, not its own background.
+    if (current.id !== node.id) {
+      const content = extractColor(current.visual.ContentColorAndOpacity)
+      if (content) opacity *= content.a
+    }
     current = current.parentId ? nodeById.value.get(current.parentId) : undefined
   }
   return Math.max(0, Math.min(1, opacity))
