@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
 import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
+import { hasNonSlateParticleDiagnostics } from '../../../utils/material-runtime/ParticleProgramDiagnostics'
+import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton } from 'naive-ui'
@@ -37,10 +38,11 @@ interface DynamicMaterialEntry {
 }
 const activeDynamicMaterials = new Map<string, DynamicMaterialEntry>()
 
-const fpsDisplay = ref<number>(0)
+// FPS 统计 (使用原生 DOM 引用直接更新，避免触发 Vue 响应式依赖更新引起每 500ms 调度卡顿)
+const fpsSpanRef = ref<HTMLSpanElement | null>(null)
 let fpsFrameCount = 0
 let fpsLastTime = performance.now()
-let stageRafId = 0
+let stageRafId: number | null = null
 let autoShaderClock = 0
 let lastRafTime = performance.now()
 
@@ -133,7 +135,7 @@ async function getMaterialCanvasSource(
     } catch {}
   }
 
-  if (contract?.renderingReady && contract.uniformProgram) {
+  if (!hasNonSlateParticleDiagnostics(contract) && 'renderingReady' in (contract || {}) && contract?.renderingReady && contract.uniformProgram) {
     let pending = materialSurfaces.get(cacheKey)
     if (!pending) {
       pending = (async () => {
@@ -755,10 +757,13 @@ onMounted(async () => {
     lastRafTime = now
     autoShaderClock += dt
 
-    // 帧率统计
+    // 帧率统计 (直接写入 DOM 节点，避免触发 Vue 响应式依赖更新)
     fpsFrameCount++
     if (now - fpsLastTime >= 500) {
-      fpsDisplay.value = Math.round((fpsFrameCount * 1000) / (now - fpsLastTime))
+      const fps = Math.round((fpsFrameCount * 1000) / (now - fpsLastTime))
+      if (fpsSpanRef.value) {
+        fpsSpanRef.value.textContent = `${fps} FPS`
+      }
       fpsFrameCount = 0
       fpsLastTime = now
     }
@@ -775,29 +780,6 @@ onMounted(async () => {
             entry.fabricObj.dirty = true
             anyRendered = true
           } catch {}
-        } else if (entry.spec && entry.spec.preset !== 'static') {
-          // 2D 模拟动态渲染更新
-          renderUMGMaterialToCanvas(
-            entry.spec,
-            async (texPath: string) => {
-              if (!project.id || !texPath) return null
-              const url = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texPath, mip: '0' })
-              return await loadRawImage(url)
-            },
-            entry.targetW,
-            entry.targetH,
-            currentTime
-          ).then(baked => {
-            if (baked && entry.canvas) {
-              const ctx = entry.canvas.getContext('2d')
-              if (ctx) {
-                ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height)
-                ctx.drawImage(baked, 0, 0)
-                entry.fabricObj.dirty = true
-                if (fabricCanvas) fabricCanvas.requestRenderAll()
-              }
-            }
-          }).catch(() => {})
         }
       }
 
@@ -883,13 +865,13 @@ onBeforeUnmount(() => {
     <div class="stage-toolbar">
       <div class="stage-info">
         <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }}</span>
-        <span v-if="fpsDisplay > 0" class="fps-badge">{{ fpsDisplay }} FPS</span>
+        <span ref="fpsSpanRef" class="fps-badge">-- FPS</span>
       </div>
       <div class="zoom-controls">
-        <n-button size="tiny" @click="zoomBy(-0.1)">-</n-button>
+        <n-button size="tiny" @click="zoomBy(-0.1)" style="color:#e4e7eb">-</n-button>
         <span class="zoom-label">{{ zoomPercent }}%</span>
-        <n-button size="tiny" @click="zoomBy(0.1)">+</n-button>
-        <n-button size="tiny" @click="fit">{{ tr('ui.umgResetZoom') }}</n-button>
+        <n-button size="tiny" @click="zoomBy(0.1)" style="color:#e4e7eb">+</n-button>
+        <n-button size="tiny" @click="fit" style="color:#e4e7eb">{{ tr('ui.umgResetZoom') }}</n-button>
       </div>
     </div>
 

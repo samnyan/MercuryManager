@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { NButton, NSelect } from 'naive-ui'
+import { NSelect } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
 
 const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; time: number; playing: boolean; roots: UMGTreeRoot[]; nodes: UMGNode[] }>()
 const emit = defineEmits<{ 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
-const expanded = ref(true)
 const scrollRef = ref<HTMLElement | null>(null)
 const editorRef = ref<HTMLElement | null>(null)
 const rulerRef = ref<HTMLElement | null>(null)
@@ -97,22 +96,20 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <template>
-  <section class="umg-timeline" :class="{ collapsed: !expanded }">
+  <section class="umg-timeline">
     <header class="timeline-header">
-      <n-button size="tiny" quaternary @click="expanded = !expanded">{{ expanded ? '▾' : '▴' }} {{ tr('ui.umgTimeline') }}</n-button>
-      <span class="scope-label">{{ tr('ui.umgAnimationScope') }}</span>
       <n-select v-if="animations.length" :value="activeAnimationId" :options="animations.map(a => ({ label: a.name, value: a.id }))" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:190px" @update:value="emit('update:activeAnimationId',$event)" />
       <span v-else class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
       <n-button size="tiny" quaternary :disabled="!activeAnimationId" @click="clearAnimation">{{ tr('ui.umgAnimationClear') }}</n-button>
       <template v-if="animation">
-        <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', animation.start)">⏮</n-button>
+        <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', animation!.start)">⏮</n-button>
         <n-button size="tiny" quaternary :title="playing ? tr('ui.umgTimelinePause') : tr('ui.umgTimelinePlay')" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</n-button>
         <span class="time-readout">{{ time.toFixed(3) }}s / {{ animation.end.toFixed(3) }}s</span>
         <span class="track-count">{{ tracks.length }} {{ tr('ui.umgAnimationChannels') }}</span>
       </template>
       <span v-if="!animation" class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
     </header>
-    <div v-if="expanded && animation" class="timeline-editor" ref="editorRef">
+    <div class="timeline-editor" ref="editorRef">
       <div class="track-list" ref="trackListRef" @scroll="event => { if (scrollRef) scrollRef.scrollTop = (event.target as HTMLElement).scrollTop }">
         <div class="track-list-spacer"></div>
         <div v-for="row in tracks" :key="row.id" class="track-row-label">
@@ -124,14 +121,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <div class="timeline-scroll" ref="scrollRef" @scroll="event => { if (trackListRef) trackListRef.scrollTop = (event.target as HTMLElement).scrollTop; if (rulerRef) rulerRef.scrollLeft = (event.target as HTMLElement).scrollLeft; syncInspectorPosition() }" @pointerdown="seekFromPointer">
         <div class="timeline-content" :style="{ width: timelineWidth }">
           <div ref="rulerRef" class="ruler" :style="{ width: `max(100%, ${timelineWidth})` }">
-            <span v-for="mark in tickMarks" :key="mark" :style="{ left: `${((mark - animation.start) / span) * contentWidth}px` }">{{ mark.toFixed(2) }}</span>
+            <span v-for="mark in tickMarks" :key="mark" :style="{ left: `${((mark - animation!.start) / span) * contentWidth}px` }">{{ mark.toFixed(2) }}</span>
           </div>
           <div class="track-rows">
             <div v-for="row in tracks" :key="row.id" class="track-lane">
-              <span v-for="(key,index) in row.keys" :key="`${row.id}-${index}`" class="key-dot" :title="`${row.track.name} · ${row.label}`" @pointerenter="showKey(row.track.name, row.label, key.frame, key.value, key.interpolation, $event)" @pointerleave="hideKey" :style="{ left: `${((key.frame - animation.start) / span) * contentWidth}px` }" />
+              <span v-for="(key,index) in row.keys" :key="`${row.id}-${index}`" class="key-dot" :title="`${row.track.name} · ${row.label}`" @pointerenter="showKey(row.track.name, row.label, key.frame, key.value, key.interpolation, $event)" @pointerleave="hideKey" :style="{ left: `${((key.frame - animation!.start) / span) * contentWidth}px` }" />
             </div>
           </div>
-          <div class="playhead" :style="{ left: `${Math.max(0, Math.min(contentWidth, ((time - animation.start) / span) * contentWidth))}px` }"><span class="playhead-head"></span></div>
+          <div class="playhead" :style="{ left: `${Math.max(0, Math.min(contentWidth, ((time - animation!.start) / span) * contentWidth))}px` }"><span class="playhead-head"></span></div>
         </div>
       </div>
     </div>
@@ -146,7 +143,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 <style scoped>
 .umg-timeline { width:100%; flex:1; min-height:0; display:flex; flex-direction:column; position:relative; border-top:1px solid #d9d9d9; background:#fff; color:#222; overflow:hidden; }
 .timeline-header { flex:0 0 34px; height:34px; display:flex; align-items:center; gap:8px; padding:0 10px; overflow:hidden; }
-.time-readout,.empty-hint,.track-count,.scope-label { font:12px monospace; color:#555; white-space:nowrap; }
+.time-readout,.empty-hint,.track-count { font:12px monospace; color:#555; white-space:nowrap; }
 .binding-scope { font:9px sans-serif; color:#6b7280; flex:0 0 62px; }
 .timeline-editor { display:grid; grid-template-columns:210px minmax(0,1fr); flex:1; min-height:0; position:relative; overflow:hidden; }
 .track-list { min-height:0; overflow:hidden auto; background:#f8f9fa; border-right:1px solid #d9d9d9; z-index:3; }
@@ -168,6 +165,5 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 .key-inspector { position:absolute; left:218px; z-index:8; display:flex; align-items:center; gap:9px; max-width:calc(100% - 226px); padding:6px 9px; border:1px solid #c7cbd1; border-radius:4px; background:rgba(255,255,255,.97); box-shadow:0 2px 8px #0002; font-size:11px; pointer-events:none; }
 .key-inspector b,.key-inspector span,.key-inspector small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .key-inspector strong { color:#975e00; font:600 12px monospace; }
-.collapsed .timeline-header { flex-basis:30px; height:30px; }
-.collapsed .timeline-editor { display:none; }
+
 </style>

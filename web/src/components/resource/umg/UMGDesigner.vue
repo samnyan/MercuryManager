@@ -35,6 +35,9 @@ const viewport = ref({ width: 1080, height: 1920 })
 const viewMode = ref<'appearance' | 'structure'>('appearance')
 const timelineHeight = ref(220)
 const timelineCollapsed = ref(false)
+watch(timelineCollapsed, collapsed => {
+  if (!collapsed && timelineHeight.value < 100) timelineHeight.value = 220
+})
 const timelinePane = ref<HTMLElement | null>(null)
 let draggingTimeline = false
 function startTimelineResize(event: MouseEvent) {
@@ -55,7 +58,10 @@ function startTimelineResize(event: MouseEvent) {
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', stop)
 }
-const toggleTimeline = () => { timelineCollapsed.value = !timelineCollapsed.value }
+const toggleTimeline = () => {
+  timelineCollapsed.value = !timelineCollapsed.value
+  if (!timelineCollapsed.value && timelineHeight.value < 100) timelineHeight.value = 220
+}
 const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
@@ -65,13 +71,7 @@ const animationSoloHiddenIds = ref<Set<string>>(new Set())
 watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
 let advancingAnimation = false
 let animationTimer: number | undefined
-const animationsForRoot = computed(() => {
-  if (!activeRoot.value || !doc.value) return []
-  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
-  return (doc.value.animations || []).filter(animation =>
-    animation.bindings.some(binding => treeNodes.some(node => node.name === binding.widgetName))
-  )
-})
+const animationsForRoot = computed(() => doc.value?.animations || [])
 const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
 watch(activeAnimationId, () => {
   animationFrame.value = activeAnimation.value?.start || 0
@@ -287,9 +287,6 @@ const selectedLayout = computed(() => {
       </div>
 
       <div class="topbar-right">
-        <div v-if="doc?.animations?.length" class="animation-controls">
-          <n-button size="small" @click="timelineVisible = !timelineVisible">{{ timelineVisible ? tr('ui.umgTimelineHide') : tr('ui.umgTimelineShow') }}</n-button>
-        </div>
         <div class="mode-group">
           <n-button
             size="small"
@@ -328,7 +325,7 @@ const selectedLayout = computed(() => {
     </div>
 
     <!-- Three-Pane Workspace -->
-    <div v-else-if="doc" class="umg-body" @pointerdown="timelineVisible = true">
+    <div v-else-if="doc" class="umg-body">
       <section class="umg-workspace">
         <div class="umg-left-pane">
           <UMGHierarchy
@@ -375,7 +372,6 @@ const selectedLayout = computed(() => {
       </div>
       <div ref="timelinePane" class="timeline-pane" :style="{ height: timelineCollapsed ? '12px' : `${timelineHeight}px` }">
         <UMGAnimationTimeline
-          v-if="animationsForRoot.length"
           :animations="animationsForRoot"
           :active-animation-id="activeAnimationId"
           :time="animationFrame"
@@ -386,7 +382,6 @@ const selectedLayout = computed(() => {
           @update:time="animationFrame = $event"
           @update:playing="setAnimationPlaying($event)"
         />
-        <div v-else class="timeline-empty"><span>{{ tr('ui.umgAnimationNone') }}</span></div>
       </div>
     </div>
 
