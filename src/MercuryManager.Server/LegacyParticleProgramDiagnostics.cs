@@ -14,6 +14,7 @@ public static class LegacyParticleProgramDiagnostics
     public sealed record FogStageEvidence(string Stage, LegacyFogBindings Bindings)
     {
         public LegacyMaterialShaderBindings? MaterialBindings { get; init; }
+        public LegacyConstantBinding[][] FrameBindings { get; init; } = [[], [], [], []];
     }
 
     public sealed record StageEvidence(string Stage, int Offset, bool TranslationSucceeded,
@@ -21,6 +22,7 @@ public static class LegacyParticleProgramDiagnostics
     {
         public IReadOnlyList<ParticleSceneResourceRequirements.Requirement> SceneResources { get; init; } = [];
         public ParticleMaterialNumericInputs.Evidence? MaterialNumericInput { get; init; }
+        public ParticleMaterialFrameInputs.Evidence? MaterialFrameInput { get; init; }
     }
     public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
     {
@@ -31,7 +33,8 @@ public static class LegacyParticleProgramDiagnostics
     public static async Task<IReadOnlyList<ProgramStages>> TranslateStages(
         IReadOnlyList<Evidence> evidence, IReadOnlyList<MaterialShaderCompiler.ShaderCandidate> candidates,
         string cacheRoot, CancellationToken cancellationToken = default,
-        LegacyUniformSet? uniforms = null, MaterialUniformContext? context = null)
+        LegacyUniformSet? uniforms = null, MaterialUniformContext? context = null,
+        MaterialUniformContext? previousContext = null)
     {
         var result = new List<ProgramStages>();
         foreach (var program in evidence.Where(p => p.IdentityVerified))
@@ -47,12 +50,17 @@ public static class LegacyParticleProgramDiagnostics
                 {
                     var translation = await MaterialShaderCompiler.Translate(candidate, cacheRoot, cancellationToken, diagnosticSamplers: true);
                     var binding = program.FogBindings.SingleOrDefault(f => f.Stage == stage);
+                    var numeric = binding?.MaterialBindings is { } materialBinding && uniforms != null && context != null
+                        ? ParticleMaterialNumericInputs.Inspect(translation.Reflection, materialBinding, uniforms, context) : null;
                     stages.Add(new(stage, candidate.Offset, true, translation,
                         ["Translated source still requires WebGL validation and native resource/geometry adapters."])
                     {
                         SceneResources = ParticleSceneResourceRequirements.Inspect(translation, binding?.Bindings),
-                        MaterialNumericInput = binding?.MaterialBindings is { } materialBinding && uniforms != null && context != null
-                            ? ParticleMaterialNumericInputs.Inspect(translation.Reflection, materialBinding, uniforms, context) : null
+                        MaterialNumericInput = numeric,
+                        MaterialFrameInput = binding?.MaterialBindings != null && uniforms != null && context != null &&
+                            previousContext != null && numeric != null && (!numeric.Bound || numeric.UploadValidated)
+                            ? ParticleMaterialFrameInputs.Inspect(translation.Reflection, binding.MaterialBindings,
+                                binding.FrameBindings, uniforms, context, previousContext, numeric.Data?.Length ?? 0) : null
                     });
                 }
                 catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.ComponentModel.Win32Exception)
@@ -103,7 +111,7 @@ public static class LegacyParticleProgramDiagnostics
                         var layout = LegacyBasePassFogLocator.Inspect(asset, material.Extras, entry,
                             material.SerialOffset + material.SerialSize - material.Extras.Length, factory);
                         fog.Add(new(stage, LegacyFogShaderBindings.Read(material.Extras, entry, layout.FogOffset))
-                            { MaterialBindings = layout.Material });
+                            { MaterialBindings = layout.Material, FrameBindings = layout.FrameBindings });
                     }
                     catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
                     {

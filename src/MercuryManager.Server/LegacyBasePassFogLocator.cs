@@ -10,6 +10,7 @@ public static class LegacyBasePassFogLocator
     public sealed record Layout(int FogOffset, int FactoryPayloadStart, int FactoryPayloadEnd, int Frequency)
     {
         public LegacyMaterialShaderBindings Material { get; init; } = null!;
+        public LegacyConstantBinding[][] FrameBindings { get; init; } = [[], [], [], []];
     }
 
     public static int Locate(UAsset asset, byte[] extras, LegacyShaderEntry entry,
@@ -45,7 +46,20 @@ public static class LegacyBasePassFogLocator
         if (stringBytes > 0 && (extras[p - 1] != 0 || (length < 0 && extras[p - 2] != 0)))
             throw new InvalidDataException("Unterminated BasePass description.");
         Skip(4); // Eye adaptation resource.
-        for (int i = 0; i < 4; i++) Skip(checked(Count() * 6));
+        var frames = new LegacyConstantBinding[4][];
+        for (int i = 0; i < frames.Length; i++)
+        {
+            int count = Count();
+            int at = p;
+            Skip(checked(count * 6));
+            frames[i] = new LegacyConstantBinding[count];
+            for (int j = 0; j < count; j++)
+            {
+                var bytes = extras.AsSpan(at + j * 6, 6);
+                frames[i][j] = new(BinaryPrimitives.ReadUInt16LittleEndian(bytes),
+                    BinaryPrimitives.ReadUInt16LittleEndian(bytes[2..]), BinaryPrimitives.ReadUInt16LittleEndian(bytes[4..]));
+            }
+        }
         Skip(18); // InstanceCount/InstanceOffset/VertexOffset.
         int index = Int(), number = Int();
         if (index < 0 || index >= asset.GetNameMapIndexList().Count || number != 0 ||
@@ -66,6 +80,7 @@ public static class LegacyBasePassFogLocator
         if (p > entry.EndOffset - 70) throw new InvalidDataException("Truncated BasePass fog block.");
         return new(p, payloadStart, (int)factoryEnd, extras[frequencyAt])
         {
+            FrameBindings = frames,
             Material = new(materialIndex, materialBound != 0, vectors, scalars, textures, cubes, frameScalars, frameVectors)
         };
     }

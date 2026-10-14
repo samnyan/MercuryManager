@@ -175,7 +175,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         var particlePrograms = LegacyParticleProgramDiagnostics.Inspect(asset, matExport, cooked, candidates);
         var particleStages = includeParticleStages == true
             ? await LegacyParticleProgramDiagnostics.TranslateStages(particlePrograms, candidates, cacheDir,
-                httpContext.RequestAborted, cooked.Uniforms, context)
+                httpContext.RequestAborted, cooked.Uniforms, context, context with { Time = before, RealTime = before })
             : null;
         return Results.Ok(new
         {

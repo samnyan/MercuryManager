@@ -9,14 +9,18 @@ public static class LegacyMaterialFrameEvaluator
     // 每帧字段不在 Material UBO 中；保留各自的缓冲区和字节位置供前端上传。
     public static IReadOnlyList<LegacyFrameConstantWrite> Evaluate(LegacyUniformSet set,
         LegacySlatePixelBindings bindings, MaterialUniformContext current, MaterialUniformContext previous)
+        => Evaluate(set, bindings.FrameBindings, current, previous);
+
+    public static IReadOnlyList<LegacyFrameConstantWrite> Evaluate(LegacyUniformSet set,
+        LegacyConstantBinding[][] frameBindings, MaterialUniformContext current, MaterialUniformContext previous)
     {
-        if (set.Arrays.Length != 9 || bindings.FrameBindings.Length != 4)
+        if (set.Arrays.Length != 9 || frameBindings.Length != 4)
             throw new InvalidDataException("Invalid per-frame expression layout.");
         var writes = new List<LegacyFrameConstantWrite>();
         for (int group = 0; group < 4; group++)
         {
             var expressions = set.Arrays[group + 5];
-            var slots = bindings.FrameBindings[group];
+            var slots = frameBindings[group];
             if (expressions.Length != slots.Length)
                 throw new InvalidDataException("Per-frame expression binding count mismatch.");
             int width = group % 2 == 0 ? 4 : 16;
