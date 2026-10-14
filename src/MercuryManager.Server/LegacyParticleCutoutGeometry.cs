@@ -8,6 +8,25 @@ public static class LegacyParticleCutoutGeometry
 {
     public sealed record Geometry(int VertexCount, float[] Coordinates);
 
+    public sealed record Resource(bool HasShaderResourceView, int NativeStride, int NativeFormat, byte[] BufferData);
+
+    /// <summary>Required resource InitRHI 0x1417B42C0 allocates count*8 bytes
+    /// only for nonempty geometry; source coordinates are copied without reordering.</summary>
+    public static Resource CreateResource(Geometry geometry)
+    {
+        if (geometry.VertexCount < 0 || geometry.VertexCount > 1048576 ||
+            geometry.Coordinates.Length != (long)geometry.VertexCount * 2)
+            throw new InvalidDataException("Invalid cutout geometry shape.");
+        var data = new byte[geometry.Coordinates.Length * sizeof(float)];
+        for (int i = 0; i < geometry.Coordinates.Length; i++)
+        {
+            float value = geometry.Coordinates[i];
+            if (!float.IsFinite(value)) throw new InvalidDataException("Nonfinite cutout coordinate.");
+            BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(i * sizeof(float), sizeof(float)), value);
+        }
+        return new(geometry.VertexCount != 0, 8, 17, data);
+    }
+
     public static Geometry Read(byte[] extras)
     {
         if (extras.Length < 8) throw new InvalidDataException("Truncated cooked cutout geometry header.");

@@ -10,6 +10,7 @@ public static class LegacyParticleCutoutConfiguration
         int OpaqueBytes, string Limitation)
     {
         public LegacyParticleCutoutGeometry.Geometry? CookedGeometry { get; init; }
+        public bool? HasCookedGeometryResource => CookedGeometry == null ? null : CookedGeometry.VertexCount != 0;
     }
 
     public static Evidence Inspect(NormalExport module)
