@@ -18,6 +18,7 @@ public static class MaterialShaderCompiler
     public sealed record Translation(string Hash,string Stage,string Glsl,string Reflection,string[] Diagnostics)
     {
         public IReadOnlyList<MaterialCombinedSampler> CombinedSamplers { get; init; } = [];
+        public string[] RequiredAdapters { get; init; } = [];
     }
     private const int MaxDecodedBytes=4*1024*1024;
     private const int MaxCachedTranslations = 16;
@@ -156,7 +157,19 @@ public static class MaterialShaderCompiler
                     variable["name"] = name;
                 }
             }
-            await Run(MaterialShaderToolchain.GetSpirvCrossPath(),arguments.ToArray(),cancellationToken);
+            bool adaptedSprite = false;
+            try { await Run(MaterialShaderToolchain.GetSpirvCrossPath(),arguments.ToArray(),cancellationToken); }
+            catch (InvalidDataException ex) when (diagnosticSamplers && candidate.Stage == "vertex" &&
+                ex.Message.Contains("BaseVertex not supported in ES profile", StringComparison.Ordinal))
+            {
+                var desktopArguments = arguments.ToArray();
+                desktopArguments[1] = "--no-es";
+                desktopArguments[3] = "330";
+                await Run(MaterialShaderToolchain.GetSpirvCrossPath(), desktopArguments, cancellationToken);
+                var adapted = ParticleSpriteEsAdapter.Adapt(await File.ReadAllTextAsync(glsl, cancellationToken));
+                await File.WriteAllTextAsync(glsl, adapted, cancellationToken);
+                adaptedSprite = true;
+            }
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
             var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source, diagnosticSamplers);
             foreach (var ubo in reflected["ubos"]!.AsArray())
@@ -169,7 +182,8 @@ public static class MaterialShaderCompiler
             }
             return new(candidate.Hash,candidate.Stage,source,reflected.ToJsonString(),
                 ["Translation metadata does not establish native resource-table mapping or game rendering fidelity."])
-                { CombinedSamplers = samplers };
+                { CombinedSamplers = samplers, RequiredAdapters = adaptedSprite
+                    ? ["Explicit SPIRV_Cross_BaseVertex integer uniform.", "Cutout t0 requires a one-row RG32F sampler2D with exact texel indices; reflection describes the original buffer texture.", "Desktop330 arithmetic lowering is diagnostic; native rounding parity is unverified."] : [] };
         }
         finally {Directory.Delete(job,true);}
     }
