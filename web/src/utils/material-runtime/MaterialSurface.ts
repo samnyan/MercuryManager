@@ -9,10 +9,10 @@ export class MaterialSurface {
   private slots: ReturnType<typeof resolveContractSamplerSlots>['slots']
   private disposed = false
   private lastTime: number | undefined
-  constructor(readonly program: MaterialShaderContract, width: number, height: number) {
+  constructor(readonly program: MaterialShaderContract, width: number, height: number, private additiveDestination: 'opaque-stage' | undefined = undefined) {
     const resolved = resolveContractSamplerSlots(program)
     if (resolved.error) throw new Error(resolved.error)
-    if (program.blendMode === 'BLEND_Additive') throw new Error('Additive requires destination-aware stage composition')
+    if (program.blendMode === 'BLEND_Additive' && !additiveDestination) throw new Error('Additive requires destination-aware stage composition')
     this.slots = resolved.slots
     this.instance = new MaterialInstance(program)
     this.resize(width, height)
@@ -42,7 +42,7 @@ export class MaterialSurface {
     this.instance.update({time, previousTime})
     if (!this.renderer.renderContract(this.canvas.width, this.canvas.height,
       {...this.program, time, previousTime, runtimeWrites:this.instance.writes()}, this.slots,
-      this.program.blendMode || 'BLEND_Opaque')) throw new Error('Material draw failed')
+      this.program.blendMode || 'BLEND_Opaque', this.additiveDestination ? 'emissive' : 'dark')) throw new Error('Material draw failed')
     this.lastTime = time
     return this.canvas
   }

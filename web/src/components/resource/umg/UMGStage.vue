@@ -114,11 +114,11 @@ async function getMaterialCanvasSource(
     } catch {}
   }
 
-  if (contract?.renderingReady && contract.uniformProgram && contract.blendMode !== 'BLEND_Additive') {
+  if (contract?.renderingReady && contract.uniformProgram) {
     let pending = materialSurfaces.get(cacheKey)
     if (!pending) {
       pending = (async () => {
-        const surface = new MaterialSurface(contract, targetW, targetH)
+        const surface = new MaterialSurface(contract, targetW, targetH, 'opaque-stage')
         try {
           await surface.prepare(texPath => loadRawImage(`/api/projects/${project.id}/resource-image?` + new URLSearchParams({path:texPath,mip:'0'})))
           return surface
@@ -438,7 +438,11 @@ async function rebuildScene() {
       const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h, animatedScalars, node.id)
       if (gen !== renderGeneration) return
       if (matCanvas) {
+        const additive = normalizeMaterialEntry(props.materials?.[matRef.assetPath], matRef.assetPath)?.blendMode === 'BLEND_Additive'
         fabricObj = new FabricImage(matCanvas, {
+          // Black-backed emissive output adds RGB onto the opaque artboard; never source-over it.
+          globalCompositeOperation: additive ? 'lighter' : 'source-over',
+          objectCaching: false,
           left,
           top,
           originX: tf.pivotX,

@@ -301,7 +301,7 @@ export class MaterialWebGLRenderer {
     contract: MaterialShaderContract,
     samplerSlots: ResolvedSamplerSlot[],
     blendMode = 'BLEND_Opaque',
-    background: 'checkerboard' | 'dark' | 'light' = 'dark'
+    background: 'checkerboard' | 'dark' | 'light' | 'emissive' = 'dark'
   ): boolean {
     const gl = this.gl
     if (!gl || !this.vao || contract.schemaVersion !== 1 || contract.renderingReady !== true) return false
@@ -321,7 +321,7 @@ export class MaterialWebGLRenderer {
       // Additive RGB has alpha zero: compose against an explicit opaque destination,
       // not a transparent canvas (browser premultiplication would erase the emissive RGB).
       const dark = background === 'dark'
-      gl.clearColor(dark ? 20 / 255 : 1, dark ? 20 / 255 : 1, dark ? 24 / 255 : 1, 1)
+      gl.clearColor(background === 'emissive' ? 0 : dark ? 20 / 255 : 1, background === 'emissive' ? 0 : dark ? 20 / 255 : 1, background === 'emissive' ? 0 : dark ? 24 / 255 : 1, 1)
       gl.clear(gl.COLOR_BUFFER_BIT)
       if (background === 'checkerboard') {
         gl.enable(gl.SCISSOR_TEST)
