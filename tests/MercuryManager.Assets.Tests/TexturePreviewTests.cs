@@ -17,4 +17,41 @@ public sealed class TexturePreviewTests
     public void ExtendedFieldsResolve(string table,string field,string value,string expected)=>Assert.Equal(expected,TexturePreviewService.ResolveRelativePath(table,field,value));
     [Fact]public void MaterialIsNotAStaticTexture()=>Assert.Throws<InvalidDataException>(()=>TexturePreviewService.ResolveRelativePath("SugorokuUniqueParameterTable","SugorokuCenterImage","Material/Gate/uM_SR003"));
     [Fact]public void UnknownFieldsRejected()=>Assert.Throws<ArgumentException>(()=>TexturePreviewService.ResolveRelativePath("IconTable","Other","texture"));
+
+    [Fact]
+    public void RejectsUnprovidedViewNoiseWithoutDefaultTextureSubstitution()
+    {
+        // Buffer 1 (bits 2) has Texture 0 (token: Buffer 1, Res 35, Reg 0) and Sampler 0 (token: Buffer 1, Res 36, Reg 0).
+        // Buffer 2 (bits 4) has Material Texture 0 (token: Buffer 2, Res 0, Reg 1) and Sampler 0 (token: Buffer 2, Res 1, Reg 1).
+        // ResourceBits = 0x6.
+        // Array 0: SRVs, Array 1: Samplers, Array 2: ?, Array 3: ?, Array 4: Textures
+        var samplersArray = new uint[] { 0, 3, 5, 0x01002400, 0xFFFFFFFF, 0x02000101, 0xFFFFFFFF };
+        var texturesArray = new uint[] { 0, 3, 5, 0x01002300, 0xFFFFFFFF, 0x02000001, 0xFFFFFFFF };
+        var arrays = new uint[][] { [], samplersArray, [], [], texturesArray };
+        var table = new LegacyShaderResourceTable(0x6, arrays);
+
+        var materialBindings = new LegacyMaterialShaderBindings(2, true, 0, 0, 1, 0, 0, 0);
+        var expressions = new LegacyMaterialTextureExpression[]
+        {
+            new(0, "UI/Textures/Example.uasset", 0, 0, null)
+        };
+        var combined = new MaterialCombinedSampler[]
+        {
+            new("SPIRV_Cross_Combinedt0s0", "t0", "s0"),
+            new("SPIRV_Cross_Combinedt1s1", "t1", "s1")
+        };
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            LegacyMaterialSamplerMapping.Resolve(table, materialBindings, expressions, combined));
+        Assert.Contains("buffer=1/resource=35/register=0", error.Message);
+        Assert.Contains("buffer=1/resource=36/register=0", error.Message);
+        Assert.Contains("no default texture was substituted", error.Message);
+
+        var slots = LegacyMaterialSamplerMapping.Resolve(table, materialBindings, expressions, [combined[1]]);
+        var matSlot = Assert.Single(slots);
+        Assert.Equal("t1", matSlot.ImageName);
+        Assert.Equal("s1", matSlot.SamplerName);
+        Assert.Equal("UI/Textures/Example.uasset", matSlot.AssetPath);
+        Assert.Equal(0, matSlot.ExpressionIndex);
+    }
 }
