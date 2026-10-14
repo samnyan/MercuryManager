@@ -20,8 +20,9 @@ export function computeRenderTransforms(nodes: UMGNode[], layouts: Map<string, C
     const angle = finite(t?.Angle,0)*Math.PI/180
     const rotation: Matrix = [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle),0,0]
     const scale: Matrix = [finite(t?.Scale?.X,1),0,0,finite(t?.Scale?.Y,1),0,0]
-    // Shear is deliberately omitted until Slate ordering is verified; layout reports it.
-    const shear = identity()
+    // FWidgetTransform: scale -> FShear2D -> rotation -> translation.
+    const slope = (v: unknown) => Math.tan(Math.max(-89, Math.min(89, finite(v, 0))) * Math.PI / 180)
+    const shear: Matrix = [1, slope(t?.Shear?.Y), slope(t?.Shear?.X), 1, 0, 0]
     const local = multiply(translate(px+finite(t?.Translation?.X,0),py+finite(t?.Translation?.Y,0)),multiply(rotation,multiply(shear,multiply(scale,translate(-px,-py)))))
     const world = multiply(parent,local)
     result.set(id,world)

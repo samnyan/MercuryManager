@@ -12,6 +12,7 @@ import { computeRenderTransforms, multiply, type Matrix } from './transforms'
 import { widgetClip } from './clipping'
 import { setRetainedClip } from './retainedClip'
 import { GpuStage, type GpuItem } from './GpuStage'
+import { boxBrush } from './brush'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
 import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
 
@@ -317,6 +318,16 @@ async function getTintedImageSource(
 
 const nodeById = computed(() => new Map(props.nodes.map(n => [n.id, n])))
 
+function isManuallyHidden(node: UMGNode): boolean {
+  const seen = new Set<string>()
+  let current: UMGNode | undefined = node
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    if (props.hiddenIds.has(current.id)) return true
+    current = current.parentId ? nodeById.value.get(current.parentId) : undefined
+  }
+  return false
+}
 function effectiveOpacity(node: UMGNode): number {
   const seen = new Set<string>()
   let opacity = 1
@@ -467,7 +478,7 @@ async function rebuildScene() {
 
   for (const { node, layout } of entries) {
     if (gen !== renderGeneration) return
-    if (props.hiddenIds.has(node.id)) continue
+    if (isManuallyHidden(node)) continue
     if (props.viewMode === 'appearance' && !layout.visible) continue
 
     const clipPoints = widgetClip(node, nodesMap, props.layouts, worldTransforms, props.viewport)
@@ -561,7 +572,8 @@ async function rebuildScene() {
 
     if (!fabricObj && imageUrl && rect.width > 0 && rect.height > 0) {
       const tint = extractColor(node.visual.ColorAndOpacity ?? node.visual.Brush?.TintColor)
-      const source = await getTintedImageSource(imageUrl, tint)
+      const imageSource = await getTintedImageSource(imageUrl, tint)
+      const source = imageSource ? boxBrush(imageSource, node.visual.Brush, w, h) : null
       if (gen !== renderGeneration) return
       if (source) {
         const srcW = (source as HTMLImageElement).naturalWidth || source.width || w
@@ -895,7 +907,7 @@ function updateSceneFrame() {
     const local: Matrix = [text ? 1 : w / iw, 0, 0, text ? 1 : h / ih,
       rect.x + (text ? iw : w) / 2, rect.y + (text ? ih : h) / 2]
     util.applyTransformToObject(obj, multiply(transforms.get(id) ?? [1,0,0,1,0,0], local))
-    obj.set({ opacity: effectiveOpacity(node), visible: layout.visible })
+    obj.set({ opacity: effectiveOpacity(node), visible: layout.visible && !isManuallyHidden(node) })
     const clip = widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport)
     const item = gpuItems.get(obj)
     if (item) item.clip = clip
@@ -914,13 +926,13 @@ function updateSceneFrame() {
   fabricCanvas.requestRenderAll()
 }
 watch(
-  [sceneContentKey, () => props.viewMode, () => props.viewport, () => props.hiddenIds, () => props.materials, () => props.particles],
+  [sceneContentKey, () => props.viewMode, () => props.viewport, () => [...props.hiddenIds], () => props.materials, () => props.particles],
   () => { rebuildScene() }
 )
 watch(
-  [() => props.nodes, () => props.layouts, () => props.materialTime, () => props.animationMaterialParameters],
+  [() => props.nodes.map(n => [n.id, n.visual.RenderOpacity, n.visual.RenderTransform]), () => props.layouts, () => props.materialTime, () => props.animationMaterialParameters],
   () => { if (props.viewMode === 'structure') rebuildScene(); else updateSceneFrame() },
-  { flush: 'post' }
+  { flush: 'post', deep: true }
 )
 
 watch(

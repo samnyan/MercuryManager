@@ -108,42 +108,17 @@ export function computeTreeLayout(
 
       if (slot.bAutoSize && !size.known) issues.push('Unknown desired size (AutoSize).')
 
-      let w = 0, h = 0
-      const hasExplicitRight = number(off.Right) > 0
-      const hasExplicitBottom = number(off.Bottom) > 0
+      // Canvas offsets are literal dimensions unless AutoSize is explicitly enabled.
+      // Zero is meaningful (e.g. FACE's zero-sized positioning container).
+      const w = maxX !== minX
+        ? allocated.width * (maxX - minX) - number(off.Left) - number(off.Right)
+        : slot.bAutoSize ? size.width : number(off.Right)
+      const h = maxY !== minY
+        ? allocated.height * (maxY - minY) - number(off.Top) - number(off.Bottom)
+        : slot.bAutoSize ? size.height : number(off.Bottom)
 
-      if (maxX !== minX) {
-        // 拉伸
-        w = allocated.width * (maxX - minX) - number(off.Left) - number(off.Right)
-      } else {
-        // 点锚点
-        if (slot.bAutoSize || (!hasExplicitRight && !hasExplicitBottom)) {
-          w = size.width > 0 ? size.width : number(off.Right)
-        } else if (!hasExplicitRight && hasExplicitBottom && size.height > 0 && size.width > 0) {
-          // 若只明确指定了高度，且元素具有固有比例尺寸，按比例适配宽度
-          w = (size.width / size.height) * number(off.Bottom)
-        } else {
-          w = hasExplicitRight ? number(off.Right) : (size.width > 0 ? size.width : 0)
-        }
-      }
-
-      if (maxY !== minY) {
-        // 拉伸
-        h = allocated.height * (maxY - minY) - number(off.Top) - number(off.Bottom)
-      } else {
-        // 点锚点
-        if (slot.bAutoSize || (!hasExplicitRight && !hasExplicitBottom)) {
-          h = size.height > 0 ? size.height : number(off.Bottom)
-        } else if (!hasExplicitBottom && hasExplicitRight && size.width > 0 && size.height > 0) {
-          // 若只明确指定了宽度，且元素具有固有比例尺寸，按比例适配高度
-          h = (size.height / size.width) * number(off.Right)
-        } else {
-          h = hasExplicitBottom ? number(off.Bottom) : (size.height > 0 ? size.height : 0)
-        }
-      }
-
-      const alignX = maxX === minX ? number(align.X, minX === 0.5 ? 0.5 : 0) : 0
-      const alignY = maxY === minY ? number(align.Y, minY === 0.5 ? 0.5 : 0) : 0
+      const alignX = maxX === minX ? number(align.X) : 0
+      const alignY = maxY === minY ? number(align.Y) : 0
 
       rect = {
         x: allocated.x + allocated.width * minX + number(off.Left) - w * alignX,
