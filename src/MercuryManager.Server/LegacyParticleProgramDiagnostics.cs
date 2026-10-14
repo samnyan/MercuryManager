@@ -14,7 +14,10 @@ public static class LegacyParticleProgramDiagnostics
     public sealed record FogStageEvidence(string Stage, LegacyFogBindings Bindings);
 
     public sealed record StageEvidence(string Stage, int Offset, bool TranslationSucceeded,
-        MaterialShaderCompiler.Translation? Translation, string[] Limitations);
+        MaterialShaderCompiler.Translation? Translation, string[] Limitations)
+    {
+        public IReadOnlyList<ParticleSceneResourceRequirements.Requirement> SceneResources { get; init; } = [];
+    }
     public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
     {
         public ParticleStageInterface.Evidence? StageInterface { get; init; }
@@ -39,7 +42,11 @@ public static class LegacyParticleProgramDiagnostics
                 {
                     var translation = await MaterialShaderCompiler.Translate(candidate, cacheRoot, cancellationToken, diagnosticSamplers: true);
                     stages.Add(new(stage, candidate.Offset, true, translation,
-                        ["Translated source still requires WebGL validation and native resource/geometry adapters."]));
+                        ["Translated source still requires WebGL validation and native resource/geometry adapters."])
+                    {
+                        SceneResources = ParticleSceneResourceRequirements.Inspect(translation,
+                            program.FogBindings.SingleOrDefault(f => f.Stage == stage)?.Bindings)
+                    });
                 }
                 catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.ComponentModel.Win32Exception)
                 {
