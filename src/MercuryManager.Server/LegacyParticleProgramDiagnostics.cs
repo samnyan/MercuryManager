@@ -23,6 +23,7 @@ public static class LegacyParticleProgramDiagnostics
         public IReadOnlyList<ParticleSceneResourceRequirements.Requirement> SceneResources { get; init; } = [];
         public ParticleMaterialNumericInputs.Evidence? MaterialNumericInput { get; init; }
         public ParticleMaterialFrameInputs.Evidence? MaterialFrameInput { get; init; }
+        public ParticleMaterialTextureInputs.Evidence? MaterialTextureInput { get; init; }
     }
     public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
     {
@@ -34,7 +35,8 @@ public static class LegacyParticleProgramDiagnostics
         IReadOnlyList<Evidence> evidence, IReadOnlyList<MaterialShaderCompiler.ShaderCandidate> candidates,
         string cacheRoot, CancellationToken cancellationToken = default,
         LegacyUniformSet? uniforms = null, MaterialUniformContext? context = null,
-        MaterialUniformContext? previousContext = null)
+        MaterialUniformContext? previousContext = null,
+        IReadOnlyList<LegacyMaterialTextureExpression>? textureExpressions = null)
     {
         var result = new List<ProgramStages>();
         foreach (var program in evidence.Where(p => p.IdentityVerified))
@@ -56,6 +58,9 @@ public static class LegacyParticleProgramDiagnostics
                         ["Translated source still requires WebGL validation and native resource/geometry adapters."])
                     {
                         SceneResources = ParticleSceneResourceRequirements.Inspect(translation, binding?.Bindings),
+                        MaterialTextureInput = binding?.MaterialBindings != null && textureExpressions != null
+                            ? ParticleMaterialTextureInputs.Inspect(candidate.ResourceTablePrefix, binding.MaterialBindings,
+                                textureExpressions, translation.CombinedSamplers) : null,
                         MaterialNumericInput = numeric,
                         MaterialFrameInput = binding?.MaterialBindings != null && uniforms != null && context != null &&
                             previousContext != null && numeric != null && (!numeric.Bound || numeric.UploadValidated)

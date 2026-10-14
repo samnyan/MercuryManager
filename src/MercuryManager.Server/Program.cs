@@ -173,9 +173,26 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     {
         // A particle fragment shader is not a valid Slate rectangle program.
         var particlePrograms = LegacyParticleProgramDiagnostics.Inspect(asset, matExport, cooked, candidates);
+        IReadOnlyList<LegacyMaterialTextureExpression>? particleTextures = null;
+        string? particleTextureError = null;
+        if (includeParticleStages == true)
+        {
+            try
+            {
+                var references = cooked.ReferencedTextures;
+                if (references.Count == 0)
+                    references = LegacyMaterialTextureTable.Read(asset, matExport,
+                        dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
+                particleTextures = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, references, preview.TextureOverrides);
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidDataException)
+            {
+                particleTextureError = ex.Message;
+            }
+        }
         var particleStages = includeParticleStages == true
             ? await LegacyParticleProgramDiagnostics.TranslateStages(particlePrograms, candidates, cacheDir,
-                httpContext.RequestAborted, cooked.Uniforms, context, context with { Time = before, RealTime = before })
+                httpContext.RequestAborted, cooked.Uniforms, context, context with { Time = before, RealTime = before }, particleTextures)
             : null;
         return Results.Ok(new
         {
@@ -184,6 +201,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
             previewProfile = "unsupported-non-slate-v1",
             particlePrograms,
             particleStages,
+            particleTextureError,
             limitations = new[] { "Material has no cooked Slate permutation. Particle programs require native vertex, scene and geometry adapters." }
         });
     }
