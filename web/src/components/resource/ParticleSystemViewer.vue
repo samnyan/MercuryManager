@@ -20,6 +20,14 @@ import {
   Sparkles
 } from '@lucide/vue'
 import ResourceCardList, { type ResourceItem } from './ResourceCardList.vue'
+import ParticleCutoutCanvas from './ParticleCutoutCanvas.vue'
+import { materialPrograms } from '../../utils/material-runtime/MaterialProgramCache'
+import {
+  hasNonSlateParticleDiagnostics,
+  type NonSlateParticleDiagnostics,
+  type ParticleProgramEvidence
+} from '../../utils/material-runtime/ParticleProgramDiagnostics'
+import { tr } from '../../i18n'
 import { useProject } from '../../project'
 import {
   type ParticleModuleInfo,
@@ -93,6 +101,51 @@ const selectedModuleResources = computed<ResourceItem[]>(() => {
   }
   return list
 })
+
+// 材质 Shader 诊断缓存与状态
+const materialDiagnosticsMap = ref<Record<string, NonSlateParticleDiagnostics | null>>({})
+const activeMaterialPath = computed(() => {
+  return selectedModuleResources.value.find(r => r.role === 'Material')?.assetPath || null
+})
+const currentMaterialDiagnostics = computed(() => {
+  const p = activeMaterialPath.value
+  return p ? materialDiagnosticsMap.value[p] || null : null
+})
+
+function formatFogBinding(f: NonNullable<ParticleProgramEvidence['fogBindings']>[number]): string {
+  const stage = f.stage === 'vertex' ? 'VS' : 'PS'
+  const parts: string[] = []
+  if (f.bindings.inscatteringCubemap?.numResources > 0) {
+    parts.push(`cube t${f.bindings.inscatteringCubemap.baseIndex}`)
+  }
+  if (f.bindings.integratedLightScattering?.numResources > 0) {
+    parts.push(`vol t${f.bindings.integratedLightScattering.baseIndex}`)
+  }
+  const cCount = f.bindings.constants?.length ?? 0
+  if (cCount > 0) {
+    parts.push(`${cCount} consts`)
+  }
+  return `${stage} (${parts.join(', ') || 'unbound'})`
+}
+
+// 按需单次异步请求材质诊断（去重且避免模拟每 tick 轮询）
+watch(
+  [() => project.id, activeMaterialPath],
+  async ([projId, matPath]) => {
+    if (!projId || !matPath || materialDiagnosticsMap.value[matPath] !== undefined) return
+    try {
+      const data = await materialPrograms.load(projId, matPath)
+      if (hasNonSlateParticleDiagnostics(data)) {
+        materialDiagnosticsMap.value[matPath] = data as NonSlateParticleDiagnostics
+      } else {
+        materialDiagnosticsMap.value[matPath] = null
+      }
+    } catch {
+      materialDiagnosticsMap.value[matPath] = null
+    }
+  },
+  { immediate: true }
+)
 
 // 材质贴图加载辅助
 const rawImageCache = new Map<string, Promise<HTMLImageElement | null>>()
@@ -572,6 +625,68 @@ onBeforeUnmount(() => {
             />
           </div>
 
+          <!-- Cutout 几何轮廓诊断 (仅在 RequiredModule 且具备 CutoutConfiguration 时展示) -->
+          <div
+            v-if="selectedModule.Class === 'ParticleModuleRequired' && selectedModule.CutoutConfiguration"
+            class="details-section"
+          >
+            <ParticleCutoutCanvas :cutout="selectedModule.CutoutConfiguration" />
+          </div>
+
+          <!-- 材质 Shader 顶点工厂与底层诊断 (Low-Level Evidence) -->
+          <div
+            v-if="currentMaterialDiagnostics?.particlePrograms?.length"
+            class="details-section"
+          >
+            <div class="sec-title">{{ tr('ui.particleDiagnosticsTitle') }}</div>
+            <div class="diag-container">
+              <div class="diag-desc">{{ tr('ui.particleDiagnosticsDesc') }}</div>
+              <div
+                v-for="(prog, pIdx) in currentMaterialDiagnostics.particlePrograms"
+                :key="pIdx"
+                class="diag-card"
+              >
+                <div class="diag-row-top">
+                  <span class="diag-factory-name">{{ prog.vertexFactory }}</span>
+                  <n-tag
+                    size="tiny"
+                    :type="prog.identityVerified ? 'success' : 'warning'"
+                    :bordered="false"
+                  >
+                    {{ prog.identityVerified ? tr('ui.particleVerified') : tr('ui.particleUnverified') }}
+                  </n-tag>
+                </div>
+
+                <div class="diag-meta-grid">
+                  <span class="meta-k">{{ tr('ui.particleOffsets') }}:</span>
+                  <span class="meta-v">VS @ {{ prog.vertexOffset ?? 'N/A' }} / PS @ {{ prog.fragmentOffset ?? 'N/A' }}</span>
+
+                  <template v-if="prog.spriteBindings">
+                    <span class="meta-k">{{ tr('ui.particleSpriteBindings') }}:</span>
+                    <span class="meta-v">
+                      cb{{ prog.spriteBindings.numCutoutVerticesPerFrame.bufferIndex }}[{{ prog.spriteBindings.numCutoutVerticesPerFrame.baseIndex }}],
+                      res: {{ prog.spriteBindings.cutoutGeometry.numResources }} @ t{{ prog.spriteBindings.cutoutGeometry.baseIndex }}
+                    </span>
+                  </template>
+
+                  <template v-if="prog.fogBindings?.length">
+                    <span class="meta-k">{{ tr('ui.particleFogBindings') }}:</span>
+                    <span class="meta-v">
+                      {{ prog.fogBindings.map(formatFogBinding).join(' | ') }}
+                    </span>
+                  </template>
+                </div>
+
+                <div v-if="prog.limitations?.length" class="diag-limits">
+                  <div class="limit-title">{{ tr('ui.particleLimitations') }}:</div>
+                  <ul class="limit-list">
+                    <li v-for="(lim, lIdx) in prog.limitations" :key="lIdx">{{ lim }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 结构化属性与分布 (Properties & Distributions) -->
           <div class="details-section">
             <div class="sec-title">
@@ -973,6 +1088,83 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: #888;
+}
+
+.diag-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diag-desc {
+  font-size: 11px;
+  color: #71717a;
+  line-height: 1.4;
+}
+
+.diag-card {
+  background: rgba(128, 128, 128, 0.05);
+  border: 1px solid rgba(128, 128, 128, 0.16);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diag-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diag-factory-name {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #38bdf8;
+  word-break: break-all;
+}
+
+.diag-meta-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.meta-k {
+  color: #71717a;
+}
+
+.meta-v {
+  font-family: monospace;
+  color: #10b981;
+  word-break: break-all;
+}
+
+.diag-limits {
+  border-top: 1px dashed rgba(128, 128, 128, 0.15);
+  padding-top: 4px;
+  font-size: 10px;
+  color: #eab308;
+}
+
+.limit-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.limit-list {
+  margin: 0;
+  padding-left: 14px;
+  list-style-type: disc;
+}
+
+.limit-list li {
+  line-height: 1.3;
 }
 
 .prop-list {

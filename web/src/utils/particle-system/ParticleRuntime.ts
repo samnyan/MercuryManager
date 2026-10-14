@@ -5,6 +5,12 @@ import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../material-s
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
 import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
+import {
+  type NonSlateParticleDiagnostics,
+  type ParticleCutoutConfiguration,
+  hasNonSlateParticleDiagnostics
+} from '../material-runtime/ParticleProgramDiagnostics'
+
 export interface ParticleModuleProp {
   Name: string
   Kind: string
@@ -44,6 +50,7 @@ export interface ParticleModuleInfo {
   Distributions?: Record<string, any>
   References?: Record<string, any>
   RawProperties?: Record<string, any>
+  CutoutConfiguration?: ParticleCutoutConfiguration | null
 }
 
 export interface ParticleLODInfo {
@@ -205,11 +212,12 @@ export async function buildParticleMaterialSprites(
     const spec = normalizeMaterialEntry(rawMat, matPath)
     if (!spec) continue
 
-    // 1. 尝试从 fac847c 的 MaterialSurface / MaterialProgramCache 获取真实 WebGL2 着色器渲染
+    // 1. 尝试从 fac847c 的 MaterialSurface / MaterialProgramCache 获取真实 WebGL2 着色器渲染（仅当 Slate 真实就绪且非粒子专有诊断时）
     if (projectId) {
       try {
         const contract = await materialPrograms.load(projectId, matPath)
-        if (contract?.renderingReady && contract.uniformProgram && contract.blendMode !== 'BLEND_Additive') {
+        // 关键守则：particlePrograms/非 Slate 诊断或者 renderingReady=false 绝对不作为真实着色器运行，仅渲染就绪的 Slate 程序
+        if (!hasNonSlateParticleDiagnostics(contract) && 'renderingReady' in contract && contract.renderingReady && contract.uniformProgram && contract.blendMode !== 'BLEND_Additive') {
           const surface = new MaterialSurface(contract, 128, 128)
           try {
             await surface.prepare(loadImage)

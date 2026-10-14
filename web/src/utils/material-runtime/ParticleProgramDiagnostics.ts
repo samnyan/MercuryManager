@@ -19,11 +19,21 @@ export interface ParticleProgramEvidence {
   } | null
   limitations: string[]
 }
+export interface ParticleSceneResourceRequirement {
+  uniformName: string
+  samplerType: string
+  nativeResource: string
+  imageRegister: number
+  samplerRegister: number
+  sourceProvided: boolean
+  nativeSamplerVerified: boolean
+}
 export interface ParticleStageEvidence {
   stage: 'vertex' | 'fragment'
   offset: number
   translationSucceeded: boolean
   translation: { hash: string; stage: string; glsl: string; reflection: string; diagnostics: string[]; combinedSamplers: { uniformName: string; imageName: string; samplerName: string; samplerType: 'sampler2D' | 'sampler3D' | 'samplerCube' }[] } | null
+  sceneResources?: ParticleSceneResourceRequirement[]
   limitations: string[]
 }
 export interface ParticleProgramStages {

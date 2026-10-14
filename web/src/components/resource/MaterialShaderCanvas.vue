@@ -28,6 +28,8 @@ import {
   resolveContractSamplerSlots,
   type MaterialShaderContract
 } from '../../utils/material-shader/MaterialWebGLRenderer'
+import type { MaterialResourceContract } from '../../utils/material-runtime/MaterialProgramCache'
+import { hasNonSlateParticleDiagnostics, type NonSlateParticleDiagnostics } from '../../utils/material-runtime/ParticleProgramDiagnostics'
 
 export interface SimTextureItem {
   name: string
@@ -197,6 +199,7 @@ async function handleSettingsSelect(key: string) {
 
 // Cooked WebGL2 shader contract state
 const shaderContract = ref<MaterialShaderContract | null>(null)
+const nonSlateDiagnostics = ref<NonSlateParticleDiagnostics | null>(null)
 const contractError = ref<string | null>(null)
 
 // 工具链状态检测
@@ -332,6 +335,7 @@ function buildOverridesQuery(timeVal: number, prevTimeVal: number): URLSearchPar
 async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTime.value) {
   if (!project.id || !props.materialPath || !props.materialPath.endsWith('.uasset')) {
     shaderContract.value = null
+    nonSlateDiagnostics.value = null
     contractError.value = null
     return
   }
@@ -343,9 +347,18 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
   try {
     const data = await materialPrograms.load(project.id, props.materialPath)
     if (controller.signal.aborted) return
-    shaderContract.value = data
-    materialInstance = data.uniformProgram ? new MaterialInstance(data) : null
-    const { slots, error } = resolveContractSamplerSlots(data)
+    if (hasNonSlateParticleDiagnostics(data)) {
+      nonSlateDiagnostics.value = data as NonSlateParticleDiagnostics
+      shaderContract.value = null
+      materialInstance = null
+      contractError.value = null
+      return
+    }
+    nonSlateDiagnostics.value = null
+    const contract = data as MaterialShaderContract
+    shaderContract.value = contract
+    materialInstance = contract.uniformProgram ? new MaterialInstance(contract) : null
+    const { slots, error } = resolveContractSamplerSlots(contract)
     contractError.value = error
 
     for (const slot of slots) {
@@ -359,6 +372,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
   } catch (e: any) {
     if (controller.signal.aborted) return
     shaderContract.value = null
+    nonSlateDiagnostics.value = null
     contractError.value = e?.message || null
   }
 }
@@ -581,6 +595,16 @@ onUnmounted(() => {
               class="clickable-tag"
             >
               WebGL2 GLSL <span class="tag-meta">({{ renderScale }}x · {{ baseStageSize.width }}×{{ baseStageSize.height }}) ▾</span>
+            </n-tag>
+            <n-tag
+              v-else-if="nonSlateDiagnostics"
+              size="tiny"
+              type="info"
+              :bordered="false"
+              :title="nonSlateDiagnostics.limitations.join('; ')"
+              class="clickable-tag"
+            >
+              粒子 Shader 证据 (Fallback) <span class="tag-meta">({{ renderScale }}x) ▾</span>
             </n-tag>
             <n-tag
               v-else-if="isToolchainMissing"
