@@ -562,8 +562,9 @@ const extraVisualEntries = computed(() => {
 
 <style scoped>
 .umg-inspector {
-  width: 340px;
-  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   height: 100%;
   overflow-y: auto;
   border-left: 1px solid var(--n-border-color);

@@ -218,8 +218,9 @@ function handleSelectKeys(keys: Array<string | number>) {
 .umg-hierarchy {
   display: flex;
   flex-direction: column;
-  width: 280px;
-  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   border-right: 1px solid var(--n-border-color);
   height: 100%;
   overflow: hidden;
