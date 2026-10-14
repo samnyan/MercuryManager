@@ -1,6 +1,16 @@
 /** Additive backend evidence DTOs. Identity and resource discovery never imply draw readiness. */
 export interface ParticleConstantBinding { baseIndex: number; numBytes: number; bufferIndex: number }
 export interface ParticleResourceBinding { baseIndex: number; numResources: number }
+export interface ParticleMaterialBinding {
+  materialBufferIndex: number
+  materialBufferBound: boolean
+  vectorCount: number
+  scalarCount: number
+  texture2DCount: number
+  textureCubeCount: number
+  perFrameScalarCount: number
+  perFrameVectorCount: number
+}
 export interface ParticleProgramEvidence {
   vertexFactory: string
   identityVerified: boolean
@@ -12,7 +22,7 @@ export interface ParticleProgramEvidence {
     inscatteringSampler: ParticleResourceBinding
     integratedLightScattering: ParticleResourceBinding
     integratedLightScatteringSampler: ParticleResourceBinding
-  } }[]
+  }; materialBindings?: ParticleMaterialBinding | null; frameBindings?: ParticleConstantBinding[][] }[]
   spriteBindings: {
     numCutoutVerticesPerFrame: ParticleConstantBinding
     cutoutGeometry: ParticleResourceBinding
@@ -34,6 +44,10 @@ export interface ParticleStageEvidence {
   translationSucceeded: boolean
   translation: { hash: string; stage: string; glsl: string; reflection: string; diagnostics: string[]; combinedSamplers: { uniformName: string; imageName: string; samplerName: string; samplerType: 'sampler2D' | 'sampler3D' | 'samplerCube' }[] } | null
   sceneResources?: ParticleSceneResourceRequirement[]
+  /** Base64 bytes, never a float array. Validation does not imply draw readiness. */
+  materialNumericInput?: { bound: boolean; bufferIndex: number; uploadValidated: boolean; nativeByteCount: number; data: string | null; limitations: string[] } | null
+  materialFrameInput?: { writesValidated: boolean; writes: { bufferIndex: number; byteOffset: number; data: string }[]; limitations: string[] } | null
+  materialTextureInput?: { samplerSlots: { uniformName: string; imageName: string; samplerName: string; expressionIndex: number; assetPath: string; samplerSource: number; parameterName: string | null }[]; limitations: string[] } | null
   limitations: string[]
 }
 export interface ParticleProgramStages {
@@ -48,6 +62,7 @@ export interface NonSlateParticleDiagnostics {
   previewProfile: 'unsupported-non-slate-v1'
   particlePrograms: ParticleProgramEvidence[]
   particleStages?: ParticleProgramStages[] | null
+  particleTextureError?: string | null
   limitations: string[]
 }
 /** Particle document uses Newtonsoft/property casing, unlike shader endpoint camelCase. */
