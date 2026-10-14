@@ -28,6 +28,15 @@ for rid in args.rid or ['linux-x64', 'win-x64', 'osx-arm64']:
     files = sorted(p.name for p in output.iterdir())
     if files != [executable]:
         raise RuntimeError(f'Expected one executable, got {files}')
+    # Include pre-built thirdparty binaries for the target RID if present.
+    thirdparty_dir = ROOT / 'thirdparty'
+    if thirdparty_dir.is_dir():
+        for tool_dir in thirdparty_dir.iterdir():
+            target_bin_dir = tool_dir / rid
+            if target_bin_dir.is_dir():
+                for binary in target_bin_dir.iterdir():
+                    if binary.is_file():
+                        shutil.copy2(binary, output / binary.name)
     # Include project and dependency licensing notice alongside the executable.
     for name in ['LICENSE', 'THIRD_PARTY_NOTICES.md']:
         if (ROOT / name).is_file():
