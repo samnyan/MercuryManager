@@ -122,7 +122,7 @@ app.MapPost("/api/projects/{id}/resource-audio-replace",(string id,string path,R
 app.MapGet("/api/projects/{id}/resource-text",(string id,string path,string? source,ResourceService r)=>r.ReadText(id,path,source));
 app.MapPost("/api/projects/{id}/resource-text",(string id,string path,SaveTextRequest request,ResourceService r)=>r.SaveText(id,path,request.Content));
 app.MapPost("/api/projects/{id}/resource-material-params",(string id,string path,SaveMaterialParamsRequest request,ResourceService r)=>r.SaveMaterialParams(id,path,request));
-app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, string? scalarOverrides, string? vectorOverrides, string? collectionOverrides, ResourceService r) =>
+app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, string path, float? time, float? previousTime, string? scalarOverrides, string? vectorOverrides, string? collectionOverrides, bool? includeParticleStages, HttpContext httpContext, ResourceService r) =>
 {
     float now = time ?? 0, before = previousTime ?? now;
     if (!float.IsFinite(before)) return Results.BadRequest("Material time must be finite");
@@ -172,12 +172,17 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     else
     {
         // A particle fragment shader is not a valid Slate rectangle program.
+        var particlePrograms = LegacyParticleProgramDiagnostics.Inspect(asset, matExport, cooked, candidates);
+        var particleStages = includeParticleStages == true
+            ? await LegacyParticleProgramDiagnostics.TranslateStages(particlePrograms, candidates, cacheDir, httpContext.RequestAborted)
+            : null;
         return Results.Ok(new
         {
             schemaVersion = 1,
             renderingReady = false,
             previewProfile = "unsupported-non-slate-v1",
-            particlePrograms = LegacyParticleProgramDiagnostics.Inspect(asset, matExport, cooked, candidates),
+            particlePrograms,
+            particleStages,
             limitations = new[] { "Material has no cooked Slate permutation. Particle programs require native vertex, scene and geometry adapters." }
         });
     }

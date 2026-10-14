@@ -12,11 +12,24 @@ export interface ParticleProgramEvidence {
   } | null
   limitations: string[]
 }
+export interface ParticleStageEvidence {
+  stage: 'vertex' | 'fragment'
+  offset: number
+  translationSucceeded: boolean
+  translation: { hash: string; stage: string; glsl: string; reflection: string; diagnostics: string[]; combinedSamplers: unknown[] } | null
+  limitations: string[]
+}
+export interface ParticleProgramStages {
+  vertexFactory: string
+  renderingReady: false
+  stages: ParticleStageEvidence[]
+}
 export interface NonSlateParticleDiagnostics {
   schemaVersion: 1
   renderingReady: false
   previewProfile: 'unsupported-non-slate-v1'
   particlePrograms: ParticleProgramEvidence[]
+  particleStages?: ParticleProgramStages[] | null
   limitations: string[]
 }
 /** Particle document uses Newtonsoft/property casing, unlike shader endpoint camelCase. */
