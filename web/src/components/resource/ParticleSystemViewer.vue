@@ -975,38 +975,6 @@ onBeforeUnmount(() => {
   color: #888;
 }
 
-.ref-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(24, 160, 88, 0.06);
-  border: 1px solid rgba(24, 160, 88, 0.22);
-}
-
-.ref-info {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.ref-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.ref-path {
-  font-size: 11px;
-  color: #2080f0;
-  word-break: break-all;
-  font-family: monospace;
-}
-
 .prop-list {
   display: flex;
   flex-direction: column;
