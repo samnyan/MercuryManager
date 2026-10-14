@@ -20,7 +20,18 @@ public static class LegacyMaterialSamplerMapping
             var image = textures.Where(x => pair.ImageName == "t" + x.BindIndex).ToArray();
             var sampler = samplers.Where(x => pair.SamplerName == "s" + x.BindIndex).ToArray();
             if (image.Length != 1 || sampler.Length != 1)
-                throw new NotSupportedException("Sampled resources are not uniquely owned by the Material buffer.");
+            {
+                // Report all owners without inventing a View/Scene texture source.
+                var imageOwners = Enumerable.Range(0, 32).SelectMany(table.Textures)
+                    .Where(x => pair.ImageName == "t" + x.BindIndex).ToArray();
+                var samplerOwners = Enumerable.Range(0, 32).SelectMany(table.Samplers)
+                    .Where(x => pair.SamplerName == "s" + x.BindIndex).ToArray();
+                static string Owners(IEnumerable<LegacyShaderResourceToken> tokens) =>
+                    string.Join(", ", tokens.Select(x => $"buffer={x.BufferIndex}/resource={x.ResourceIndex}/register={x.BindIndex}"));
+                throw new NotSupportedException($"Unresolved sampled resource {pair.UniformName}: " +
+                    $"image {pair.ImageName} [{Owners(imageOwners)}], sampler {pair.SamplerName} [{Owners(samplerOwners)}]. " +
+                    "An explicit native resource-source adapter is required; no default texture was substituted.");
+            }
             int resource = image[0].ResourceIndex;
             if (resource % 2 != 0 || resource / 2 >= expressions.Count)
                 throw new NotSupportedException("Sampled texture is outside the Material 2D member layout.");
