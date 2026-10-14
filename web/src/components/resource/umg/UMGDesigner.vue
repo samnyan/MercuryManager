@@ -35,7 +35,12 @@ const viewport = ref({ width: 1080, height: 1920 })
 const viewMode = ref<'appearance' | 'structure'>('appearance')
 const horizontalSize = ref(0.18)
 const rightPaneSize = ref(0.23)
-const timelineSize = ref(0.26)
+const timelineSize = ref('220px')
+const timelineCollapsed = ref(false)
+const toggleTimeline = () => {
+  timelineCollapsed.value = !timelineCollapsed.value
+  timelineSize.value = timelineCollapsed.value ? '30px' : '220px'
+}
 const activeAnimationId = ref<string | null>(null)
 const animationFrame = ref(0)
 const animationPlaying = ref(false)
@@ -244,7 +249,12 @@ const selectedLayout = computed(() => {
 
     <!-- Three-Pane Workspace -->
     <div v-else-if="doc" class="umg-body">
-      <n-split v-model:size="timelineSize" direction="vertical" :min="0.15" :max="0.6" :resize-trigger-size="5" class="umg-vertical-split">
+      <n-split v-model:size="timelineSize" direction="vertical" :min="timelineCollapsed ? '30px' : '90px'" :max="'55%'" :resize-trigger-size="12" class="umg-vertical-split">
+        <template #resize-trigger>
+          <div class="split-trigger" role="separator" :aria-label="tr('ui.umgTimeline')">
+            <button class="timeline-collapse" type="button" :title="timelineCollapsed ? tr('ui.umgTimelineExpand') : tr('ui.umgTimelineCollapse')" @pointerdown.stop @click.stop="toggleTimeline">{{ timelineCollapsed ? '▴' : '▾' }}</button>
+          </div>
+        </template>
         <template #1>
           <n-split v-model:size="horizontalSize" direction="horizontal" :min="0.12" :max="0.35" :resize-trigger-size="5" class="umg-horizontal-split">
             <template #1>
@@ -291,7 +301,7 @@ const selectedLayout = computed(() => {
             </template>
           </n-split>
         </template>
-        <template #2>
+        <div ref="timelinePane" class="timeline-pane" :style="{ '--timeline-size': timelineSize }">
           <UMGAnimationTimeline
             v-if="doc.animations?.length"
             :animations="doc.animations"
@@ -303,10 +313,9 @@ const selectedLayout = computed(() => {
             @update:playing="setAnimationPlaying($event)"
           />
           <div v-else class="timeline-empty">
-            <n-button size="tiny" quaternary @click="timelineSize = timelineSize < 0.2 ? 0.26 : 0.12">{{ tr('ui.umgTimeline') }}</n-button>
             <span>{{ tr('ui.umgAnimationNone') }}</span>
           </div>
-        </template>
+        </div>
       </n-split>
     </div>
 
@@ -376,5 +385,12 @@ const selectedLayout = computed(() => {
 .umg-horizontal-split :deep(.n-split-pane-2),
 .umg-inspector-split :deep(.n-split-pane-1),
 .umg-inspector-split :deep(.n-split-pane-2) { min-width: 0; min-height: 0; overflow: hidden; }
+.umg-horizontal-split :deep(.n-split-pane-1) { flex: 0 0 clamp(180px, 18%, 320px) !important; }
+.umg-inspector-split :deep(.n-split-pane-2) { flex: 0 0 clamp(260px, 23%, 420px) !important; }
+.umg-vertical-split :deep(.n-split-pane-2) { flex: 0 0 v-bind('timelineSize') !important; }
+.timeline-pane { height: var(--timeline-size); min-height: 0; overflow: hidden; }
+.split-trigger { height: 12px; display: flex; align-items: center; justify-content: center; background: #eceef1; border-top: 1px solid #d4d7dc; border-bottom: 1px solid #d4d7dc; }
+.timeline-collapse { border: 0; border-radius: 4px; background: #fff; color: #333; cursor: pointer; line-height: 14px; padding: 0 12px; font-size: 10px; }
+.timeline-collapse:hover { background: #e5e7eb; }
 .timeline-empty { height: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 6px 10px; background: #fff; color: #555; font-size: 12px; }
 </style>

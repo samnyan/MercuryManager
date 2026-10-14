@@ -13,6 +13,7 @@ import {
   useMessage
 } from 'naive-ui'
 import { Save, ExternalLink, RotateCcw } from '@lucide/vue'
+import ResourceCardList from '../ResourceCardList.vue'
 import { tr } from '../../../i18n'
 import type { UMGNode, ComputedLayout } from './types'
 import { api, useProject } from '../../../project'
@@ -507,46 +508,12 @@ const extraVisualEntries = computed(() => {
 
       <!-- 5. 关联外部资源（点击弹窗打开详情） -->
       <div class="inspector-section">
-        <div class="section-title">关联外部资源 ({{ node.resources?.length || 0 }})</div>
-        <div v-if="node.resources?.length" class="resource-card-list">
-          <div
-            v-for="r in node.resources"
-            :key="r.assetPath"
-            class="resource-card clickable-card"
-            @click="emit('navigate-path', r.assetPath)"
-          >
-            <div v-if="r.className === 'Texture2D'" class="card-thumb" @click.stop="emit('preview-texture', r.assetPath)">
-              <n-image
-                :src="getTextureThumbnailUrl(r.assetPath)"
-                width="48"
-                height="48"
-                object-fit="cover"
-                preview-disabled
-              />
-            </div>
-            <div v-else-if="materialThumbnails[r.assetPath]" class="card-thumb">
-              <n-image
-                :src="materialThumbnails[r.assetPath]"
-                width="48"
-                height="48"
-                object-fit="contain"
-                preview-disabled
-              />
-            </div>
-            <div v-else class="card-type-icon">
-              <span class="type-badge">{{ (r.className || r.role || 'RES').slice(0, 4) }}</span>
-            </div>
-
-            <div class="card-info">
-              <div class="card-top">
-                <n-tag size="tiny" :bordered="false" type="info">{{ r.className || r.role }}</n-tag>
-                <span class="role-hint">{{ r.role }}</span>
-              </div>
-              <span class="card-path" :title="r.assetPath">{{ r.assetPath }}</span>
-            </div>
-          </div>
-        </div>
-        <span v-else class="muted-note">无直接绑定的外部资源</span>
+        <ResourceCardList
+          :resources="node.resources || []"
+          :materials="materials"
+          @navigate-path="emit('navigate-path', $event)"
+          @preview-texture="(p, l) => emit('preview-texture', p)"
+        />
       </div>
 
       <!-- 6. 其他附加属性与高级诊断折叠面板 -->

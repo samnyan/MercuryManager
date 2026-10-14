@@ -233,7 +233,14 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
 });
 app.MapPost("/api/projects/{id}/resource-umg-widget",(string id,string path,SaveWidgetPropertyRequest request,ResourceService r)=>r.SaveWidgetProperty(id,path,request));
 app.MapGet("/api/projects/{id}/resource-info",(string id,string path,ResourceService r)=>r.Info(id,path));
-app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>Results.File(TextureAuthoring.Preview(r.ResolveMaterialDependency(id,path),mip),"image/png"));
+app.MapGet("/api/projects/{id}/resource-image",(string id,string path,int? mip,ResourceService r)=>
+{
+    if (path == "/Engine/EngineResources/PerlinNoiseGradientTexture")
+    {
+        return Results.File(PerlinNoiseGradientGenerator.GeneratePng(), "image/png");
+    }
+    return Results.File(TextureAuthoring.Preview(r.ResolveMaterialDependency(id,path),mip),"image/png");
+});
 app.MapGet("/api/projects/{id}/resource-image-crop",(string id,string path,int x,int y,int w,int h,ResourceService r)=>Results.File(TextureAuthoring.PreviewCrop(r.Resolve(id,path),x,y,w,h),"image/png"));
 app.MapPost("/api/projects/{id}/resources",(string id,BuildTextureRequest request,ResourceService r)=>r.Build(id,request.Template,request.Target,Convert.FromBase64String(request.ImageBase64)));
 app.MapGet("/api/health", () => new { application = "MercuryManager", stage = "editor", profile = "ue4.19", shaderToolchain = MaterialShaderToolchain.Status });

@@ -19,7 +19,7 @@ public sealed class TexturePreviewTests
     [Fact]public void UnknownFieldsRejected()=>Assert.Throws<ArgumentException>(()=>TexturePreviewService.ResolveRelativePath("IconTable","Other","texture"));
 
     [Fact]
-    public void RejectsUnprovidedViewNoiseWithoutDefaultTextureSubstitution()
+    public void ResolvesViewPerlinNoiseGradientResourceSlot()
     {
         // Buffer 1 (bits 2) has Texture 0 (token: Buffer 1, Res 35, Reg 0) and Sampler 0 (token: Buffer 1, Res 36, Reg 0).
         // Buffer 2 (bits 4) has Material Texture 0 (token: Buffer 2, Res 0, Reg 1) and Sampler 0 (token: Buffer 2, Res 1, Reg 1).
@@ -41,14 +41,16 @@ public sealed class TexturePreviewTests
             new("SPIRV_Cross_Combinedt1s1", "t1", "s1")
         };
 
-        var error = Assert.Throws<NotSupportedException>(() =>
-            LegacyMaterialSamplerMapping.Resolve(table, materialBindings, expressions, combined));
-        Assert.Contains("buffer=1/resource=35/register=0", error.Message);
-        Assert.Contains("buffer=1/resource=36/register=0", error.Message);
-        Assert.Contains("no default texture was substituted", error.Message);
+        var slots = LegacyMaterialSamplerMapping.Resolve(table, materialBindings, expressions, combined);
+        Assert.Equal(2, slots.Count);
 
-        var slots = LegacyMaterialSamplerMapping.Resolve(table, materialBindings, expressions, [combined[1]]);
-        var matSlot = Assert.Single(slots);
+        var noiseSlot = Assert.Single(slots, s => s.UniformName == "SPIRV_Cross_Combinedt0s0");
+        Assert.Equal("t0", noiseSlot.ImageName);
+        Assert.Equal("s0", noiseSlot.SamplerName);
+        Assert.Equal("/Engine/EngineResources/PerlinNoiseGradientTexture", noiseSlot.AssetPath);
+        Assert.Equal(-1, noiseSlot.ExpressionIndex);
+
+        var matSlot = Assert.Single(slots, s => s.UniformName == "SPIRV_Cross_Combinedt1s1");
         Assert.Equal("t1", matSlot.ImageName);
         Assert.Equal("s1", matSlot.SamplerName);
         Assert.Equal("UI/Textures/Example.uasset", matSlot.AssetPath);

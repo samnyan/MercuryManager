@@ -780,6 +780,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  width: 100%;
   height: 100%;
   background: #141418;
   overflow: hidden;

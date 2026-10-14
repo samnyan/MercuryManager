@@ -39,4 +39,30 @@ public sealed class ResourceResolutionTests
         }
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
+
+    [Fact]
+    public void ResolvesEngineMaterialDependencyWithTrailingSlashContentRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mercury-engine-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var installation = Path.Combine(root, "GameInstallation");
+            var contentWithSlash = Path.Combine(installation, "Game", "Content") + Path.DirectorySeparatorChar;
+            var engineTarget = Path.Combine(installation, "Engine", "Content", "EngineResources", "DefaultTexture.uasset");
+            Directory.CreateDirectory(Path.GetDirectoryName(engineTarget)!);
+            File.WriteAllText(engineTarget, "engine");
+
+            var store = new MusicWorkspaceStore(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { { "workspace-root", Path.Combine(root, "workspace") } }).Build());
+            var id = Guid.NewGuid().ToString("N");
+            var working = Path.Combine(store.ProjectRoot, id, "working");
+            Directory.CreateDirectory(working);
+            File.WriteAllText(Path.Combine(store.ProjectRoot, id, "project-info.json"), "{}");
+            File.WriteAllText(Path.Combine(working, "manifest.json"), JsonSerializer.Serialize(new Workspace(id, "ue4.19", "", "", 0, contentWithSlash)));
+
+            var service = new ResourceService(store, new GameContent());
+            var resolved = service.ResolveMaterialDependency(id, "/Engine/EngineResources/DefaultTexture.uasset");
+            Assert.Equal(engineTarget, resolved);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
 }
