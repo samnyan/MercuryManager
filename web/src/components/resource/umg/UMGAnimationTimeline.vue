@@ -2,9 +2,9 @@
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { NButton, NSelect } from 'naive-ui'
 import { tr } from '../../../i18n'
-import type { UMGAnimation } from './types'
+import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
 
-const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; time: number; playing: boolean }>()
+const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; time: number; playing: boolean; roots: UMGTreeRoot[]; nodes: UMGNode[] }>()
 const emit = defineEmits<{ 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
 const expanded = ref(true)
 const scrollRef = ref<HTMLElement | null>(null)
@@ -21,7 +21,13 @@ const timelineWidth = computed(() => `${Math.max(800, span.value * 600)}px`)
 const tick = computed(() => 1 / (animation.value?.tickRate && animation.value.tickRate > 0 ? animation.value.tickRate : 60))
 const contentWidth = computed(() => Math.max(800, span.value * 600))
 const keyPercent = (time: number) => Math.max(0, Math.min(contentWidth.value, ((time - (animation.value?.start ?? 0)) / span.value) * contentWidth.value))
-const bindingLabel = (guid:string) => animation.value?.bindings.find(binding=>binding.guid===guid)?.widgetName || tr('ui.umgAnimationUnbound')
+function bindingLabel(guid:string) {
+  const binding = animation.value?.bindings.find(item => item.guid === guid)
+  if (!binding) return tr('ui.umgAnimationUnbound')
+  const roots = props.roots.filter(root => props.nodes.some(node => node.treeId === root.treeId && node.name === binding.widgetName))
+  const root = roots.find(item => item.kind === 'nested') || roots[0]
+  return root ? `${root.ownerName} / ${binding.widgetName}` : binding.widgetName
+}
 const tickMarks = computed(() => {
   const seconds = span.value
   const raw = seconds / 8
@@ -94,6 +100,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   <section class="umg-timeline" :class="{ collapsed: !expanded }">
     <header class="timeline-header">
       <n-button size="tiny" quaternary @click="expanded = !expanded">{{ expanded ? '▾' : '▴' }} {{ tr('ui.umgTimeline') }}</n-button>
+      <span class="scope-label">{{ tr('ui.umgAnimationScope') }}</span>
       <n-select v-if="animations.length" :value="activeAnimationId" :options="animations.map(a => ({ label: a.name, value: a.id }))" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:190px" @update:value="emit('update:activeAnimationId',$event)" />
       <span v-else class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
       <n-button size="tiny" quaternary :disabled="!activeAnimationId" @click="clearAnimation">{{ tr('ui.umgAnimationClear') }}</n-button>
@@ -109,7 +116,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       <div class="track-list" ref="trackListRef" @scroll="event => { if (scrollRef) scrollRef.scrollTop = (event.target as HTMLElement).scrollTop }">
         <div class="track-list-spacer"></div>
         <div v-for="row in tracks" :key="row.id" class="track-row-label">
-          <b>{{ bindingLabel(row.track.targetGuid) }}</b>
+          <span class="binding-scope">{{ tr('ui.umgAnimationBindingScope') }}</span><b>{{ bindingLabel(row.track.targetGuid) }}</b>
           <small :title="channelTitle(row.track.name, row.label)">{{ row.track.property || row.track.name }}</small>
           <small class="channel-label" :title="row.label">{{ row.label }}</small>
         </div>
@@ -139,7 +146,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 <style scoped>
 .umg-timeline { width:100%; flex:1; min-height:0; display:flex; flex-direction:column; position:relative; border-top:1px solid #d9d9d9; background:#fff; color:#222; overflow:hidden; }
 .timeline-header { flex:0 0 34px; height:34px; display:flex; align-items:center; gap:8px; padding:0 10px; overflow:hidden; }
-.time-readout,.empty-hint,.track-count { font:12px monospace; color:#555; white-space:nowrap; }
+.time-readout,.empty-hint,.track-count,.scope-label { font:12px monospace; color:#555; white-space:nowrap; }
+.binding-scope { font:9px sans-serif; color:#6b7280; flex:0 0 62px; }
 .timeline-editor { display:grid; grid-template-columns:210px minmax(0,1fr); flex:1; min-height:0; position:relative; overflow:hidden; }
 .track-list { min-height:0; overflow:hidden auto; background:#f8f9fa; border-right:1px solid #d9d9d9; z-index:3; }
 .track-list-spacer { height:24px; position:sticky; top:0; background:#f3f4f6; border-bottom:1px solid #d9d9d9; z-index:1; }

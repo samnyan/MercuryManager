@@ -65,14 +65,19 @@ const animationSoloHiddenIds = ref<Set<string>>(new Set())
 watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
 let advancingAnimation = false
 let animationTimer: number | undefined
+const animationsForRoot = computed(() => {
+  if (!activeRoot.value || !doc.value) return []
+  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
+  return (doc.value.animations || []).filter(animation =>
+    animation.bindings.some(binding => treeNodes.some(node => node.name === binding.widgetName))
+  )
+})
 const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
 watch(activeAnimationId, () => {
   animationFrame.value = activeAnimation.value?.start || 0
-  hiddenIds.value = new Set()
-  animationSoloHiddenIds.value = new Set()
   setAnimationPlaying(false)
 })
-watch(() => [activeAnimation.value?.id, activeRoot.value?.treeId], () => {
+watch(() => [activeAnimation.value?.id, activeRoot.value?.treeId, hiddenIds.value], () => {
   const animation = activeAnimation.value
   animationSoloHiddenIds.value = new Set()
   if (!animation || !doc.value || !activeRoot.value) return
@@ -91,7 +96,7 @@ watch(() => [activeAnimation.value?.id, activeRoot.value?.treeId], () => {
       current = treeNodes.find(node => node.id === current!.parentId)
     }
   }
-  animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id) && !hiddenIds.value.has(node.id)).map(node => node.id))
+  animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id)).map(node => node.id))
 }, { immediate: true })
 function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
   const keys=channel.keys
@@ -370,11 +375,13 @@ const selectedLayout = computed(() => {
       </div>
       <div ref="timelinePane" class="timeline-pane" :style="{ height: timelineCollapsed ? '12px' : `${timelineHeight}px` }">
         <UMGAnimationTimeline
-          v-if="doc.animations?.length"
-          :animations="doc.animations || []"
+          v-if="animationsForRoot.length"
+          :animations="animationsForRoot"
           :active-animation-id="activeAnimationId"
           :time="animationFrame"
           :playing="animationPlaying"
+          :roots="doc.roots"
+          :nodes="doc.nodes"
           @update:active-animation-id="activeAnimationId = $event"
           @update:time="animationFrame = $event"
           @update:playing="setAnimationPlaying($event)"
