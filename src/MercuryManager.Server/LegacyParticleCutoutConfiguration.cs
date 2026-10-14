@@ -7,7 +7,10 @@ namespace MercuryManager.Server;
 public static class LegacyParticleCutoutConfiguration
 {
     public sealed record Evidence(string State, int? TextureIndex, bool DefaultBufferEligible,
-        int OpaqueBytes, string Limitation);
+        int OpaqueBytes, string Limitation)
+    {
+        public LegacyParticleCutoutGeometry.Geometry? CookedGeometry { get; init; }
+    }
 
     public static Evidence Inspect(NormalExport module)
     {
@@ -15,11 +18,15 @@ public static class LegacyParticleCutoutConfiguration
             throw new NotSupportedException("Cutout configuration requires ParticleModuleRequired.");
         var fields = module.Data.Where(p => p.Name.ToString() == "CutoutTexture").ToArray();
         int opaqueBytes = module.Extras?.Length ?? 0;
+        LegacyParticleCutoutGeometry.Geometry? geometry = null;
+        string geometryLimitation = "Runtime cutout vertex count/default selection remains unverified.";
+        try { geometry = LegacyParticleCutoutGeometry.Read(module.Extras ?? []); }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidDataException) { geometryLimitation = ex.Message; }
         if (fields.Length == 1 && fields[0] is ObjectPropertyData texture)
             return new(texture.Value.Index == 0 ? "serialized-null-texture" : "serialized-texture",
                 texture.Value.Index, false, opaqueBytes,
-                "Texture reference alone does not establish runtime cutout vertex count or cooked geometry.");
+                geometryLimitation) { CookedGeometry = geometry };
         return new("unverified", null, false, opaqueBytes,
-            "Cutout configuration is omitted or ambiguous; native defaults and opaque geometry must be verified before selecting the disabled buffer.");
+            geometryLimitation) { CookedGeometry = geometry };
     }
 }
