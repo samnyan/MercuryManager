@@ -7,7 +7,12 @@ namespace MercuryManager.Server;
 /// 0x140EBB030, 0x140B10DB0, 0x140EBB4F0, 0x140BBCDB0 and 0x140BBCAB0.</summary>
 public static class LegacyBasePassFogLocator
 {
+    public sealed record Layout(int FogOffset, int FactoryPayloadStart, int FactoryPayloadEnd, int Frequency);
+
     public static int Locate(UAsset asset, byte[] extras, LegacyShaderEntry entry,
+        long extrasFileOffset, string expectedFactory) => Inspect(asset, extras, entry, extrasFileOffset, expectedFactory).FogOffset;
+
+    public static Layout Inspect(UAsset asset, byte[] extras, LegacyShaderEntry entry,
         long extrasFileOffset, string expectedFactory)
     {
         bool pixel = entry.Type == "TBasePassPSFNoLightMapPolicy";
@@ -45,12 +50,13 @@ public static class LegacyBasePassFogLocator
         long factoryEnd = (long)Int() - extrasFileOffset;
         if (factoryEnd < p || factoryEnd > entry.EndOffset)
             throw new InvalidDataException("Invalid factory parameter end offset.");
+        int payloadStart = p;
         // Factory-specific payload is explicitly bounded by the native serialized end offset.
         p = (int)factoryEnd;
         Skip(6); // Mesh-material constant binding.
         Uniform(); // PrecomputedLightingBuffer.
         if (pixel) Skip(134 + 66); // Native 0x140BD5520 and 0x140BD5A70 blocks.
         if (p > entry.EndOffset - 70) throw new InvalidDataException("Truncated BasePass fog block.");
-        return p;
+        return new(p, payloadStart, (int)factoryEnd, extras[frequencyAt]);
     }
 }
