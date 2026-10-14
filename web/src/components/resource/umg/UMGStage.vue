@@ -25,6 +25,18 @@ const props = defineProps<{
   viewMode: 'appearance' | 'structure'
 }>()
 
+// 记录当前场景中挂载的所有动态材质对象，用于 rAF 独立时钟直接刷新离屏内容并重绘
+interface DynamicMaterialEntry {
+  nodeId: string
+  spec: any
+  surface?: MaterialSurface
+  targetW: number
+  targetH: number
+  fabricObj: FabricImage
+  canvas: HTMLCanvasElement
+}
+const activeDynamicMaterials = new Map<string, DynamicMaterialEntry>()
+
 const fpsDisplay = ref<number>(0)
 let fpsFrameCount = 0
 let fpsLastTime = performance.now()
@@ -332,6 +344,7 @@ async function rebuildScene() {
   fabricCanvas.discardActiveObject()
   fabricCanvas.clear()
   objectByNodeId.clear()
+  activeDynamicMaterials.clear()
 
   const vw = props.viewport.width
   const vh = props.viewport.height
@@ -446,7 +459,8 @@ async function rebuildScene() {
       const matCanvas = await getMaterialCanvasSource(matRef.assetPath, w, h, animatedScalars, node.id)
       if (gen !== renderGeneration) return
       if (matCanvas) {
-        const additive = normalizeMaterialEntry(props.materials?.[matRef.assetPath], matRef.assetPath)?.blendMode === 'BLEND_Additive'
+        const spec = normalizeMaterialEntry(props.materials?.[matRef.assetPath], matRef.assetPath)
+        const additive = spec?.blendMode === 'BLEND_Additive'
         fabricObj = new FabricImage(matCanvas, {
           // Black-backed emissive output adds RGB onto the opaque artboard; never source-over it.
           globalCompositeOperation: additive ? 'lighter' : 'source-over',
@@ -463,6 +477,24 @@ async function rebuildScene() {
           opacity,
           clipPath: nodeClip
         })
+
+        // 若材质具有动态特征 (或使用 MaterialSurface)，登记到活跃动态列表中
+        const cacheKey = `${project.id}|${node.id}|${matRef.assetPath}`
+        const surfPromise = materialSurfaces.get(cacheKey)
+        activeDynamicMaterials.set(node.id, {
+          nodeId: node.id,
+          spec,
+          targetW: w,
+          targetH: h,
+          fabricObj: fabricObj as FabricImage,
+          canvas: matCanvas
+        })
+        if (surfPromise) {
+          surfPromise.then(surf => {
+            const entry = activeDynamicMaterials.get(node.id)
+            if (entry) entry.surface = surf
+          }).catch(() => {})
+        }
       }
     }
 
@@ -731,21 +763,47 @@ onMounted(async () => {
       fpsLastTime = now
     }
 
-    // 当未处于主动时间轴播放 (或显式传入固定 materialTime) 时，若舞台上存活活跃的 MaterialSurface，使用真实时间驱动更新
-    if (props.materialTime === undefined && materialSurfaces.size > 0 && fabricCanvas) {
-      const tasks = [...materialSurfaces.values()]
-      Promise.all(tasks).then(surfaces => {
-        let anyRendered = false
-        for (const surface of surfaces) {
+    // 当未处于主动时间轴播放 (或显式传入固定 materialTime) 时，若舞台上存活活跃的动态材质，使用真实时间驱动更新
+    if (props.materialTime === undefined && activeDynamicMaterials.size > 0 && fabricCanvas) {
+      let anyRendered = false
+      const currentTime = autoShaderClock
+
+      for (const entry of activeDynamicMaterials.values()) {
+        if (entry.surface) {
           try {
-            surface.draw(autoShaderClock)
+            entry.surface.draw(currentTime)
+            entry.fabricObj.dirty = true
             anyRendered = true
           } catch {}
+        } else if (entry.spec && entry.spec.preset !== 'static') {
+          // 2D 模拟动态渲染更新
+          renderUMGMaterialToCanvas(
+            entry.spec,
+            async (texPath: string) => {
+              if (!project.id || !texPath) return null
+              const url = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texPath, mip: '0' })
+              return await loadRawImage(url)
+            },
+            entry.targetW,
+            entry.targetH,
+            currentTime
+          ).then(baked => {
+            if (baked && entry.canvas) {
+              const ctx = entry.canvas.getContext('2d')
+              if (ctx) {
+                ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height)
+                ctx.drawImage(baked, 0, 0)
+                entry.fabricObj.dirty = true
+                if (fabricCanvas) fabricCanvas.requestRenderAll()
+              }
+            }
+          }).catch(() => {})
         }
-        if (anyRendered && fabricCanvas) {
-          fabricCanvas.requestRenderAll()
-        }
-      }).catch(() => {})
+      }
+
+      if (anyRendered && fabricCanvas) {
+        fabricCanvas.requestRenderAll()
+      }
     }
 
     stageRafId = requestAnimationFrame(stageFrameLoop)

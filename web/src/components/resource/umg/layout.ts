@@ -27,10 +27,15 @@ export function computeTreeLayout(
       }
     }
 
-    // 笔刷固有图片尺寸
-    const image = n.visual.Brush?.ImageSize
-    if (image && (number(image.X) > 0 || number(image.Y) > 0)) {
-      return { width: number(image.X), height: number(image.Y), known: true }
+    const childNodes = n.children.map(id => byId.get(id)).filter((v): v is UMGNode => !!v)
+
+    // 笔刷固有图片尺寸 (非容器控件如 Image，或无子元素的控件；对于 Border/SizeBox 等容器，有子元素时优先度低于子元素布局测量)
+    const isContainer = ['Border', 'SizeBox', 'CanvasPanel', 'Overlay', 'HorizontalBox', 'VerticalBox'].includes(n.className)
+    if (!isContainer || childNodes.length === 0) {
+      const image = n.visual.Brush?.ImageSize || (!isContainer ? n.visual.Background?.ImageSize : undefined)
+      if (image && (number(image.X) > 0 || number(image.Y) > 0)) {
+        return { width: number(image.X), height: number(image.Y), known: true }
+      }
     }
 
     // 文本测量 (包括 TextBlock 和 CircleText)
@@ -47,8 +52,6 @@ export function computeTreeLayout(
         return { width: textWidth, height: lines.length * size * 1.2, known: true }
       }
     }
-
-    const childNodes = n.children.map(id => byId.get(id)).filter((v): v is UMGNode => !!v)
 
     // CanvasPanel 汇总子元素槽位尺寸
     if (n.className === 'CanvasPanel') {
@@ -106,12 +109,22 @@ export function computeTreeLayout(
       if (slot.bAutoSize && !size.known) issues.push('Unknown desired size (AutoSize).')
 
       let w = 0, h = 0
+      const hasExplicitRight = number(off.Right) > 0
+      const hasExplicitBottom = number(off.Bottom) > 0
+
       if (maxX !== minX) {
         // 拉伸
         w = allocated.width * (maxX - minX) - number(off.Left) - number(off.Right)
       } else {
         // 点锚点
-        w = (slot.bAutoSize || number(off.Right) === 0) && size.width > 0 ? size.width : number(off.Right)
+        if (slot.bAutoSize || (!hasExplicitRight && !hasExplicitBottom)) {
+          w = size.width > 0 ? size.width : number(off.Right)
+        } else if (!hasExplicitRight && hasExplicitBottom && size.height > 0 && size.width > 0) {
+          // 若只明确指定了高度，且元素具有固有比例尺寸，按比例适配宽度
+          w = (size.width / size.height) * number(off.Bottom)
+        } else {
+          w = hasExplicitRight ? number(off.Right) : (size.width > 0 ? size.width : 0)
+        }
       }
 
       if (maxY !== minY) {
@@ -119,7 +132,14 @@ export function computeTreeLayout(
         h = allocated.height * (maxY - minY) - number(off.Top) - number(off.Bottom)
       } else {
         // 点锚点
-        h = (slot.bAutoSize || number(off.Bottom) === 0) && size.height > 0 ? size.height : number(off.Bottom)
+        if (slot.bAutoSize || (!hasExplicitRight && !hasExplicitBottom)) {
+          h = size.height > 0 ? size.height : number(off.Bottom)
+        } else if (!hasExplicitBottom && hasExplicitRight && size.width > 0 && size.height > 0) {
+          // 若只明确指定了宽度，且元素具有固有比例尺寸，按比例适配高度
+          h = (size.height / size.width) * number(off.Right)
+        } else {
+          h = hasExplicitBottom ? number(off.Bottom) : (size.height > 0 ? size.height : 0)
+        }
       }
 
       const alignX = maxX === minX ? number(align.X) : 0

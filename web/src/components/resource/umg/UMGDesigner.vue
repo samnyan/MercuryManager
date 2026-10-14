@@ -350,7 +350,7 @@ const selectedLayout = computed(() => {
             :materials="doc.materials"
             :particles="doc.particles"
             :animation-material-parameters="animationMaterialParameters"
-            :material-time="animationFrame"
+            :material-time="animationPlaying ? animationFrame : undefined"
             :selected-id="selectedNodeId"
             :hidden-ids="new Set([...hiddenIds, ...animationSoloHiddenIds])"
             :viewport="viewport"
