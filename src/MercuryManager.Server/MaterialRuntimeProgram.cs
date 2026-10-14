@@ -8,21 +8,31 @@ public static class MaterialRuntimeProgramBuilder
 {
     public static MaterialRuntimeProgram Build(LegacyUniformSet set, LegacySlatePixelBindings bindings,
         MaterialUniformContext context, int materialBytes)
+        => Build(set, bindings.Material, bindings.FrameBindings, context, materialBytes);
+
+    public static MaterialRuntimeProgram Build(LegacyUniformSet set, LegacyMaterialShaderBindings material,
+        LegacyConstantBinding[][] frameBindings, MaterialUniformContext context, int materialBytes)
     {
+        if (set.Arrays.Length != 9 || frameBindings.Length != 4 || materialBytes < 0 ||
+            (!material.MaterialBufferBound && materialBytes != 0))
+            throw new InvalidDataException("Invalid runtime Material binding layout.");
+        for (int group = 0; group < 4; group++)
+            if (frameBindings[group].Length != set.Arrays[group + 5].Length)
+                throw new InvalidDataException("Runtime frame expression count mismatch.");
         var writes = new List<MaterialRuntimeWrite>();
         for (int i = 0; i < set.Arrays[0].Length; i++)
             if (i * 16 + 16 <= materialBytes)
-                writes.Add(new(bindings.Material.MaterialBufferIndex, i * 16, 16, false, set.Arrays[0][i]));
+                writes.Add(new(material.MaterialBufferIndex, i * 16, 16, false, set.Arrays[0][i]));
         for (int i = 0; i < set.Arrays[1].Length; i++)
         {
             int offset = set.Arrays[0].Length * 16 + i * 4;
             if (offset + 4 <= materialBytes)
-                writes.Add(new(bindings.Material.MaterialBufferIndex, offset, 4, false, set.Arrays[1][i]));
+                writes.Add(new(material.MaterialBufferIndex, offset, 4, false, set.Arrays[1][i]));
         }
         for (int group = 0; group < 4; group++)
-        for (int i = 0; i < bindings.FrameBindings[group].Length; i++)
+        for (int i = 0; i < frameBindings[group].Length; i++)
         {
-            var slot = bindings.FrameBindings[group][i];
+            var slot = frameBindings[group][i];
             if (slot.NumBytes != 0)
                 writes.Add(new(slot.BufferIndex, slot.BaseIndex, slot.NumBytes, group >= 2, set.Arrays[group + 5][i]));
         }

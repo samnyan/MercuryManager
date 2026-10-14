@@ -1,3 +1,5 @@
+import type { UniformProgram } from './MaterialUniformRuntime'
+
 /** Additive backend evidence DTOs. Identity and resource discovery never imply draw readiness. */
 export interface ParticleConstantBinding { baseIndex: number; numBytes: number; bufferIndex: number }
 export interface ParticleResourceBinding { baseIndex: number; numResources: number }
@@ -43,6 +45,7 @@ export interface ParticleStageEvidence {
   offset: number
   translationSucceeded: boolean
   translation: { hash: string; stage: string; glsl: string; reflection: string; diagnostics: string[]; combinedSamplers: { uniformName: string; imageName: string; samplerName: string; samplerType: 'sampler2D' | 'sampler3D' | 'samplerCube' }[] } | null
+  uniformProgram?: UniformProgram | null
   sceneResources?: ParticleSceneResourceRequirement[]
   /** Base64 bytes, never a float array. Validation does not imply draw readiness. */
   materialNumericInput?: { bound: boolean; bufferIndex: number; uploadValidated: boolean; nativeByteCount: number; data: string | null; limitations: string[] } | null

@@ -24,6 +24,7 @@ public static class LegacyParticleProgramDiagnostics
         public ParticleMaterialNumericInputs.Evidence? MaterialNumericInput { get; init; }
         public ParticleMaterialFrameInputs.Evidence? MaterialFrameInput { get; init; }
         public ParticleMaterialTextureInputs.Evidence? MaterialTextureInput { get; init; }
+        public MaterialRuntimeProgram? UniformProgram { get; init; }
     }
     public sealed record ProgramStages(string VertexFactory, bool RenderingReady, StageEvidence[] Stages)
     {
@@ -54,6 +55,13 @@ public static class LegacyParticleProgramDiagnostics
                     var binding = program.FogBindings.SingleOrDefault(f => f.Stage == stage);
                     var numeric = binding?.MaterialBindings is { } materialBinding && uniforms != null && context != null
                         ? ParticleMaterialNumericInputs.Inspect(translation.Reflection, materialBinding, uniforms, context) : null;
+                    var frame = binding?.MaterialBindings != null && uniforms != null && context != null &&
+                        previousContext != null && numeric != null && (!numeric.Bound || numeric.UploadValidated)
+                        ? ParticleMaterialFrameInputs.Inspect(translation.Reflection, binding.MaterialBindings,
+                            binding.FrameBindings, uniforms, context, previousContext, numeric.Data?.Length ?? 0) : null;
+                    var runtime = frame?.WritesValidated == true && binding?.MaterialBindings != null && uniforms != null && context != null
+                        ? MaterialRuntimeProgramBuilder.Build(uniforms, binding.MaterialBindings, binding.FrameBindings,
+                            context, numeric?.Data?.Length ?? 0) : null;
                     stages.Add(new(stage, candidate.Offset, true, translation,
                         ["Translated source still requires WebGL validation and native resource/geometry adapters."])
                     {
@@ -62,10 +70,8 @@ public static class LegacyParticleProgramDiagnostics
                             ? ParticleMaterialTextureInputs.Inspect(candidate.ResourceTablePrefix, binding.MaterialBindings,
                                 textureExpressions, translation.CombinedSamplers) : null,
                         MaterialNumericInput = numeric,
-                        MaterialFrameInput = binding?.MaterialBindings != null && uniforms != null && context != null &&
-                            previousContext != null && numeric != null && (!numeric.Bound || numeric.UploadValidated)
-                            ? ParticleMaterialFrameInputs.Inspect(translation.Reflection, binding.MaterialBindings,
-                                binding.FrameBindings, uniforms, context, previousContext, numeric.Data?.Length ?? 0) : null
+                        MaterialFrameInput = frame,
+                        UniformProgram = runtime
                     });
                 }
                 catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.ComponentModel.Win32Exception)
