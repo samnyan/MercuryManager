@@ -52,8 +52,15 @@ public static class MaterialCombinedSamplerReader
                 throw new NotSupportedException("Indirect sampled image operands are unsupported.");
             string uniform = "SPIRV_Cross_Combined" + imageName + samplerName;
             var declarations = Regex.Matches(glsl, @"\buniform\s+(?:(?:lowp|mediump|highp)\s+)?(sampler2D|sampler3D|samplerCube)\s+" + Regex.Escape(uniform) + @"\s*;");
-            if (declarations.Count != 1 || (!allowNon2D && declarations[0].Groups[1].Value != "sampler2D"))
-                throw new NotSupportedException("Combined sampler naming/type is not verified in generated GLSL.");
+            if (declarations.Count != 1)
+            {
+                var unsupported = Regex.Matches(glsl, @"\buniform\s+(?:(?:lowp|mediump|highp)\s+)?(\w+)\s+" + Regex.Escape(uniform) + @"\s*;");
+                if (unsupported.Count == 1)
+                    throw new NotSupportedException($"Combined sampler {uniform} has unsupported GLSL type {unsupported[0].Groups[1].Value}.");
+                throw new NotSupportedException($"Combined sampler {uniform} requires exactly one verified GLSL declaration (found {declarations.Count}).");
+            }
+            if (!allowNon2D && declarations[0].Groups[1].Value != "sampler2D")
+                throw new NotSupportedException($"Combined sampler {uniform} requires a non-2D adapter ({declarations[0].Groups[1].Value}).");
             result.TryAdd(uniform, new(uniform, imageName, samplerName)
                 { SamplerType = declarations[0].Groups[1].Value });
         }
