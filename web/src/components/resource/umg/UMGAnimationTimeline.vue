@@ -22,7 +22,7 @@ const animationOptions = computed(() => {
 })
 const unresolvedBindings = computed(() => animation.value?.bindings.filter(b => !b.nodeId) ?? [])
 const unresolvedCount = computed(() => unresolvedBindings.value.length)
-const unresolvedTitle = computed(() => unresolvedBindings.value.map(b => b.label || b.widgetName).join('\n'))
+const unresolvedTitle = computed(() => unresolvedBindings.value.map(b => `${b.label || b.widgetName}: ${b.resolutionIssue ?? 'Unresolved'}`).join('\n'))
 const channelCount = computed(() => animation.value?.tracks.reduce((n,t) => n+t.channels.length+(t.materialParameters?.length??0),0) ?? 0)
 function togglePlay() { emit('update:playing', !props.playing) }
 function clearAnimation() { emit('update:activeAnimationId', null); emit('update:time', 0); emit('update:playing', false) }

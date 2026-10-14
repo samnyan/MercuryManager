@@ -15,7 +15,11 @@ export function resolveAnimation(a: UMGAnimation, doc: UMGDocument): UMGAnimatio
   return { ...a, bindings: a.bindings.map(b => {
     const matches = doc.nodes.filter(n => n.treeId === tree && n.name === b.widgetName)
     const nodeId = b.isRoot && owner ? owner.id : matches.length === 1 ? matches[0].id : null
-    return { ...b, nodeId }
+    const elsewhere = doc.nodes.some(n => n.name === b.widgetName)
+    const resolutionIssue = nodeId ? undefined : matches.length > 1
+      ? 'Ambiguous within owner tree'
+      : elsewhere ? 'Name exists only outside owner tree; not rebound' : 'Target absent from cooked widget document'
+    return { ...b, nodeId, resolutionIssue }
   }) }
 }
 

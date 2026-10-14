@@ -100,7 +100,21 @@ watch(() => [activeAnimation.value, activeRoot.value?.rootNodeId, isolateAnimati
 }, { immediate: true })
 function playEntrances() {
   if (!doc.value) return
-  selectedAnimationIds.value = entranceSelection(resolvedAnimations.value, reachableNodes(doc.value.nodes, activeRoot.value?.rootNodeId))
+  // Respect serialized visibility and manual hiding; do not animate every
+  // mutually exclusive mode merely because its tree is structurally reachable.
+  const visible = reachableNodes(doc.value.nodes, activeRoot.value?.rootNodeId)
+  const byId = new Map(doc.value.nodes.map(n => [n.id, n]))
+  for (const id of visible) {
+    let node = byId.get(id)
+    const seen = new Set<string>()
+    while (node && !seen.has(node.id)) {
+      seen.add(node.id)
+      const visibility = String(node.visual.Visibility ?? 'Visible').split('::').pop()
+      if (hiddenIds.value.has(node.id) || visibility === 'Hidden' || visibility === 'Collapsed') { visible.delete(id); break }
+      node = node.parentId ? byId.get(node.parentId) : undefined
+    }
+  }
+  selectedAnimationIds.value = entranceSelection(resolvedAnimations.value, visible)
   animationFrame.value = 0
   setAnimationPlaying(selectedAnimationIds.value.length > 0)
 }
@@ -115,7 +129,7 @@ function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{fr
   if(!keys.length) return channel.hasDefault?channel.defaultValue:null
   const right=keys.findIndex(key=>key.frame>=time)
   if(right<0) return keys[keys.length-1].value
-  if(right===0) return keys[0].value
+  if(right===0 || keys[right].frame===time) return keys[right].value
   const left=keys[right-1],next=keys[right],duration=next.frame-left.frame
   if(duration<=0) return next.value
   if(left.interpolation.toLowerCase().includes('constant')) return left.value
