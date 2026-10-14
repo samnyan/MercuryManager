@@ -6,6 +6,13 @@ export interface ParticleProgramEvidence {
   identityVerified: boolean
   vertexOffset: number | null
   fragmentOffset: number | null
+  fogBindings?: { stage: 'vertex' | 'fragment'; bindings: {
+    constants: ParticleConstantBinding[]
+    inscatteringCubemap: ParticleResourceBinding
+    inscatteringSampler: ParticleResourceBinding
+    integratedLightScattering: ParticleResourceBinding
+    integratedLightScatteringSampler: ParticleResourceBinding
+  } }[]
   spriteBindings: {
     numCutoutVerticesPerFrame: ParticleConstantBinding
     cutoutGeometry: ParticleResourceBinding

@@ -7,7 +7,11 @@ namespace MercuryManager.Server;
 public static class LegacyParticleProgramDiagnostics
 {
     public sealed record Evidence(string VertexFactory, bool IdentityVerified, int? VertexOffset,
-        int? FragmentOffset, LegacyParticleSpriteBindings? SpriteBindings, string[] Limitations);
+        int? FragmentOffset, LegacyParticleSpriteBindings? SpriteBindings, string[] Limitations)
+    {
+        public IReadOnlyList<FogStageEvidence> FogBindings { get; init; } = [];
+    }
+    public sealed record FogStageEvidence(string Stage, LegacyFogBindings Bindings);
 
     public sealed record StageEvidence(string Stage, int Offset, bool TranslationSucceeded,
         MaterialShaderCompiler.Translation? Translation, string[] Limitations);
@@ -72,8 +76,27 @@ public static class LegacyParticleProgramDiagnostics
                     bindings = LegacyParticleSpriteBindingReader.Read(asset, material.Extras, entry,
                         material.SerialOffset + material.SerialSize - material.Extras.Length);
                 }
-                result.Add(new(factory, true, pair.Vertex.Offset, pair.Fragment.Offset, bindings,
-                    ["Particle scene/numeric inputs and native geometry are not provided; WebGL vertex/fragment execution is not validated."]));
+                var fog = new List<FogStageEvidence>();
+                var limitations = new List<string>
+                {
+                    "Particle scene/numeric inputs and native geometry are not provided; WebGL vertex/fragment execution is not validated."
+                };
+                foreach (var (stage, type) in new[] { ("vertex", "TBasePassVSFNoLightMapPolicy"), ("fragment", "TBasePassPSFNoLightMapPolicy") })
+                {
+                    try
+                    {
+                        var entry = maps.Single(m => m.VertexFactory == factory).Shaders.Single(s => s.Type == type);
+                        int offset = LegacyBasePassFogLocator.Locate(asset, material.Extras, entry,
+                            material.SerialOffset + material.SerialSize - material.Extras.Length, factory);
+                        fog.Add(new(stage, LegacyFogShaderBindings.Read(material.Extras, entry, offset)));
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
+                    {
+                        limitations.Add($"{stage} fog bindings unavailable: {ex.Message}");
+                    }
+                }
+                result.Add(new(factory, true, pair.Vertex.Offset, pair.Fragment.Offset, bindings, limitations.ToArray())
+                    { FogBindings = fog });
             }
             catch (Exception ex) when (ex is NotSupportedException or InvalidDataException)
             {
