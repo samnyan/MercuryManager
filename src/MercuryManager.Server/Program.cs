@@ -148,12 +148,64 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         });
     }
     var cooked = LegacyMaterialUniformReader.ReadCookedMaterial(asset, matExport);
-    if (cooked == null) return Results.NotFound("Cooked material shader data not found");
+    if (cooked == null)
+    {
+        return Results.Ok(new
+        {
+            schemaVersion = 1,
+            renderingReady = false,
+            previewProfile = "slate-rectangle-v1",
+            limitations = new[] { "Material does not contain cooked Slate shaders." }
+        });
+    }
     var candidates = MaterialShaderCompiler.Discover(resolved);
-    var psCandidate = LegacySlateProgramSelector.SelectDefaultFalse(candidates, cooked.Shaders);
     var cacheDir = Path.Combine(Path.GetTempPath(), "mercury-material-cache");
+    MaterialShaderCompiler.ShaderCandidate psCandidate;
+    string previewProfile = "slate-rectangle-v1";
+    LegacyShaderEntry? psEntry = null;
+
+    if (cooked.Shaders.Any(s => s.Type == "TSlateMaterialShaderPSDefaultfalse"))
+    {
+        psCandidate = LegacySlateProgramSelector.SelectDefaultFalse(candidates, cooked.Shaders);
+        psEntry = cooked.Shaders.First(s => s.Type == "TSlateMaterialShaderPSDefaultfalse");
+    }
+    else if (cooked.VertexFactoryMaps != null && cooked.VertexFactoryMaps.Count > 0)
+    {
+        // 尝试从 VertexFactoryMaps 中提取 BasePass PS
+        // 优先 FMeshParticleVertexFactory，其次 FParticleSpriteVertexFactory，再尝试 FLocalVertexFactory
+        var preferredVfs = new[] { "FMeshParticleVertexFactory", "FParticleSpriteVertexFactory", "FLocalVertexFactory" };
+        LegacyVertexFactoryShaderMap? vfMap = null;
+        foreach (var pref in preferredVfs)
+        {
+            vfMap = cooked.VertexFactoryMaps.FirstOrDefault(m => m.VertexFactory == pref);
+            if (vfMap != null) break;
+        }
+        vfMap ??= cooked.VertexFactoryMaps.FirstOrDefault(m => m.Shaders.Any(s => s.Type.StartsWith("TBasePassPS")));
+        if (vfMap == null)
+            throw new NotSupportedException("No supported Slate or Vertex Factory BasePass shader map found in cooked material.");
+
+        // 挑选 BasePass PS 候选条目
+        var psMatches = vfMap.Shaders.Where(s => s.Type.StartsWith("TBasePassPS")).ToArray();
+        // 优先无光照/SkyLight 或 NoLightMapPolicy
+        var bestPs = psMatches.FirstOrDefault(s => s.Type.Contains("NoLightMapPolicy"))
+                     ?? psMatches.FirstOrDefault(s => s.Type.Contains("Skylight"))
+                     ?? psMatches.FirstOrDefault();
+        if (bestPs == null)
+            throw new NotSupportedException($"Vertex factory {vfMap.VertexFactory} has no BasePass pixel shader.");
+
+        var matchedPrograms = candidates.Where(c => c.Offset >= bestPs.StartOffset && c.Offset < bestPs.EndOffset && c.Stage == "fragment").ToArray();
+        if (matchedPrograms.Length == 0)
+            throw new NotSupportedException($"No fragment bytecode identified for {bestPs.Type}.");
+
+        psCandidate = matchedPrograms[0];
+        psEntry = bestPs;
+        previewProfile = $"mesh-{vfMap.VertexFactory}";
+    }
+    else
+    {
+        throw new NotSupportedException("Expected Slate or Vertex Factory shader entries in cooked material.");
+    }
     var translation = await MaterialShaderCompiler.Translate(psCandidate, cacheDir);
-    var psEntry = cooked.Shaders.First(s => s.Type == "TSlateMaterialShaderPSDefaultfalse");
     var bindings = LegacySlateShaderBindings.ReadDefaultFalse(matExport.Extras!, psEntry);
     var constants = LegacyMaterialUniformPacker.PackNumericConstants(cooked.Uniforms, bindings.Material, context);
     var uploadConstants = LegacySlateProgramSelector.PrepareMaterialBuffer(translation.Reflection, bindings.Material, constants);
@@ -216,7 +268,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
         textureMappingReady = textureMappingError == null,
         textureMappingError,
         blendMode,
-        previewProfile = "slate-rectangle-v1",
+        previewProfile,
         renderingReady = limitations.Count == 0,
         limitations
     });

@@ -14,7 +14,8 @@ public sealed record LegacyCookedMaterial(
     IReadOnlyList<string> ReferencedTextures,
     int ShadingModelPlatform,
     string FriendlyName,
-    string MaterialDescription);
+    string MaterialDescription,
+    IReadOnlyList<LegacyVertexFactoryShaderMap>? VertexFactoryMaps = null);
 
 /// <summary>UE4.19 typed uniform stream reader. Caller must establish array boundaries from the shader map.</summary>
 public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int offset,int renderingVersion)
@@ -73,6 +74,16 @@ public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int off
         var uniforms = reader.ReadSet();
         long fileOffset = checked(export.SerialOffset + export.SerialSize - data.Length);
         var shaders = reader.ReadShaderDirectory(fileOffset);
+        IReadOnlyList<LegacyVertexFactoryShaderMap> vfMaps = [];
+        try
+        {
+            var vfReader = new LegacyVertexFactoryShaderMapReader(asset, data, reader.Position);
+            vfMaps = vfReader.Read(fileOffset);
+        }
+        catch
+        {
+            // If the material has uncooked or unsupported VF maps, retain empty maps rather than failing basic material load.
+        }
         var textures = new List<string>();
         foreach (var arr in export.Data.OfType<UAssetAPI.PropertyTypes.Objects.ArrayPropertyData>()
                      .Where(p => p.Name.ToString() == "ReferencedTextures"))
@@ -86,7 +97,7 @@ public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int off
                 textures.Add(resolved["ContentFile"]?.ToString() ?? string.Empty);
             }
         }
-        return new(uniforms, shaders, textures, platform, friendlyName, string.Empty);
+        return new(uniforms, shaders, textures, platform, friendlyName, string.Empty, vfMaps);
     }
     public LegacyUniformNode[] ReadArray()
     {

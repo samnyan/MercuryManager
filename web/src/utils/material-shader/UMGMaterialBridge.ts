@@ -300,7 +300,7 @@ export async function renderUMGMaterialToCanvas(
   )
 
   const list = spec.textures
-  const masks = list.filter(t => /mask/i.test(t.name) || /mask/i.test(t.path) || /menuobj10/i.test(t.path))
+  const masks = list.filter(t => /mask/i.test(t.name) || /mask/i.test(t.path) || /menuobj10/i.test(t.path) || /glitchmask/i.test(t.path) || /cm_glitch/i.test(t.path))
   const nonMasks = list.filter(t => !masks.includes(t))
 
   const maskPath = masks.length > 0 ? masks[0].path : ''
@@ -376,14 +376,16 @@ export async function renderUMGMaterialToCanvas(
     const mainImg = imgPrimary || imgObj || imgSecondary
     if (mainImg) {
       const isVertical = spec.functionNames.some(f => /verticalglitch/i.test(f)) ||
-        spec.textures.some(t => /glitchmaskv/i.test(t.path))
+        spec.textures.some(t => /glitchmaskv/i.test(t.path)) ||
+        Object.keys(spec.scalars).some(k => /spanv|durationv|alphav/i.test(k))
       const isHorizontal = spec.functionNames.some(f => /horizontalglitch/i.test(f)) ||
         spec.textures.some(t => /glitchmaskh/i.test(t.path)) ||
+        Object.keys(spec.scalars).some(k => /spanh|durationh|alphah/i.test(k)) ||
         (!isVertical) // 默认横向为主
 
-      const span1 = getScalar(spec.scalars, /span_1|span/i, 2.5)
-      const dur1 = getScalar(spec.scalars, /duration_1|duration/i, 0.8)
-      const offset1 = getScalar(spec.scalars, /offset_1|offset/i, 0.03)
+      const span1 = getScalar(spec.scalars, /timespanh|span_1|span/i, 2.5)
+      const dur1 = getScalar(spec.scalars, /timedurationh|duration_1|duration/i, 0.8)
+      const offset1 = Math.abs(getScalar(spec.scalars, /glitchalphah|offset_1|offset/i, 0.03))
       const width1 = getScalar(spec.scalars, /widht_1|width_1|widht|width/i, 8)
 
       // 计算当前是否处于故障触发窗口内
