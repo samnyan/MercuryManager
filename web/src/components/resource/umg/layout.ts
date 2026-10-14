@@ -142,8 +142,8 @@ export function computeTreeLayout(
         }
       }
 
-      const alignX = maxX === minX ? number(align.X) : 0
-      const alignY = maxY === minY ? number(align.Y) : 0
+      const alignX = maxX === minX ? number(align.X, minX === 0.5 ? 0.5 : 0) : 0
+      const alignY = maxY === minY ? number(align.Y, minY === 0.5 ? 0.5 : 0) : 0
 
       rect = {
         x: allocated.x + allocated.width * minX + number(off.Left) - w * alignX,
