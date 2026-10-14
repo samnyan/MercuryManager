@@ -349,7 +349,7 @@ async function fetchShaderContract(timeVal = simTime.value, prevTimeVal = simTim
     contractError.value = error
 
     for (const slot of slots) {
-      if (slot.assetPath) {
+      if (slot.assetPath && !slot.generatedSource) {
         const img = await loadTextureImage(slot.assetPath)
         if (img && webglRenderer) {
           webglRenderer.updateTexture(slot.assetPath, img, slot.samplerSource)
@@ -466,6 +466,7 @@ async function drawCanvas() {
         const { slots, error } = resolveContractSamplerSlots(shaderContract.value)
         if (!error) {
           for (const slot of slots) {
+            if (webglRenderer.updateGeneratedTexture(slot)) continue
             const img = loadedImages.get(slot.assetPath)
             if (img) {
               webglRenderer.updateTexture(slot.assetPath, img, slot.samplerSource)

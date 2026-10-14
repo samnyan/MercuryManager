@@ -29,9 +29,10 @@ export class MaterialSurface {
     if (this.canvas.height !== h) this.canvas.height = h
   }
   async prepare(loadImage: (path: string) => Promise<HTMLImageElement | null>) {
-    const images = await Promise.all(this.slots.map(s => loadImage(s.assetPath)))
+    const images = await Promise.all(this.slots.map(s => s.generatedSource ? null : loadImage(s.assetPath)))
     if (this.disposed) throw new Error('Material surface disposed')
     images.forEach((image, i) => {
+      if (this.renderer.updateGeneratedTexture(this.slots[i]!)) return
       if (!image) throw new Error(`Missing material texture: ${this.slots[i]!.assetPath}`)
       const slot = this.slots[i]!
       this.renderer.updateTexture(slot.assetPath, image, slot.samplerSource)

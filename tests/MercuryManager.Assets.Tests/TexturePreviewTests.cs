@@ -47,7 +47,12 @@ public sealed class TexturePreviewTests
         var noiseSlot = Assert.Single(slots, s => s.UniformName == "SPIRV_Cross_Combinedt0s0");
         Assert.Equal("t0", noiseSlot.ImageName);
         Assert.Equal("s0", noiseSlot.SamplerName);
-        Assert.Equal("/Engine/EngineResources/PerlinNoiseGradientTexture", noiseSlot.AssetPath);
+        Assert.Equal("generated:ue419-perlin-gradient-v1", noiseSlot.AssetPath);
+        var generated = Assert.IsType<GeneratedMaterialTexture>(noiseSlot.GeneratedSource);
+        Assert.Equal("rgba8-linear", generated.Format);
+        Assert.Equal("nearest", generated.Filter);
+        Assert.Equal("repeat", generated.AddressMode);
+        Assert.Equal(PerlinNoiseGradientGenerator.GenerateRgba(), Convert.FromBase64String(generated.RgbaBase64));
         Assert.Equal(-1, noiseSlot.ExpressionIndex);
 
         var matSlot = Assert.Single(slots, s => s.UniformName == "SPIRV_Cross_Combinedt1s1");

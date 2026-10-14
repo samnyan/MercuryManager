@@ -161,6 +161,8 @@ export interface ResolvedSamplerSlot {
   assetPath: string
   samplerSource: number
   parameterName: string | null
+  generatedSource?: { schemaVersion: number; kind: string; width: number; height: number;
+    format: string; filter: string; addressMode: string; rgbaBase64: string } | null
 }
 
 /** Consume server-proven resource identities; never infer expression order from registers. */
@@ -225,6 +227,33 @@ export class MaterialWebGLRenderer {
     gl.bindVertexArray(null)
     this.posBuffer = posBuf
 
+    return true
+  }
+
+  updateGeneratedTexture(slot: ResolvedSamplerSlot): boolean {
+    const source = slot.generatedSource
+    if (!source) return false
+    if (source.schemaVersion !== 1 || source.kind !== 'ue419-perlin-gradient' ||
+        source.width !== 128 || source.height !== 128 || source.format !== 'rgba8-linear' ||
+        source.filter !== 'nearest' || source.addressMode !== 'repeat' ||
+        slot.assetPath !== 'generated:ue419-perlin-gradient-v1') throw new Error('Unsupported generated texture descriptor')
+    if (!this.gl) throw new Error('WebGL2 unavailable')
+    const key = `${slot.assetPath}#sampler=${slot.samplerSource}`
+    if (this.textures.has(key)) return true
+    const bytes = decodeBase64Bytes(source.rgbaBase64)
+    if (bytes.length !== 128 * 128 * 4) throw new Error('Invalid generated texture byte length')
+    const gl = this.gl
+    const texture = gl.createTexture()
+    if (!texture) throw new Error('Texture allocation failed')
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 128, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    this.textures.set(key, texture)
     return true
   }
 
@@ -428,6 +457,7 @@ export class MaterialWebGLRenderer {
     // 2. Bind combined texture samplers
     for (let i = 0; i < samplerSlots.length; i++) {
       const slot = samplerSlots[i]
+      this.updateGeneratedTexture(slot)
       const loc = gl.getUniformLocation(prog, slot.uniformName)
       if (!loc) continue
 

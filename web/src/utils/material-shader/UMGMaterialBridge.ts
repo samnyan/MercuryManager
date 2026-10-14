@@ -239,6 +239,7 @@ export async function renderUMGMaterialToCanvas(
       const requiredTextures = new Map<string, HTMLImageElement>()
       await Promise.all(
         slots.map(async slot => {
+          if (slot.generatedSource) return
           if (!requiredTextures.has(slot.assetPath)) {
             const img = await loadImage(slot.assetPath)
             if (img && img.naturalWidth > 0) {

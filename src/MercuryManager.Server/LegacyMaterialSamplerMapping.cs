@@ -1,7 +1,11 @@
 namespace MercuryManager.Server;
 
 public sealed record LegacyMaterialSamplerSlot(string UniformName, string ImageName, string SamplerName,
-    int ExpressionIndex, string AssetPath, int SamplerSource, string? ParameterName);
+    int ExpressionIndex, string AssetPath, int SamplerSource, string? ParameterName,
+    GeneratedMaterialTexture? GeneratedSource = null);
+
+public sealed record GeneratedMaterialTexture(int SchemaVersion, string Kind, int Width, int Height,
+    string Format, string Filter, string AddressMode, string RgbaBase64);
 
 public static class LegacyMaterialSamplerMapping
 {
@@ -34,7 +38,9 @@ public static class LegacyMaterialSamplerMapping
                     imageOwners[0].ResourceIndex == 35 && samplerOwners[0].ResourceIndex == 36)
                 {
                     result.Add(new(pair.UniformName, pair.ImageName, pair.SamplerName, -1,
-                        "/Engine/EngineResources/PerlinNoiseGradientTexture", 0, null));
+                        "generated:ue419-perlin-gradient-v1", 0, null,
+                        new(1, "ue419-perlin-gradient", 128, 128, "rgba8-linear", "nearest", "repeat",
+                            Convert.ToBase64String(PerlinNoiseGradientGenerator.GenerateRgba()))));
                     continue;
                 }
 
