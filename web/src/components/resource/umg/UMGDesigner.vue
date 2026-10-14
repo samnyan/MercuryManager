@@ -5,6 +5,7 @@ import { useProject } from '../../../project'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGDocument, UMGNode } from './types'
 import { computeTreeLayout } from './layout'
+import { resolveAnimation, reachableNodes, entranceSelection, combineAnimations, isolationHidden } from './animationPreview'
 import UMGHierarchy from './UMGHierarchy.vue'
 import UMGStage from './UMGStage.vue'
 import UMGInspector from './UMGInspector.vue'
@@ -76,33 +77,37 @@ const animationSoloHiddenIds = ref<Set<string>>(new Set())
 watch(animationFrame, () => { if (!advancingAnimation) setAnimationPlaying(false) }, { flush: 'sync' })
 let advancingAnimation = false
 let animationTimer: number | undefined
-const animationsForRoot = computed(() => doc.value?.animations || [])
-const activeAnimation = computed(() => doc.value?.animations?.find(a => a.id === activeAnimationId.value) || null)
-watch(activeAnimationId, () => {
-  animationFrame.value = activeAnimation.value?.start || 0
-  setAnimationPlaying(false)
+const selectedAnimationIds = ref<string[]>([])
+const isolateAnimation = ref(false)
+const repeatAnimation = ref(false)
+const resolvedAnimations = computed(() => doc.value ? (doc.value.animations || []).map(a => resolveAnimation(a, doc.value!)) : [])
+const animationsForRoot = resolvedAnimations
+const activeAnimation = computed(() => {
+  const selected = resolvedAnimations.value.filter(a => selectedAnimationIds.value.includes(a.id))
+  return combineAnimations(selected, tr('ui.umgCombinedPreview'))
 })
-watch(() => [activeAnimation.value?.id, activeRoot.value?.treeId, hiddenIds.value], () => {
-  const animation = activeAnimation.value
-  animationSoloHiddenIds.value = new Set()
-  if (!animation || !doc.value || !activeRoot.value) return
-  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
-  const validBindings = animation.bindings.filter(binding => treeNodes.some(node => node.name === binding.widgetName))
-  const targetNames = new Set(validBindings.map(binding => binding.widgetName))
-  const targets = new Set(treeNodes.filter(node => targetNames.has(node.name)).map(node => node.id))
-  if (!targets.size) return
-  const keepVisible = new Set<string>()
-  for (const id of targets) keepVisible.add(id)
-  for (const node of treeNodes) if (!hiddenIds.value.has(node.id)) keepVisible.add(node.id)
-  for (const id of [...keepVisible]) {
-    let current = treeNodes.find(node => node.id === id)
-    while (current?.parentId) {
-      keepVisible.add(current.parentId)
-      current = treeNodes.find(node => node.id === current!.parentId)
-    }
-  }
-  animationSoloHiddenIds.value = new Set(treeNodes.filter(node => !keepVisible.has(node.id)).map(node => node.id))
+watch(selectedAnimationIds, () => {
+  animationFrame.value = 0
+  setAnimationPlaying(false)
+  activeAnimationId.value = selectedAnimationIds.value.length ? '__combined' : null
+}, { flush: 'sync' })
+watch(() => [activeAnimation.value, activeRoot.value?.rootNodeId, isolateAnimation.value], () => {
+  animationSoloHiddenIds.value = isolateAnimation.value && activeAnimation.value && doc.value
+    ? isolationHidden(doc.value.nodes, activeAnimation.value.bindings.flatMap(b => b.nodeId ? [b.nodeId] : []), activeRoot.value?.rootNodeId)
+    : new Set()
 }, { immediate: true })
+function playEntrances() {
+  if (!doc.value) return
+  selectedAnimationIds.value = entranceSelection(resolvedAnimations.value, reachableNodes(doc.value.nodes, activeRoot.value?.rootNodeId))
+  animationFrame.value = 0
+  setAnimationPlaying(selectedAnimationIds.value.length > 0)
+}
+function selectAnimations(ids: string[]) {
+  // One variant per owner: explicitly choosing another variant replaces the old one.
+  const added = ids.filter(id => !selectedAnimationIds.value.includes(id))
+  const owners = new Set(resolvedAnimations.value.filter(a => added.includes(a.id)).map(a => a.ownerId))
+  selectedAnimationIds.value = ids.filter(id => added.includes(id) || !owners.has(resolvedAnimations.value.find(a => a.id === id)?.ownerId))
+}
 function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
   const keys=channel.keys
   if(!keys.length) return channel.hasDefault?channel.defaultValue:null
@@ -122,7 +127,7 @@ const animationMaterialParameters = computed(() => {
   for(const track of a.tracks){
     if (!track.materialParameters?.length) continue
     const binding=a.bindings.find(item=>item.guid===track.targetGuid)
-    const node=binding&&doc.value?.nodes.find(item=>item.name===binding.widgetName&&item.treeId===activeRoot.value?.treeId)
+    const node=binding?.nodeId && doc.value?.nodes.find(item=>item.id===binding.nodeId)
     if(!node) continue
     const parameters=result[node.id]||(result[node.id]={})
     for(const parameter of track.materialParameters){const value=sampleChannel(parameter.channel,animationFrame.value);if(value!==null)parameters[parameter.name]=value}
@@ -131,24 +136,10 @@ const animationMaterialParameters = computed(() => {
 })
 const previewNodes = computed(() => {
   if (!doc.value) return []
-  const combinedHidden = new Set([...hiddenIds.value, ...animationSoloHiddenIds.value])
-  if (!activeAnimation.value) return doc.value.nodes.filter(node => !animationSoloHiddenIds.value.has(node.id))
-  const names = new Set(activeAnimation.value.bindings.map(binding => binding.widgetName).filter(Boolean))
-  const treeNodes = doc.value.nodes.filter(node => node.treeId === activeRoot.value?.treeId)
-  const targets = new Set(treeNodes.filter(node => names.has(node.name)).map(node => node.id))
-  const visible = new Set(treeNodes.filter(node => !combinedHidden.has(node.id)).map(node => node.id))
-  if (!targets.size) return doc.value.nodes.filter(node => !combinedHidden.has(node.id))
-  for (const id of targets) visible.add(id)
-  for (const id of [...visible]) {
-    let current = treeNodes.find(node => node.id === id)
-    while (current?.parentId) {
-      visible.add(current.parentId)
-      current = treeNodes.find(node => node.id === current!.parentId)
-    }
-  }
-  const clones = new Map((doc.value.nodes.filter(node => visible.has(node.id))).map(node => [node.id, {
+  if (!activeAnimation.value) return doc.value.nodes
+  // Preserve every nested tree and the original layout/draw order. Visibility is a separate mask.
+  const clones = new Map(doc.value.nodes.map(node => [node.id, {
     ...node,
-    children: node.children.filter(id => visible.has(id)),
     visual: {
       ...node.visual,
       RenderTransform: node.visual.RenderTransform ? {
@@ -162,8 +153,7 @@ const previewNodes = computed(() => {
   for(const track of activeAnimation.value.tracks){
     const binding=activeAnimation.value.bindings.find(b=>b.guid===track.targetGuid)
     if(!binding) continue
-    const matchingNodes=[...clones.values()].filter(n=>n.name===binding.widgetName&&n.treeId===activeRoot.value?.treeId)
-    const node=matchingNodes.find(n=>n.id===selectedNodeId.value)||matchingNodes[0]
+    const node=binding.nodeId ? clones.get(binding.nodeId) : undefined
     if(!node) continue
     const values=new Map(track.channels.map(c=>[c.property,sampleChannel(c,animationFrame.value)]))
     if(track.type.includes('Transform')){
@@ -180,7 +170,9 @@ function setAnimationPlaying(playing: boolean) {
   animationPlaying.value = playing
   if (animationTimer) window.cancelAnimationFrame(animationTimer)
   animationTimer = undefined
-  if (!playing) return
+  if (!playing || !activeAnimation.value) return
+  if (animationFrame.value >= activeAnimation.value.end) animationFrame.value = activeAnimation.value.start
+  animationPlaying.value = true
   let last = performance.now()
   const tick = (now: number) => {
     const delta = Math.min(0.1, Math.max(0, (now - last) / 1000))
@@ -190,14 +182,15 @@ function setAnimationPlaying(playing: boolean) {
     advancingAnimation = true
     try {
       const next = animationFrame.value + delta
-      animationFrame.value = next >= a.end ? a.start + (next - a.start) % (a.end - a.start) : next
+      animationFrame.value = next >= a.end ? repeatAnimation.value ? a.start + (next - a.start) % (a.end - a.start) : a.end : next
+      if (next >= a.end && !repeatAnimation.value) animationPlaying.value = false
     } finally { advancingAnimation = false }
     if (animationPlaying.value) animationTimer = window.requestAnimationFrame(tick)
   }
   animationTimer = window.requestAnimationFrame(tick)
 }
 function toggleAnimation() { setAnimationPlaying(!animationPlaying.value) }
-watch(activeAnimationId,()=>{animationFrame.value=activeAnimation.value?.start||0;animationPlaying.value=false;if(animationTimer)window.cancelAnimationFrame(animationTimer)})
+
 onBeforeUnmount(()=>{if(animationTimer)window.cancelAnimationFrame(animationTimer)})
 
 // Texture preview modal
@@ -210,6 +203,8 @@ async function loadDocument() {
 
   loading.value = true
   error.value = null
+  setAnimationPlaying(false)
+  selectedAnimationIds.value = []
   doc.value = null
   selectedNodeId.value = null
   hiddenIds.value = new Set()
@@ -252,11 +247,8 @@ watch(activeRoot, r => {
   if (r && r.rootNodeId) selectedNodeId.value = r.rootNodeId
 })
 watch(() => activeRoot.value?.treeId, () => {
-  if (activeAnimation.value) {
-    const current = activeAnimationId.value
-    activeAnimationId.value = null
-    requestAnimationFrame(() => { activeAnimationId.value = current })
-  }
+  selectedAnimationIds.value = []
+  setAnimationPlaying(false)
 })
 
 const layouts = computed(() => {
@@ -349,7 +341,7 @@ const selectedLayout = computed(() => {
             :materials="doc.materials"
             :particles="doc.particles"
             :animation-material-parameters="animationMaterialParameters"
-            :material-time="animationPlaying ? animationFrame : undefined"
+            :material-time="activeAnimation ? animationFrame : undefined"
             :selected-id="selectedNodeId"
             :hidden-ids="new Set([...hiddenIds, ...animationSoloHiddenIds])"
             :viewport="viewport"
@@ -376,11 +368,19 @@ const selectedLayout = computed(() => {
         <UMGAnimationTimeline
           :animations="animationsForRoot"
           :active-animation-id="activeAnimationId"
+          :preview-animation="activeAnimation"
+          :selected-animation-ids="selectedAnimationIds"
+          :isolate="isolateAnimation"
+          :repeat="repeatAnimation"
           :time="animationFrame"
           :playing="animationPlaying"
           :roots="doc.roots"
           :nodes="doc.nodes"
-          @update:active-animation-id="activeAnimationId = $event"
+          @update:active-animation-id="selectedAnimationIds = []"
+          @update:selected-animation-ids="selectAnimations"
+          @play-entrances="playEntrances"
+          @update:isolate="isolateAnimation = $event"
+          @update:repeat="repeatAnimation = $event"
           @update:time="animationFrame = $event"
           @update:playing="setAnimationPlaying($event)"
         />

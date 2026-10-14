@@ -70,7 +70,16 @@ internal static class UMGModelBuilder
             double start=0,end=0;
             var rangeProperty=scene.Data.FirstOrDefault(p=>p.Name.ToString()=="PlaybackRange");double Bound(StructPropertyData? bound)=>bound?.Value.OfType<FloatPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="Value")?.Value??0;
             if(rangeProperty is StructPropertyData rangeStruct){var lower=rangeStruct.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="LowerBound");var upper=rangeStruct.Value.OfType<StructPropertyData>().FirstOrDefault(p=>p.Name.ToString()=="UpperBound");start=Bound(lower);end=Bound(upper);}
-            result.Add(new($"export:{i}",animation.ObjectName.ToString(),start,end,tick,display,bindings,tracks));
+            var ownerIndex=animation.OuterIndex.Index;
+            var chain=new List<int>();var seenOwners=new HashSet<int>();var current=ownerIndex;
+            while(current>0&&current<=asset.Exports.Count&&seenOwners.Add(current))
+            {chain.Add(current-1);current=asset.Exports[current-1].OuterIndex.Index;}
+            chain.Reverse();
+            var ownerPath=string.Join(" / ",chain.Where(index=>asset.Exports[index].GetExportClassType().ToString()!="WidgetTree").Select(index=>asset.Exports[index].ObjectName.ToString()));
+            var scope=chain.Any(index=>asset.Exports[index].ObjectName.ToString()=="WidgetArchetype")?"archetype":chain.Any(index=>asset.Exports[index].GetExportClassType().ToString()=="WidgetBlueprintGeneratedClass")?"generated":"unknown";
+            var ownerTree=asset.Exports.FindIndex(e=>e.GetExportClassType().ToString()=="WidgetTree"&&e.OuterIndex.Index==ownerIndex);
+            result.Add(new($"export:{i}",animation.ObjectName.ToString(),start,end,tick,display,bindings,tracks,
+                ownerIndex>0?$"export:{ownerIndex-1}":null,ownerPath,ownerTree>=0?$"export:{ownerTree}":null,scope));
         }
         return result;
 

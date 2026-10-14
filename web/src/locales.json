@@ -1,6 +1,13 @@
 {
   "zh": {
     "ui": {
+      "umgCombinedPreview": "联合预览",
+      "umgEntrancesHint": "入场按名称推断；每个控件选一条，同步开始、短动画停在末帧，非游戏实际时序。",
+      "umgPlayEntrances": "一起入场",
+      "umgIsolateAnimation": "隔离动画目标",
+      "umgIsolateHint": "临时隐藏无关分支，保留目标的父子节点；不改变手动隐藏和资产层级。",
+      "umgRepeatPreview": "循环预览",
+      "umgUnresolvedBindings": "未解析目标",
       "addRow": "新增行",
       "umgEngineDefault": "引擎默认值",
       "umgUnknownVisible": "未知（预览按 Visible）",
@@ -970,6 +977,13 @@
   },
   "en": {
     "ui": {
+      "umgCombinedPreview": "Combined preview",
+      "umgEntrancesHint": "Entrances inferred by name: one per widget, simultaneous start, shorter clips hold. Not game timing.",
+      "umgPlayEntrances": "Play entrances",
+      "umgIsolateAnimation": "Isolate targets",
+      "umgIsolateHint": "Temporarily hide unrelated branches; keep target ancestors and descendants. Manual visibility and assets stay unchanged.",
+      "umgRepeatPreview": "Repeat preview",
+      "umgUnresolvedBindings": "Unresolved targets",
       "addRow": "Add row",
       "umgEngineDefault": "Engine default",
       "umgUnknownVisible": "Unknown (preview: Visible)",

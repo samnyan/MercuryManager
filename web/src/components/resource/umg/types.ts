@@ -75,13 +75,17 @@ export type UMGDocument = {
 }
 
 export type UMGAnimation = {
+  ownerId?: string | null
+  ownerPath?: string | null
+  ownerTreeId?: string | null
+  scope?: string | null
   id: string
   name: string
   start: number
   end: number
   tickRate: number
   displayRate: number
-  bindings: { guid: string; widgetName: string; slotWidgetName: string | null; isRoot: boolean }[]
+  bindings: { nodeId?: string | null; label?: string; guid: string; widgetName: string; slotWidgetName: string | null; isRoot: boolean }[]
   tracks: { name: string; type: string; property: string | null; targetGuid: string; materialParameters?: { name: string; index: number; channel: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] } }[]; channels: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] }[] }[]
 }
 

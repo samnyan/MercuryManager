@@ -4,8 +4,8 @@ import { NSelect, NButton } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
 
-const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; time: number; playing: boolean; roots: UMGTreeRoot[]; nodes: UMGNode[] }>()
-const emit = defineEmits<{ 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
+const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; previewAnimation: UMGAnimation | null; selectedAnimationIds: string[]; isolate: boolean; repeat: boolean; time: number; playing: boolean; roots: UMGTreeRoot[]; nodes: UMGNode[] }>()
+const emit = defineEmits<{ 'update:selectedAnimationIds': [ids: string[]]; 'play-entrances': []; 'update:isolate': [value: boolean]; 'update:repeat': [value: boolean]; 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
 const scrollRef = ref<HTMLElement | null>(null)
 const editorRef = ref<HTMLElement | null>(null)
 const rulerRef = ref<HTMLElement | null>(null)
@@ -13,7 +13,23 @@ const trackListRef = ref<HTMLElement | null>(null)
 const inspectorRef = ref<HTMLElement | null>(null)
 const inspectorHeight = ref(0)
 const hoveredKey = ref<{ track: string; channel: string; frame: number; value: number; interpolation: string } | null>(null)
-const animation = computed(() => props.animations.find(item => item.id === props.activeAnimationId) || null)
+const animation = computed(() => props.previewAnimation)
+const animationOptions = computed(() => {
+  const groups = new Map<string, { type: 'group'; label: string; key: string; children: {label: string; value: string}[] }>()
+  for (const a of props.animations) {
+    const key = a.ownerId ?? a.id
+    let group = groups.get(key)
+    if (!group) {
+      group = { type: 'group', key, label: `${a.ownerPath || '?'} · ${a.scope || '?'}`, children: [] }
+      groups.set(key, group)
+    }
+    group.children.push({ value: a.id, label: `${a.ownerPath || '?'} / ${a.name} · ${(a.end-a.start).toFixed(2)}s` })
+  }
+  return [...groups.values()]
+})
+const unresolvedBindings = computed(() => animation.value?.bindings.filter(b => !b.nodeId) ?? [])
+const unresolvedCount = computed(() => unresolvedBindings.value.length)
+const unresolvedTitle = computed(() => unresolvedBindings.value.map(b => b.label || b.widgetName).join('\n'))
 const previousAnimationId = ref<string | null>(null)
 const span = computed(() => Math.max(0.001, (animation.value?.end ?? 0) - (animation.value?.start ?? 0)))
 const timelineWidth = computed(() => `${Math.max(800, span.value * 600)}px`)
@@ -23,9 +39,7 @@ const keyPercent = (time: number) => Math.max(0, Math.min(contentWidth.value, ((
 function bindingLabel(guid:string) {
   const binding = animation.value?.bindings.find(item => item.guid === guid)
   if (!binding) return tr('ui.umgAnimationUnbound')
-  const roots = props.roots.filter(root => props.nodes.some(node => node.treeId === root.treeId && node.name === binding.widgetName))
-  const root = roots.find(item => item.kind === 'nested') || roots[0]
-  return root ? `${root.ownerName} / ${binding.widgetName}` : binding.widgetName
+  return binding.label || binding.widgetName
 }
 const tickMarks = computed(() => {
   const seconds = span.value
@@ -63,7 +77,7 @@ function seekFromPointer(event: PointerEvent) {
   if (!lane) return
   const rect = lane.getBoundingClientRect()
   const localX = event.clientX - rect.left
-  const x = scrollRef.value.scrollLeft + localX
+  const x = localX
   emit('update:time', animation.value.start + Math.max(0, Math.min(1, x / contentWidth.value)) * span.value)
 }
 function togglePlay() { emit('update:playing', !props.playing) }
@@ -91,14 +105,17 @@ watch(() => [props.time, animation.value?.id], () => {
   } else syncScroll()
 }, { flush: 'post' })
 watch(() => animation.value?.id, clearHover => { void clearHover; hoveredKey.value = null })
-watch(() => props.activeAnimationId, () => { emit('update:playing', false); hoveredKey.value = null })
+watch(() => props.previewAnimation, () => { hoveredKey.value = null; requestAnimationFrame(syncScroll) })
 onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <template>
   <section class="umg-timeline">
     <header class="timeline-header">
-      <n-select :value="activeAnimationId" :options="animations.map(a => ({ label: a.name, value: a.id }))" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:190px" @update:value="emit('update:activeAnimationId',$event)" />
+      <n-select multiple filterable :value="selectedAnimationIds" :options="animationOptions" :max-tag-count="1" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:380px;flex-shrink:0" @update:value="emit('update:selectedAnimationIds',$event)" />
+      <n-button size="tiny" :disabled="!animations.length" :title="tr('ui.umgEntrancesHint')" @click="emit('play-entrances')">{{ tr('ui.umgPlayEntrances') }}</n-button>
+      <n-button size="tiny" :type="isolate ? 'primary' : 'default'" :title="tr('ui.umgIsolateHint')" @click="emit('update:isolate',!isolate)">{{ tr('ui.umgIsolateAnimation') }}</n-button>
+      <n-button size="tiny" :type="repeat ? 'primary' : 'default'" @click="emit('update:repeat',!repeat)">{{ tr('ui.umgRepeatPreview') }}</n-button>
       <n-button size="tiny" quaternary :disabled="!activeAnimationId" @click="clearAnimation">{{ tr('ui.umgAnimationClear') }}</n-button>
       <template v-if="animation">
         <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', (animation?.start ?? 0))">⏮</n-button>
@@ -108,11 +125,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
       </template>
       <span v-if="!animation" class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
     </header>
+    <div v-if="animation" class="preview-note">{{ tr('ui.umgEntrancesHint') }}<span v-if="unresolvedCount" :title="unresolvedTitle"> · {{ tr('ui.umgUnresolvedBindings') }}: {{ unresolvedCount }}</span></div>
     <div class="timeline-editor" ref="editorRef">
       <div class="track-list" ref="trackListRef" @scroll="event => { if (scrollRef) scrollRef.scrollTop = (event.target as HTMLElement).scrollTop }">
         <div class="track-list-spacer"></div>
         <div v-for="row in tracks" :key="row.id" class="track-row-label">
-          <span class="binding-scope">{{ tr('ui.umgAnimationBindingScope') }}</span><b>{{ bindingLabel(row.track.targetGuid) }}</b>
+          <span class="binding-scope">{{ tr('ui.umgAnimationBindingScope') }}</span><b :title="bindingLabel(row.track.targetGuid)">{{ bindingLabel(row.track.targetGuid) }}</b>
           <small :title="channelTitle(row.track.name, row.label)">{{ row.track.property || row.track.name }}</small>
           <small class="channel-label" :title="row.label">{{ row.label }}</small>
         </div>
@@ -141,14 +159,15 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 
 <style scoped>
 .umg-timeline { height:100%; width:100%; flex:1; min-height:0; display:flex; flex-direction:column; position:relative; border-top:1px solid #d9d9d9; background:#fff; color:#222; overflow:hidden; }
-.timeline-header { flex:0 0 34px; height:34px; display:flex; align-items:center; gap:8px; padding:0 10px; overflow:hidden; }
+.timeline-header { flex:0 0 auto; min-height:34px; flex-wrap:wrap; display:flex; align-items:center; gap:8px; padding:0 10px; overflow:hidden; }
 .time-readout,.empty-hint,.track-count { font:12px monospace; color:#555; white-space:nowrap; }
+.preview-note { padding:3px 10px; color:#777; font-size:11px; }
 .binding-scope { font:9px sans-serif; color:#6b7280; flex:0 0 62px; }
-.timeline-editor { display:grid; grid-template-columns:210px minmax(0,1fr); flex:1; min-height:0; position:relative; overflow:hidden; }
+.timeline-editor { display:grid; grid-template-columns:340px minmax(0,1fr); flex:1; min-height:0; position:relative; overflow:hidden; }
 .track-list { min-height:0; overflow:hidden auto; background:#f8f9fa; border-right:1px solid #d9d9d9; z-index:3; }
 .track-list-spacer { height:24px; position:sticky; top:0; background:#f3f4f6; border-bottom:1px solid #d9d9d9; z-index:1; }
 .track-row-label { height:29px; display:flex; align-items:center; gap:6px; padding:0 6px; overflow:hidden; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
-.track-row-label b { flex:0 0 66px; overflow:hidden; text-overflow:ellipsis; font-size:11px; color:#222; }
+.track-row-label b { flex:0 0 170px; overflow:hidden; text-overflow:ellipsis; font-size:11px; color:#222; }
 .track-row-label small { overflow:hidden; text-overflow:ellipsis; font-size:10px; color:#555; }
 .track-row-label .channel-label { flex:1; }
 .timeline-scroll { min-width:0; min-height:0; overflow:auto; cursor:crosshair; background:#fff; }

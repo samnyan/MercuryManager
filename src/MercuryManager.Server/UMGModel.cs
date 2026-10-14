@@ -20,7 +20,7 @@ public sealed record UMGAnimationKey(double Frame,double Value,string Interpolat
 public sealed record UMGAnimationChannel(string Property,string ChannelType,double DefaultValue,bool HasDefault,List<UMGAnimationKey> Keys);
 public sealed record UMGAnimationMaterialParameter(string Name,int Index,UMGAnimationChannel Channel);
 public sealed record UMGAnimationTrack(string Name,string Type,string? Property,string TargetGuid,List<UMGAnimationChannel> Channels,List<UMGAnimationMaterialParameter>? MaterialParameters=null);
-public sealed record UMGAnimation(string Id,string Name,double Start,double End,double TickRate,double DisplayRate,List<UMGAnimationBinding> Bindings,List<UMGAnimationTrack> Tracks);
+public sealed record UMGAnimation(string Id,string Name,double Start,double End,double TickRate,double DisplayRate,List<UMGAnimationBinding> Bindings,List<UMGAnimationTrack> Tracks,string? OwnerId=null,string? OwnerPath=null,string? OwnerTreeId=null,string? Scope=null);
 public sealed record UMGAnimationBinding(string Guid,string WidgetName,string? SlotWidgetName,bool IsRoot);
 public sealed record UMGDocument(int SchemaVersion,string Revision,string AssetPath,List<UMGRoot> Roots,
     string? SuggestedRootId,List<UMGNode> Nodes,List<UMGIssue> Diagnostics,Dictionary<string,System.Text.Json.JsonElement>? Materials=null,
