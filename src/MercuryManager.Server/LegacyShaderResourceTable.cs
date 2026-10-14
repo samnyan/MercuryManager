@@ -7,6 +7,7 @@ public sealed record LegacyShaderResourceToken(int BufferIndex, int ResourceInde
 // 资源表 token 区分 UBO 槽、资源索引和着色器寄存器，不能直接当作表达式序号。
 public sealed record LegacyShaderResourceTable(uint ResourceBits, uint[][] Arrays)
 {
+    public IReadOnlyList<LegacyShaderResourceToken> ShaderResourceViews(int bufferIndex) => Tokens(0, bufferIndex);
     public IReadOnlyList<LegacyShaderResourceToken> Textures(int bufferIndex) => Tokens(4, bufferIndex);
     public IReadOnlyList<LegacyShaderResourceToken> Samplers(int bufferIndex) => Tokens(1, bufferIndex);
 
