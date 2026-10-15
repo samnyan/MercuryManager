@@ -325,11 +325,8 @@ export class ParticleSimulationEngine {
     let alpha = 1.0
     let pos: [number, number, number] = [0, 0, 0]
     let rot: [number, number, number] = [0, 0, 0]
-    let rotRate: [number, number, number] = [
-      (Math.random() - 0.5) * 0.8,
-      (Math.random() - 0.5) * 0.8,
-      (Math.random() - 0.5) * 0.8
-    ]
+    // No rotation-rate module means no angular motion, not a decorative random spin.
+    let rotRate: [number, number, number] = [0, 0, 0]
 
     let colorOverLifeDist: any = null
     let alphaOverLifeDist: any = null
@@ -339,8 +336,9 @@ export class ParticleSimulationEngine {
     const rawMat = matPath ? this.info.Materials?.[matPath] : null
     const blendMode =
       rawMat?.MaterialInstanceInfo?.BasePropertyOverrides?.BlendMode ||
+      rawMat?.MaterialInstanceInfo?.ParentMaterialInfo?.BlendMode ||
       rawMat?.MaterialInfo?.BlendMode ||
-      'BLEND_Additive'
+      'BLEND_Opaque'
 
     const subImagesH = Math.max(1, getModulePropNumber(lod.RequiredModule, 'SubImages_Horizontal', 1))
     const subImagesV = Math.max(1, getModulePropNumber(lod.RequiredModule, 'SubImages_Vertical', 1))
