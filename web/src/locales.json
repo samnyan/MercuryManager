@@ -400,7 +400,15 @@
       "umgVisibilityHitTestInvisible": "穿透不可点 (HitTestInvisible)",
       "umgVisibilitySelfHitTestInvisible": "仅自身穿透 (SelfHitTestInvisible)",
       "umgSaveProps": "保存控件属性到草稿",
-      "umgPropsSaved": "控件属性已保存到工程草稿 ✓"
+      "umgPropsSaved": "控件属性已保存到工程草稿 ✓",
+      "umgTimelineFit": "适应全长",
+      "umgTimelineVal": "值",
+      "umgTimelineFollow": "跟随游标",
+      "umgTimelineTracks": "轨道",
+      "umgTimelineAria": "动画时间轴：拖动定位，中键平移，方向键逐帧",
+      "umgTimelineHint": "拖动定位 · 中键/Alt 平移 · Ctrl 滚轮缩放 · Shift 横移 · 点菱形查看值/Δ/插值（只读）",
+      "umgTimelineControlsParams": "控件 / 参数",
+      "umgTimelinePrevKey": "上一关键帧"
     },
     "fields": {
       "SnapGoodSEName": "滑动终点Good音效名称",
@@ -1380,7 +1388,15 @@
       "umgVisibilityHitTestInvisible": "HitTestInvisible",
       "umgVisibilitySelfHitTestInvisible": "SelfHitTestInvisible",
       "umgSaveProps": "Save Widget Properties to Draft",
-      "umgPropsSaved": "Widget properties saved to project draft ✓"
+      "umgPropsSaved": "Widget properties saved to project draft ✓",
+      "umgTimelineFit": "Fit Timeline",
+      "umgTimelineVal": "Value",
+      "umgTimelineFollow": "Follow Scrubber",
+      "umgTimelineTracks": "tracks",
+      "umgTimelineAria": "Animation Timeline: drag to seek, middle drag to pan, arrows to step",
+      "umgTimelineHint": "Drag to seek · Middle/Alt drag to pan · Ctrl scroll to zoom · Shift scroll to pan horizontal · Click diamond for value/Δ/tangent",
+      "umgTimelineControlsParams": "Widget / Parameter",
+      "umgTimelinePrevKey": "Previous Key"
     },
     "fields": {
       "SnapGoodSEName": "Snap Good SE Name",

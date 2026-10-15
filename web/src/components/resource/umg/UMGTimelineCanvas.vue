@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { NButton } from 'naive-ui'
+import { tr } from '../../../i18n'
 import type { UMGAnimation } from './types'
 
 type Channel = UMGAnimation['tracks'][number]['channels'][number]
@@ -77,7 +79,7 @@ function draw() {
   ctx.fillStyle='#c6d1df';for(let t=Math.ceil(min/step)*step;t<=max;t+=step)ctx.fillText(`${Number(t.toFixed(4))}s`,label+(t-start.value)*zoom.value-left+4,13)
   const x=label+(props.time-start.value)*zoom.value-left
   ctx.strokeStyle='#ff646d';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();ctx.fillStyle='#ff646d';ctx.fillRect(x-4,0,8,7);ctx.restore()
-  ctx.fillStyle='#2c3441';ctx.fillRect(0,0,label,rulerHeight);ctx.fillStyle='#c6d1df';ctx.fillText(`控件 / 参数 · ${rows.value.length} 轨道`,8,13)
+  ctx.fillStyle='#2c3441';ctx.fillRect(0,0,label,rulerHeight);ctx.fillStyle='#c6d1df';ctx.fillText(`${tr('ui.umgTimelineControlsParams')} · ${rows.value.length} ${tr('ui.umgTimelineTracks')}`,8,13)
   el.dataset.drawMs=(performance.now()-drawStarted).toFixed(3)
   el.dataset.visibleRows=String(last-first);el.dataset.paintedKeys=String(painted);el.dataset.offset=String(left);el.dataset.verticalOffset=String(top)
 }
@@ -104,12 +106,11 @@ onBeforeUnmount(()=>{observer?.disconnect();cancelAnimationFrame(frame)})
 </script>
 <template>
   <div class="canvas-timeline">
-    <div class="tools"><button @click="setZoom(zoom/1.4)">−</button><button @click="fit">适应全长</button><button @click="setZoom(zoom*1.4)">＋</button><span>{{ zoom.toFixed(0) }} px/s</span><label><input v-model="follow" type="checkbox">跟随游标</label><span class="hint">拖动定位 · 中键 / Alt 拖动平移 · Ctrl 滚轮缩放 · Shift 滚轮横移</span></div>
-    <div ref="host" class="viewport"><canvas ref="canvas" tabindex="0" aria-label="动画时间轴：拖动定位，中键平移，方向键逐帧" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @lostpointercapture="drag=null" @wheel="wheel" @keydown="keydown" /></div>
-    <div class="key-detail" v-if="detail"><strong :title="detail.row.owner">{{ detail.row.owner }}</strong><span>{{ detail.row.label }}</span><span>{{ fmt(detail.key.frame) }}s</span><b>值 {{ fmt(detail.key.value) }}</b><span v-if="detail.previous">上一关键帧 {{ fmt(detail.previous.value) }} → {{ fmt(detail.key.value) }}（Δ {{ fmt(detail.key.value-detail.previous.value) }}）</span><span>{{ detail.key.interpolation }}</span><span :title="`Arrive: ${detail.key.arriveTangent}; Leave: ${detail.key.leaveTangent}`">切线 {{ fmt(detail.key.arriveTangent) }} / {{ fmt(detail.key.leaveTangent) }}</span></div>
-    <div class="key-detail hint" v-else>点击菱形关键帧查看存储值、变化量与插值；仅预览，不修改关键帧。</div>
+    <div ref="host" class="viewport"><canvas ref="canvas" tabindex="0" :aria-label="tr('ui.umgTimelineAria')" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @lostpointercapture="drag=null" @wheel="wheel" @keydown="keydown" /></div>
+    <div class="key-detail" v-if="detail"><strong :title="detail.row.owner">{{ detail.row.owner }}</strong><span>{{ detail.row.label }}</span><span>{{ fmt(detail.key.frame) }}s</span><b>{{ tr('ui.umgTimelineVal') }} {{ fmt(detail.key.value) }}</b><span v-if="detail.previous">{{ tr('ui.umgTimelinePrevKey') }} {{ fmt(detail.previous.value) }} → {{ fmt(detail.key.value) }}（Δ {{ fmt(detail.key.value-detail.previous.value) }}）</span><span>{{ detail.key.interpolation }}</span><span :title="`Arrive: ${detail.key.arriveTangent}; Leave: ${detail.key.leaveTangent}`">Tangent {{ fmt(detail.key.arriveTangent) }} / {{ fmt(detail.key.leaveTangent) }}</span></div>
+    <div class="tools"><n-button class="zoom-step" size="tiny" aria-label="Zoom out" @click="setZoom(zoom/1.4)">−</n-button><n-button size="tiny" @click="fit">{{ tr('ui.umgTimelineFit') }}</n-button><n-button class="zoom-step" size="tiny" aria-label="Zoom in" @click="setZoom(zoom*1.4)">+</n-button><span>{{ zoom.toFixed(0) }} px/s</span><label><input v-model="follow" type="checkbox">{{ tr('ui.umgTimelineFollow') }}</label><span class="hint">{{ tr('ui.umgTimelineHint') }}</span></div>
   </div>
 </template>
 <style scoped>
-.canvas-timeline{display:flex;flex-direction:column;flex:1;min-height:0;background:#181c24;color:#d6deeb}.tools{display:flex;align-items:center;gap:8px;padding:3px 8px;font-size:11px;flex-wrap:wrap}.tools button{background:#303b4b;color:#e6edf8;border:1px solid #536177;border-radius:3px;cursor:pointer}.tools label{display:flex;align-items:center;gap:4px}.hint{color:#9baac0;font-size:11px}.viewport{flex:1;min-height:30px;position:relative;overflow:hidden}.viewport canvas{position:absolute;width:100%;height:100%;touch-action:none;outline:none;cursor:crosshair}.viewport canvas:focus{outline:1px solid #6293ce;outline-offset:-1px}.key-detail{flex:0 0 auto;min-height:25px;padding:4px 8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;border-top:1px solid #354154;font-size:11px}.key-detail strong{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.key-detail b{color:#ffe19a}
+.canvas-timeline{display:flex;flex-direction:column;flex:1;min-height:0;background:#181c24;color:#d6deeb}.tools{display:flex;align-items:center;gap:8px;padding:3px 8px;font-size:11px;flex-wrap:wrap}.tools :deep(.n-button){height:22px;font-size:11px;padding:0 6px}.tools :deep(.zoom-step){width:22px;min-width:22px;padding:0}.tools label{display:flex;align-items:center;gap:4px}.hint{color:#9baac0;font-size:11px}.viewport{flex:1;min-height:30px;position:relative;overflow:hidden}.viewport canvas{position:absolute;width:100%;height:100%;touch-action:none;outline:none;cursor:crosshair}.viewport canvas:focus{outline:1px solid #6293ce;outline-offset:-1px}.key-detail{flex:0 0 auto;min-height:25px;padding:4px 8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;border-top:1px solid #354154;font-size:11px}.key-detail strong{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.key-detail b{color:#ffe19a}
 </style>

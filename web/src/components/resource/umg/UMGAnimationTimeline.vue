@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NSelect, NButton } from 'naive-ui'
+import { NSelect, NButton, NCheckbox, NConfigProvider, darkTheme } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
 import UMGTimelineCanvas from './UMGTimelineCanvas.vue'
@@ -25,31 +25,36 @@ const unresolvedCount = computed(() => unresolvedBindings.value.length)
 const unresolvedTitle = computed(() => unresolvedBindings.value.map(b => `${b.label || b.widgetName}: ${b.resolutionIssue ?? 'Unresolved'}`).join('\n'))
 const channelCount = computed(() => animation.value?.tracks.reduce((n,t) => n+t.channels.length+(t.materialParameters?.length??0),0) ?? 0)
 function togglePlay() { emit('update:playing', !props.playing) }
-function clearAnimation() { emit('update:activeAnimationId', null); emit('update:time', 0); emit('update:playing', false) }
+function selectPhase(phase: string) { emit('update:playing', false); emit('update:time', 0); emit('update:selectedAnimationIds', props.animations.filter(a => a.name.toLowerCase().includes(phase)).map(a => a.id)) }
+function clearAnimation() { emit('update:selectedAnimationIds', []); emit('update:activeAnimationId', null); emit('update:time', 0); emit('update:playing', false) }
 </script>
 <template>
-  <section class="umg-timeline">
+  <n-config-provider :theme="darkTheme" class="umg-timeline">
     <header class="timeline-header">
-      <n-select multiple filterable :value="selectedAnimationIds" :options="animationOptions" :max-tag-count="1" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" style="width:380px;flex-shrink:0" @update:value="emit('update:selectedAnimationIds',$event)" />
-      <n-button size="tiny" :disabled="!animations.length" @click="emit('play-entrances')">{{ tr('ui.umgPlayEntrances') }}</n-button>
-      <n-button size="tiny" :type="isolate ? 'primary' : 'default'" :title="tr('ui.umgIsolateHint')" @click="emit('update:isolate',!isolate)">{{ tr('ui.umgIsolateAnimation') }}</n-button>
-      <n-button size="tiny" :type="repeat ? 'primary' : 'default'" @click="emit('update:repeat',!repeat)">{{ tr('ui.umgRepeatPreview') }}</n-button>
-      <n-button size="tiny" quaternary :disabled="!activeAnimationId" @click="clearAnimation">{{ tr('ui.umgAnimationClear') }}</n-button>
-      <template v-if="animation">
-        <n-button size="tiny" quaternary :title="tr('ui.umgTimelineStart')" @click="emit('update:time', (animation?.start ?? 0))">⏮</n-button>
-        <n-button size="tiny" quaternary :title="playing ? tr('ui.umgTimelinePause') : tr('ui.umgTimelinePlay')" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</n-button>
-        <span class="time-readout">{{ time.toFixed(3) }}s / {{ animation.end.toFixed(3) }}s</span>
-        <span class="track-count">{{ channelCount }} {{ tr('ui.umgAnimationChannels') }}</span>
-      </template>
-      <span v-if="!animation" class="empty-hint">{{ tr('ui.umgAnimationNoneSelected') }}</span>
+      <n-button size="tiny" :disabled="!animation" :title="tr('ui.umgTimelineStart')" @click="emit('update:time',animation?.start ?? 0)">⏮</n-button>
+      <n-button size="tiny" :disabled="!animation" :title="playing ? tr('ui.umgTimelinePause') : tr('ui.umgTimelinePlay')" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</n-button>
+      <span class="time-readout">{{ time.toFixed(3) }}s / {{ (animation?.end ?? 0).toFixed(3) }}s</span>
+      <n-select class="animation-select" multiple filterable :value="selectedAnimationIds" :options="animationOptions" :max-tag-count="1" :placeholder="tr('ui.umgAnimationSelect')" size="tiny" @update:value="emit('update:selectedAnimationIds',$event)" />
+      <div class="phase-buttons">
+        <n-button v-for="phase in ['in','loop','out']" :key="phase" size="tiny" @click="selectPhase(phase)">{{ phase.toUpperCase() }}</n-button>
+        <n-button size="tiny" @click="clearAnimation">Clear</n-button>
+      </div>
+      <n-checkbox size="small" :checked="isolate" @update:checked="emit('update:isolate',$event)">Isolate</n-checkbox>
+      <n-checkbox size="small" :checked="repeat" @update:checked="emit('update:repeat',$event)">Repeat</n-checkbox>
+      <span class="track-count">{{ channelCount }} channels</span>
+      <span v-if="unresolvedCount" class="preview-note" :title="unresolvedTitle">Unresolved: {{ unresolvedCount }}</span>
     </header>
-    <div v-if="animation && unresolvedCount" class="preview-note" :title="unresolvedTitle">{{ tr('ui.umgUnresolvedBindings') }}: {{ unresolvedCount }}</div>
     <UMGTimelineCanvas :animation="animation" :time="time" :playing="playing" @seek="emit('update:time',$event)" />
-  </section>
+  </n-config-provider>
 </template>
 <style scoped>
-.umg-timeline{height:100%;width:100%;flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #455064;background:#fff;color:#222;overflow:hidden}
-.timeline-header{flex:0 0 auto;min-height:34px;flex-wrap:wrap;display:flex;align-items:center;gap:8px;padding:0 10px}
-.time-readout,.empty-hint,.track-count{font:12px monospace;color:#555;white-space:nowrap}
-.preview-note{padding:3px 10px;color:#777;font-size:11px}
+.umg-timeline{height:100%;width:100%;flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid #455064;background:#181c24;color:#d6deeb;overflow:hidden}
+.timeline-header{flex:0 0 auto;display:flex;align-items:center;gap:5px;padding:4px 8px;flex-wrap:wrap;background:#202632}
+.animation-select{flex:1;min-width:180px;max-width:380px}
+.phase-buttons{display:flex;gap:2px}
+.time-readout,.track-count{font:11px monospace;color:#c4cfdf;white-space:nowrap}
+.preview-note{color:#e5b66b;font-size:11px;white-space:nowrap}
+.timeline-header :deep(.n-checkbox__label){font-size:11px;padding-left:4px}
+.timeline-header :deep(.n-button){font-size:11px;padding:0 6px;height:22px}
+.timeline-header :deep(.n-base-selection){font-size:11px}
 </style>
