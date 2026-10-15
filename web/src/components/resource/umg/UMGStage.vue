@@ -3,6 +3,7 @@ import { circleText } from './circleText'
 import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
 import { hasNonSlateParticleDiagnostics } from '../../../utils/material-runtime/ParticleProgramDiagnostics'
 import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
+import { multiplySlateColors, linearToSrgbByte } from '../../../utils/material-shader/SlateColor'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NButton, NDropdown } from 'naive-ui'
@@ -178,11 +179,7 @@ function disposeParticles() {
 const finite = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
 
-function linearToSrgbChannel(value: number): number {
-  const v = Math.max(0, Math.min(1, value))
-  const srgb = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055
-  return Math.round(Math.max(0, Math.min(255, srgb * 255)))
-}
+const linearToSrgbChannel = linearToSrgbByte
 
 function extractColor(raw: any): { r: number; g: number; b: number; a: number } | null {
   const c = raw?.SpecifiedColor ?? raw
@@ -193,6 +190,13 @@ function extractColor(raw: any): { r: number; g: number; b: number; a: number } 
     b: linearToSrgbChannel(finite(c.B, 1)),
     a: Math.max(0, Math.min(1, finite(c.A, 1)))
   }
+}
+
+function materialVertexColor(node: UMGNode | undefined): [number, number, number, number] {
+  const color = multiplySlateColors(node?.visual.ColorAndOpacity, node?.visual.Brush?.TintColor)
+  // effectiveOpacity applies widget/brush alpha once in stage composition.
+  color[3] = 1
+  return color
 }
 
 function getImageUrl(node: UMGNode): string | null {
@@ -257,6 +261,7 @@ async function getMaterialCanvasSource(
       const surface = await pending
       if (materialSurfaces.get(cacheKey) !== pending) return null
       surface.resize(targetW, targetH)
+      surface.slateVertexColor = materialVertexColor(nodeById.value.get(nodeId))
       surface.instance.setParameters(spec.scalars, Object.fromEntries(Object.entries(spec.vectors).map(([k,v])=>[k,[v.r,v.g,v.b,v.a]])))
       return surface.draw(props.materialTime ?? autoShaderClock)
     } catch { return null }
@@ -379,8 +384,13 @@ function effectiveOpacity(node: UMGNode): number {
   while (current && !seen.has(current.id)) {
     seen.add(current.id)
     opacity *= finite(current.visual.RenderOpacity, 1)
-    const color = extractColor(current.visual.ColorAndOpacity)
-    if (color) opacity *= color.a
+    // Clamp the combined draw tint, not each operand independently.
+    if (current.id === node.id) {
+      opacity *= multiplySlateColors(current.visual.ColorAndOpacity, current.visual.Brush?.TintColor)[3]
+    } else {
+      const color = extractColor(current.visual.ColorAndOpacity)
+      if (color) opacity *= color.a
+    }
     // Border content tint affects descendants, not its own background.
     if (current.id !== node.id) {
       const content = extractColor(current.visual.ContentColorAndOpacity)
@@ -622,7 +632,8 @@ async function rebuildScene() {
     }
 
     if (!fabricObj && imageUrl && rect.width > 0 && rect.height > 0) {
-      const tint = extractColor(node.visual.ColorAndOpacity ?? node.visual.Brush?.TintColor)
+      const [r, g, b] = multiplySlateColors(node.visual.ColorAndOpacity, node.visual.Brush?.TintColor)
+      const tint = { r: linearToSrgbByte(r), g: linearToSrgbByte(g), b: linearToSrgbByte(b), a: 1 }
       const imageSource = await getTintedImageSource(imageUrl, tint)
       const source = imageSource ? boxBrush(imageSource, node.visual.Brush, w, h) : null
       if (gen !== renderGeneration) return
@@ -1010,6 +1021,7 @@ function updateSceneFrame() {
   for (const entry of activeDynamicMaterials.values()) {
     if (!entry.surface) continue
     const spec = entry.spec
+    entry.surface.slateVertexColor = materialVertexColor(nodeById.value.get(entry.nodeId))
     entry.surface.instance.setParameters(
       { ...spec.scalars, ...props.animationMaterialParameters?.[entry.nodeId] },
       Object.fromEntries(Object.entries(spec.vectors).map(([k, v]: [string, any]) => [k, [v.r, v.g, v.b, v.a]])))

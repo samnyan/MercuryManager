@@ -5,6 +5,7 @@ import { MaterialWebGLRenderer, resolveContractSamplerSlots, type MaterialShader
 export class MaterialSurface {
   readonly canvas = document.createElement('canvas')
   readonly instance: MaterialInstance
+  slateVertexColor: [number, number, number, number] = [1, 1, 1, 1]
   private renderer = new MaterialWebGLRenderer()
   private slots: ReturnType<typeof resolveContractSamplerSlots>['slots']
   private disposed = false
@@ -65,7 +66,7 @@ export class MaterialSurface {
     try {
       this.instance.update({time, previousTime})
       if (!this.renderer.renderContract(this.canvas.width, this.canvas.height,
-        {...this.program, time, previousTime, runtimeWrites:this.instance.writes()}, this.slots,
+        {...this.program, time, previousTime, slateVertexColor: this.slateVertexColor, runtimeWrites:this.instance.writes()}, this.slots,
         this.program.blendMode || 'BLEND_Opaque', this.additiveDestination ? 'emissive' : 'dark')) throw new Error('Material draw failed')
     } finally {
       if (gl) gl.bindFramebuffer(gl.FRAMEBUFFER, null)

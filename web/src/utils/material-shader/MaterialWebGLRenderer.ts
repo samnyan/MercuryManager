@@ -3,6 +3,7 @@
 // and legacy fallback rendering when a cooked shader contract is unavailable.
 
 import type { UniformProgram } from '../material-runtime/MaterialUniformRuntime'
+import { clampSlateColor } from './SlateColor'
 
 export interface MaterialCombinedSampler {
   uniformName: string
@@ -103,6 +104,8 @@ export interface MaterialShaderContract {
   timeInputs?: { bufferIndex: number; gameTimeOffset: number; realTimeOffset: number }[]
   sceneInputs?: { bufferIndex: number; data: string }[]
   collectionInputs?: { bufferIndex: number; data: string; assetPath: string; valueSource: string; defaults?: { scalars: Record<string, number>; vectors: Record<string, [number, number, number, number]> } }[]
+  /** Linear Slate vertex tint; applied by the cooked pixel shader before gamma conversion. */
+  slateVertexColor?: [number, number, number, number]
   renderingReady: boolean
   limitations?: string[]
 }
@@ -125,6 +128,7 @@ precision highp float;
 precision highp int;
 
 layout(location = 0) in vec2 a_position;
+uniform vec4 slateVertexColor;
 out highp vec4 v0;
 out highp vec4 v1;
 out highp vec4 v2;
@@ -135,7 +139,7 @@ void main() {
   vec2 uv = (a_position + 1.0) * 0.5;
   uv.y = 1.0 - uv.y;
   v0 = vec4(0.0, 0.0, 0.0, 1.0);
-  v1 = vec4(1.0, 1.0, 1.0, 1.0);
+  v1 = slateVertexColor;
   v2 = vec4(0.0, 0.0, 0.0, 0.0);
   v3 = vec4(uv, 0.0, 0.0);
   v4 = vec4(uv.x, uv.y, 1.0, 1.0);
@@ -372,6 +376,8 @@ export class MaterialWebGLRenderer {
     }
 
     gl.useProgram(prog)
+    // Slate packs bounded vertex colors before material execution; never clamp material parameters.
+    gl.uniform4fv(gl.getUniformLocation(prog, 'slateVertexColor'), clampSlateColor(contract.slateVertexColor ?? [1, 1, 1, 1]))
     gl.bindVertexArray(this.vao)
 
     // 1. Bind and populate reflected Uniform Buffer Objects (UBOs)
