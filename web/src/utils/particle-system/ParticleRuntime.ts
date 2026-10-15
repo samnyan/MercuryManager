@@ -332,15 +332,14 @@ export class ParticleSimulationEngine {
 
     const reqOrigin = lod.RequiredModule?.Properties?.find(p => p.Name === 'EmitterOrigin')?.Vector
     if (Array.isArray(reqOrigin) && reqOrigin.length >= 3) {
-      const scaleOrigin = Math.abs(reqOrigin[1]) > 5000 ? 0.01 : 0.25
-      pos = [reqOrigin[0] * scaleOrigin, reqOrigin[1] * scaleOrigin, reqOrigin[2] * scaleOrigin]
+      pos = [reqOrigin[0], reqOrigin[1], reqOrigin[2]]
     }
 
     for (const mod of lod.Modules || []) {
       const cls = mod.Class || ''
       if (cls.includes('Lifetime')) {
         lifetime = Math.max(0.2, sampleFloatDist(mod.Distributions?.Lifetime, 3.0))
-        if (lifetime > 15) lifetime = 8.0
+        // Preserve authored lifetime; do not shorten long-lived background effects.
       } else if (cls.includes('SizeMultiplyLife') || cls.includes('SizeScaleByLife')) {
         sizeByLifeDist = mod.Distributions?.LifeMultiplier
       } else if (cls.includes('Size')) {
@@ -378,9 +377,9 @@ export class ParticleSimulationEngine {
         pos[2] += (Math.random() - 0.5) * height
       } else if (cls.includes('Location')) {
         const locOffset = sampleVecDist(mod.Distributions?.StartLocation, [0, 0, 0])
-        pos[0] += locOffset[0] * 0.25
-        pos[1] += locOffset[1] * 0.25
-        pos[2] += locOffset[2] * 0.25
+        pos[0] += locOffset[0]
+        pos[1] += locOffset[1]
+        pos[2] += locOffset[2]
       } else if (cls.includes('RotationRate')) {
         const rr = sampleVecDist(mod.Distributions?.StartRotationRate, [0, 0, 0])
         rotRate = [rr[0] * Math.PI * 2, rr[1] * Math.PI * 2, rr[2] * Math.PI * 2]
@@ -391,14 +390,12 @@ export class ParticleSimulationEngine {
       }
     }
 
-    const isStatic = Math.abs(vel[0]) + Math.abs(vel[1]) + Math.abs(vel[2]) < 0.01
-    if (isStatic) {
-      pos[0] += (emIdx - ((this.info.Emitters?.length || 1) - 1) / 2) * 140
-    }
+    // Emitter arrangement is authored data, not a preview grid.
 
-    const sx = Math.max(10, Math.min(180, Math.abs(size[0]) || 45))
-    const sy = Math.max(10, Math.min(180, Math.abs(size[1]) || sx))
-    const sz = Math.max(10, Math.min(180, Math.abs(size[2]) || sx))
+    // Keep authored scale; framing belongs to the preview camera, not simulation data.
+    const sx = Number.isFinite(size[0]) ? Math.abs(size[0]) : 55
+    const sy = Number.isFinite(size[1]) ? Math.abs(size[1]) : 55
+    const sz = Number.isFinite(size[2]) ? Math.abs(size[2]) : 55
 
     this.particles.push({
       emitterIdx: emIdx,
@@ -411,12 +408,12 @@ export class ParticleSimulationEngine {
       x: pos[0],
       y: pos[1],
       z: pos[2],
-      vx: vel[0] * 0.25,
-      vy: vel[1] * 0.25,
-      vz: vel[2] * 0.25,
-      ax: accel[0] * 0.25,
-      ay: accel[1] * 0.25,
-      az: accel[2] * 0.25,
+      vx: vel[0],
+      vy: vel[1],
+      vz: vel[2],
+      ax: accel[0],
+      ay: accel[1],
+      az: accel[2],
       sizeX: sx,
       sizeY: sy,
       sizeZ: sz,
@@ -541,6 +538,7 @@ export class ParticleSimulationEngine {
       camYaw?: number
       camPitch?: number
       camDistance?: number
+      camTarget?: [number, number, number]
       useMaterialSprites?: boolean
       selectedEmitterIdx?: number
       transparentBg?: boolean
@@ -568,11 +566,13 @@ export class ParticleSimulationEngine {
       const cp = Math.cos(camPitch)
       const sp = Math.sin(camPitch)
 
+      const target = options.camTarget ?? [0, 0, 0]
+      x -= target[0]; y -= target[1]; z -= target[2]
       const rx = x * cy - y * sy
       const ry = x * sy + y * cy
       const rz = z
 
-      const camZ = ry * sp + rz * cp + camDistance
+      const camZ = ry * cp + rz * sp + camDistance
       if (camZ <= 50) return null
       // 保持等比投影，避免视口宽度拉伸或高宽变化时粒子与网格形变
       const baseDim = Math.min(w, h)
@@ -654,7 +654,8 @@ export class ParticleSimulationEngine {
       const r = Math.round(p.r * 255)
       const g = Math.round(p.g * 255)
       const b = Math.round(p.b * 255)
-      const radius = Math.max(6, p.sizeX * proj.scale)
+      const radius = Math.max(0, p.sizeX * proj.scale)
+      const halfHeight = Math.max(0, p.sizeY * proj.scale)
 
       ctx.save()
       ctx.translate(proj.sx, proj.sy)
@@ -684,12 +685,12 @@ export class ParticleSimulationEngine {
             sw,
             sh,
             -radius,
-            -radius,
+            -halfHeight,
             radius * 2,
-            radius * 2
+            halfHeight * 2
           )
         } else {
-          ctx.drawImage(matSprite, -radius, -radius, radius * 2, radius * 2)
+          ctx.drawImage(matSprite, -radius, -halfHeight, radius * 2, halfHeight * 2)
         }
 
         // 若是 Mesh 粒子，叠加上色线框与色彩光晕以体现粒子顶点色和立体框
