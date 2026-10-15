@@ -204,7 +204,10 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
             particlePrograms,
             particleStages,
             particleTextureError,
-            limitations = new[] { "Material has no cooked Slate permutation. Particle programs require native vertex, scene and geometry adapters." }
+            limitations = new[] { cooked.VertexFactoryMapError != null
+                ? $"Vertex factory shader maps could not be parsed: {cooked.VertexFactoryMapError}"
+                : particlePrograms.Count == 0 ? "No supported particle vertex factory maps were found in the selected cooked resource."
+                : "Particle programs require native vertex, scene and geometry adapters." }
         });
     }
     var translation = await MaterialShaderCompiler.Translate(psCandidate, cacheDir);

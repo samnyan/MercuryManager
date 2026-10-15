@@ -15,7 +15,8 @@ public sealed record LegacyCookedMaterial(
     int ShadingModelPlatform,
     string FriendlyName,
     string MaterialDescription,
-    IReadOnlyList<LegacyVertexFactoryShaderMap>? VertexFactoryMaps = null);
+    IReadOnlyList<LegacyVertexFactoryShaderMap>? VertexFactoryMaps = null,
+    string? VertexFactoryMapError = null);
 
 /// <summary>UE4.19 typed uniform stream reader. Caller must establish array boundaries from the shader map.</summary>
 public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int offset,int renderingVersion)
@@ -75,14 +76,15 @@ public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int off
         long fileOffset = checked(export.SerialOffset + export.SerialSize - data.Length);
         var shaders = reader.ReadShaderDirectory(fileOffset);
         IReadOnlyList<LegacyVertexFactoryShaderMap> vfMaps = [];
+        string? vfError = null;
         try
         {
             var vfReader = new LegacyVertexFactoryShaderMapReader(asset, data, reader.Position);
             vfMaps = vfReader.Read(fileOffset);
         }
-        catch
+        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
-            // If the material has uncooked or unsupported VF maps, retain empty maps rather than failing basic material load.
+            vfError = ex.Message; // Preserve basic material reading, but never misreport a parse failure as no factories.
         }
         var textures = new List<string>();
         foreach (var arr in export.Data.OfType<UAssetAPI.PropertyTypes.Objects.ArrayPropertyData>()
@@ -97,7 +99,7 @@ public sealed class LegacyMaterialUniformReader(UAsset asset,byte[] data,int off
                 textures.Add(resolved["ContentFile"]?.ToString() ?? string.Empty);
             }
         }
-        return new(uniforms, shaders, textures, platform, friendlyName, string.Empty, vfMaps);
+        return new(uniforms, shaders, textures, platform, friendlyName, string.Empty, vfMaps, vfError);
     }
     public LegacyUniformNode[] ReadArray()
     {
