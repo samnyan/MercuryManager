@@ -137,15 +137,23 @@ function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{fr
   if(left.interpolation.toLowerCase().includes('cubic')){const t2=t*t,t3=t2*t;return (2*t3-3*t2+1)*left.value+(t3-2*t2+t)*(left.leaveTangent||0)*duration+(-2*t3+3*t2)*next.value+(t3-t2)*(next.arriveTangent||0)*duration}
   return left.value+(next.value-left.value)*t
 }
+// Binding resolution is invariant during playback; do not search all nodes per track.
+const sourceNodesById = computed(() => new Map((doc.value?.nodes ?? []).map(n => [n.id, n])))
+const boundTracks = computed(() => {
+  const animation = activeAnimation.value
+  const bindings = new Map(animation?.bindings.map(b => [b.guid, b.nodeId]) ?? [])
+  return (animation?.tracks ?? []).flatMap(track => {
+    const id = bindings.get(track.targetGuid)
+    const node = id ? sourceNodesById.value.get(id) : undefined
+    return node ? [{ track, node }] : []
+  })
+})
 const animationMaterialParameters = computed(() => {
   const result: Record<string, Record<string, number>> = {}
   const a=activeAnimation.value
   if(!a) return result
-  for(const track of a.tracks){
+  for(const {track, node} of boundTracks.value){
     if (!track.materialParameters?.length) continue
-    const binding=a.bindings.find(item=>item.guid===track.targetGuid)
-    const node=binding?.nodeId && doc.value?.nodes.find(item=>item.id===binding.nodeId)
-    if(!node) continue
     const parameters=result[node.id]||(result[node.id]={})
     for(const parameter of track.materialParameters){const value=sampleChannel(parameter.channel,animationFrame.value);if(value!==null)parameters[parameter.name]=value}
   }
@@ -155,7 +163,10 @@ const previewNodes = computed(() => {
   if (!doc.value) return []
   if (!activeAnimation.value) return doc.value.nodes
   // Preserve every nested tree and the original layout/draw order. Visibility is a separate mask.
-  const clones = new Map<string, UMGNode>(doc.value.nodes.map(node => [node.id, {
+  const clones = new Map<string, UMGNode>()
+  for (const { node } of boundTracks.value) {
+    if (clones.has(node.id)) continue
+    clones.set(node.id, {
     ...node,
     slot: node.slot ? { ...node.slot, values: { ...node.slot.values, LayoutData: { ...node.slot.values.LayoutData, Offsets: { ...node.slot.values.LayoutData?.Offsets } } } } : node.slot,
     visual: {
@@ -167,11 +178,10 @@ const previewNodes = computed(() => {
         Shear: { ...node.visual.RenderTransform.Shear }
       } : undefined
     }
-  }]))
-  for(const track of activeAnimation.value.tracks){
-    const binding=activeAnimation.value.bindings.find(b=>b.guid===track.targetGuid)
-    if(!binding) continue
-    const node=binding.nodeId ? clones.get(binding.nodeId) : undefined
+    })
+  }
+  for(const {track, node: source} of boundTracks.value){
+    const node=clones.get(source.id)
     if(!node) continue
     const values=new Map(track.channels.map(c=>[c.property,sampleChannel(c,animationFrame.value)]))
     if(track.type.includes('Transform')){
@@ -200,7 +210,7 @@ const previewNodes = computed(() => {
       node.visual[property] = original.SpecifiedColor ? { ...original, SpecifiedColor: color } : color
     }
   }
-  return [...clones.values()]
+  return doc.value.nodes.map(node => clones.get(node.id) ?? node)
 })
 function setAnimationPlaying(playing: boolean) {
   animationPlaying.value = playing

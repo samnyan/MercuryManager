@@ -961,7 +961,9 @@ onMounted(async () => {
 })
 
 // Changes to animated transform/opacity are applied to retained objects.
-const sceneContentKey = computed(() => JSON.stringify(props.nodes.map(node => {
+// Only mounted trees contribute pixels to the current stage.
+const mountedNodes = computed(() => props.nodes.filter(node => props.layouts.has(node.id)))
+const sceneContentKey = computed(() => JSON.stringify(mountedNodes.value.map(node => {
   const { RenderTransform, RenderOpacity, ...visual } = node.visual
   return { ...node, visual }
 })))
@@ -1000,10 +1002,19 @@ watch(
   [sceneContentKey, () => props.viewMode, () => props.viewport, () => [...props.hiddenIds], () => props.materials, () => props.particles],
   () => { rebuildScene() }
 )
+const frameProperties = computed(() => mountedNodes.value.map(n => {
+  const v = n.visual, t = v.RenderTransform, p = v.RenderTransformPivot
+  const color = (c: any) => { const x = c?.SpecifiedColor ?? c; return [x?.R, x?.G, x?.B, x?.A] }
+  // Read scalar leaves explicitly so inspector in-place edits stay reactive,
+  // without a deep watcher traversing layout maps and serialized objects.
+  return [n.id, v.RenderOpacity, t?.Translation?.X, t?.Translation?.Y,
+    t?.Scale?.X, t?.Scale?.Y, t?.Shear?.X, t?.Shear?.Y, t?.Angle, p?.X, p?.Y,
+    ...color(v.ColorAndOpacity), ...color(v.ContentColorAndOpacity)]
+}))
 watch(
-  [() => props.nodes.map(n => [n.id, n.visual.RenderOpacity, n.visual.RenderTransform]), () => props.layouts, () => props.materialTime, () => props.animationMaterialParameters],
+  [frameProperties, () => props.layouts, () => props.materialTime, () => props.animationMaterialParameters],
   () => { if (props.viewMode === 'structure') rebuildScene(); else updateSceneFrame() },
-  { flush: 'post', deep: true }
+  { flush: 'post' }
 )
 
 watch(
@@ -1036,7 +1047,8 @@ function releaseInactiveMaterialSurfaces() {
     }
   }
 }
-watch(() => [props.hiddenIds, props.nodes, props.viewMode], releaseInactiveMaterialSurfaces, { deep: true })
+// The cleanup reads membership/ancestry only, not every serialized property.
+watch(() => [props.hiddenIds, props.nodes, props.viewMode], releaseInactiveMaterialSurfaces)
 
 function disposeMaterialSurfaces() {
   for (const task of materialSurfaces.values()) task.then(s => s.dispose()).catch(() => {})
