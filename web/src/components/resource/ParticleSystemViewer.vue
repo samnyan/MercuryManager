@@ -361,6 +361,7 @@ function tick(ts: number) {
         camPitch: camPitch.value,
         camDistance: camDistance.value,
         camTarget: camTarget.value,
+        meshGeometry: emitterMeshes,
         useMaterialSprites: enableMaterialSprites.value,
         selectedEmitterIdx: selectedEmitterIdx.value,
         showGrid: viewportBg.value === 'grid'
@@ -500,6 +501,7 @@ onBeforeUnmount(() => {
         <div class="viewport-hud">
           <div>Time: {{ simTime.toFixed(2) }}s</div>
           <div>Particles: {{ activeParticleCount }}</div>
+          <div v-if="info.Emitters.some(em => em.LODLevels?.[0]?.TypeDataModule?.Class === 'ParticleModuleTypeDataMesh')">Mesh: 几何线框预览 · 非原生材质</div>
           <div class="hud-hint">拖拽旋转 3D 视角 · 滚轮缩放</div>
         </div>
       </div>

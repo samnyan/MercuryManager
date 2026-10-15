@@ -2,6 +2,8 @@
 // 供 ParticleSystemViewer (Cascade 面板) 与 UMG / Blueprint 预览器共同复用
 
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../material-shader/UMGMaterialBridge'
+import type { ParticleMeshGeometry } from './ParticleMeshGeometry'
+import { drawParticleMeshWireframe } from './ParticleMeshWireframe'
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
 import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
@@ -539,6 +541,7 @@ export class ParticleSimulationEngine {
       camPitch?: number
       camDistance?: number
       camTarget?: [number, number, number]
+      meshGeometry?: ReadonlyMap<number, ParticleMeshGeometry>
       useMaterialSprites?: boolean
       selectedEmitterIdx?: number
       transparentBg?: boolean
@@ -648,6 +651,11 @@ export class ParticleSimulationEngine {
       .sort((a, b) => b.proj.depth - a.proj.depth)
 
     for (const { p, proj } of projected) {
+      if (p.isMesh && options.meshGeometry) {
+        const mesh = options.meshGeometry.get(p.emitterIdx)
+        if (mesh) drawParticleMeshWireframe(ctx, mesh, p, project3D)
+        continue // Never substitute a billboard for missing mesh geometry in this mode.
+      }
       const lifeRatio = p.age / p.lifetime
       const fade = lifeRatio > 0.8 ? (1 - lifeRatio) / 0.2 : 1.0
       const alpha = Math.max(0.05, p.a * fade)
