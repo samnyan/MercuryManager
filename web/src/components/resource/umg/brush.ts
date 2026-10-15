@@ -17,10 +17,21 @@ export function boxBrush(source: HTMLImageElement | HTMLCanvasElement, brush: an
     if (dw <= 0 || dh <= 0) return
     sx = Math.min(sw-1,sx); sy = Math.min(sh-1,sy); w = Math.max(1,w); h = Math.max(1,h)
     const tileW = tx ? Math.max(1,w/sw*nw) : dw, tileH = ty ? Math.max(1,h/sh*nh) : dh
-    for(let y=0;y<dh;y+=tileH) for(let x=0;x<dw;x+=tileW) {
-      const cw=Math.min(tileW,dw-x), ch=Math.min(tileH,dh-y)
-      ctx.drawImage(source,sx,sy,w*cw/tileW,h*ch/tileH,dx+x,dy+y,cw,ch)
+    if (!tx && !ty) {
+      ctx.drawImage(source,sx,sy,w,h,dx,dy,dw,dh)
+      return
     }
+    // Native repetition keeps draw-call count independent of destination size.
+    // Crop once in source resolution, then scale the pattern to the Slate tile
+    // size; partial final tiles are clipped by fillRect, not stretched.
+    const tile = document.createElement('canvas')
+    tile.width = Math.max(1,Math.ceil(w)); tile.height = Math.max(1,Math.ceil(h))
+    tile.getContext('2d')!.drawImage(source,sx,sy,w,h,0,0,tile.width,tile.height)
+    const pattern = ctx.createPattern(tile,tx && ty ? 'repeat' : tx ? 'repeat-x' : 'repeat-y')
+    if (!pattern) return
+    pattern.setTransform(new DOMMatrix().translate(dx,dy).scale(tileW/tile.width,tileH/tile.height))
+    ctx.fillStyle = pattern
+    ctx.fillRect(dx,dy,dw,dh)
   }
   if (mode !== 'Box' && mode !== 'Border') {
     draw(0,0,sw,sh,0,0,canvas.width,canvas.height,tiling==='Horizontal'||tiling==='Both',tiling==='Vertical'||tiling==='Both')

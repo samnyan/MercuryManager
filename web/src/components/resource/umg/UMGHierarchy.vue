@@ -196,7 +196,7 @@ function handleSelectKeys(keys: Array<string | number>) {
       <n-tree
         block-line
         checkable
-        cascade
+        :cascade="false"
         show-line
         :data="treeData"
         :render-label="renderLabel"
