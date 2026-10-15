@@ -43,9 +43,11 @@ public sealed class LegacyVertexFactoryShaderMapReader(UAsset asset, byte[] data
                 if (!pipelineNames.Add(name)) throw new InvalidDataException("Duplicate shader pipeline.");
                 var stages = new LegacyShaderEntry[Count(6)];
                 if (stages.Length == 0) throw new InvalidDataException("Empty shader pipeline.");
+                var stageTypes = new HashSet<string>(StringComparer.Ordinal);
                 for (int s = 0; s < stages.Length; s++)
                 {
                     var type = Name();
+                    if (!stageTypes.Add(type)) throw new InvalidDataException("Duplicate shader pipeline stage type.");
                     long end = (long)Int() - extrasFileOffset;
                     if (end <= Position || end > data.Length)
                         throw new InvalidDataException("Shader pipeline stage boundary out of range.");
