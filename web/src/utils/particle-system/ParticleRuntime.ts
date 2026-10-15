@@ -383,10 +383,14 @@ export class ParticleSimulationEngine {
         pos[1] += locOffset[1]
         pos[2] += locOffset[2]
       } else if (cls.includes('RotationRate')) {
-        const rr = sampleVecDist(mod.Distributions?.StartRotationRate, [0, 0, 0])
+        const rr = cls.includes('Mesh')
+          ? sampleVecDist(mod.Distributions?.StartRotationRate, [0, 0, 0])
+          : [0, 0, sampleFloatDist(mod.Distributions?.StartRotationRate, 0)]
         rotRate = [rr[0] * Math.PI * 2, rr[1] * Math.PI * 2, rr[2] * Math.PI * 2]
       } else if (cls.includes('Rotation')) {
-        rot = sampleVecDist(mod.Distributions?.StartRotation, [0, 0, 0])
+        rot = cls.includes('Mesh')
+          ? sampleVecDist(mod.Distributions?.StartRotation, [0, 0, 0])
+          : [0, 0, sampleFloatDist(mod.Distributions?.StartRotation, 0)]
       } else if (cls.includes('SubUV')) {
         subImageIndex = Math.floor(sampleFloatDist(mod.Distributions?.SubImageIndex, 0))
       }
@@ -582,7 +586,7 @@ export class ParticleSimulationEngine {
       const scale = (baseDim * 1.5) / camZ
       return {
         sx: w / 2 + rx * scale,
-        sy: h / 2 - (ry * sp - rz * cp) * scale,
+        sy: h / 2 - (rz * cp - ry * sp) * scale,
         depth: camZ,
         scale
       }
