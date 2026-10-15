@@ -6,7 +6,7 @@ import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface
 import { multiplySlateColors, linearToSrgbByte } from '../../../utils/material-shader/SlateColor'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { NButton, NDropdown } from 'naive-ui'
+import { NButton, NDropdown, NCheckbox } from 'naive-ui'
 import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Textbox, Shadow, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject, api } from '../../../project'
@@ -89,6 +89,7 @@ let lastRafTime = performance.now()
 
 const emit = defineEmits<{
   'select-node': [id: string]
+  'update:view-mode': [mode: 'appearance' | 'structure']
 }>()
 
 const project = useProject()
@@ -1115,7 +1116,8 @@ onBeforeUnmount(() => {
     <div class="stage-toolbar">
       <span v-if="particles && Object.keys(particles).length" title="APPROXIMATION: CPU simulation, baked textures; no Blueprint script execution">粒子近似预览 / Approximate particles</span>
       <div class="stage-info">
-        <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }}</span>
+        <span>[{{ viewport.width }} × {{ viewport.height }}]</span>
+        <n-checkbox size="small" :theme-overrides="{ textColor: '#e4e7eb', fontSizeSmall: '12px' }" :checked="viewMode === 'structure'" @update:checked="emit('update:view-mode', $event ? 'structure' : 'appearance')">Wireframe</n-checkbox>
         <n-dropdown trigger="click" :options="rendererOptions" @select="selectRenderer">
           <button type="button" class="fps-badge" aria-label="Renderer" aria-haspopup="menu">
             <span ref="fpsSpanRef">-- FPS</span> · {{ renderer === 'webgl' ? 'WebGL2' : 'Canvas' }} ▾

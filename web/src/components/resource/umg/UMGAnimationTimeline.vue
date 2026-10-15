@@ -54,7 +54,9 @@ function clearAnimation() { emit('update:selectedAnimationIds', []); emit('updat
 .phase-buttons{display:flex;gap:2px}
 .time-readout,.track-count{font:11px monospace;color:#c4cfdf;white-space:nowrap}
 .preview-note{color:#e5b66b;font-size:11px;white-space:nowrap}
-.timeline-header :deep(.n-checkbox__label){font-size:11px;padding-left:4px}
+.timeline-header :deep(.n-checkbox){align-items:center}
+.timeline-header :deep(.n-checkbox__label){font-size:11px;padding-left:4px;line-height:16px}
+.timeline-header :deep(.n-checkbox-box-wrapper){height:16px;display:flex;align-items:center}
 .timeline-header :deep(.n-button){font-size:11px;padding:0 6px;height:22px}
 .timeline-header :deep(.n-base-selection){font-size:11px}
 </style>

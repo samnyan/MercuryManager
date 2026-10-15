@@ -367,35 +367,8 @@ onBeforeUnmount(() => {
         </n-button>
         <h2 class="page-title resource-path-title">{{ path || tr('ui.selectResource') }}</h2>
       </div>
-      <n-space v-if="project.id && path.endsWith('.uasset')" :wrap="false">
-        <n-button
-          v-if="matchedTableRoute"
-          type="primary"
-          secondary
-          @click="router.push(matchedTableRoute.path)"
-        >
-          <template #icon><n-icon :component="ExternalLink" /></template>
-          {{ matchedTableRoute.label }}
-        </n-button>
-        <n-button tag="a" :href="jsonUrl" download :disabled="busy || jsonBusy">{{tr('ui.jsonExport')}}</n-button>
-        <n-button :loading="jsonBusy" :disabled="busy" @click="jsonInput?.click()">{{tr('ui.jsonImport')}}</n-button>
-      </n-space>
-      <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="uploadJson" />
-    </div>
-
-    <div v-if="matchedTableRoute" class="datatable-route-banner view-header-fixed">
-      <div class="banner-left">
-        <n-tag type="success" size="small" :bordered="false">{{ tr('ui.dataTableDedicatedTag') }}</n-tag>
-        <span>{{ tr('ui.dataTableDedicatedDesc') }}</span>
-      </div>
-      <n-button size="small" type="primary" @click="router.push(matchedTableRoute.path)">
-        <template #icon><n-icon :component="ExternalLink" /></template>
-        {{ tr('ui.gotoPage') }} {{ matchedTableRoute.path }}
-      </n-button>
-    </div>
-
     <!-- 仅在存在对应功能时才显示可选 Tab，且不显示不兼容的 Tab -->
-    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialFunction || isMaterialInstance || isTexture || isAudio || isParticleSystem) && data) || isBlueprint" v-model:value="mode" type="line" class="resource-tabs view-header-fixed">
+    <n-tabs v-if="((isMovie || isMpc || isMaterial || isMaterialFunction || isMaterialInstance || isTexture || isAudio || isParticleSystem) && data) || isBlueprint" v-model:value="mode" type="line" size="small" class="resource-tabs view-header-fixed">
       <n-tab v-if="isBlueprint" name="blueprint">Blueprint / Widget Tree</n-tab>
       <n-tab v-if="isMovie" name="movie">{{ tr('ui.movieTab') }}</n-tab>
       <n-tab v-if="isMpc" name="mpc">{{ tr('ui.mpcTab') }}</n-tab>
@@ -412,6 +385,34 @@ onBeforeUnmount(() => {
         {{ tr('ui.genericMode') }}
       </n-tab>
     </n-tabs>
+      <n-space class="resource-actions" v-if="project.id && path.endsWith('.uasset')" :wrap="false">
+        <n-button
+          v-if="matchedTableRoute"
+          type="primary"
+          secondary
+          @click="router.push(matchedTableRoute.path)"
+        >
+          <template #icon><n-icon :component="ExternalLink" /></template>
+          {{ matchedTableRoute.label }}
+        </n-button>
+        <n-button size="tiny" tag="a" :href="jsonUrl" download :disabled="busy || jsonBusy">{{tr('ui.jsonExport')}}</n-button>
+        <n-button size="tiny" :loading="jsonBusy" :disabled="busy" @click="jsonInput?.click()">{{tr('ui.jsonImport')}}</n-button>
+      </n-space>
+      <input ref="jsonInput" type="file" accept=".json,application/json" hidden @change="uploadJson" />
+    </div>
+
+    <div v-if="matchedTableRoute" class="datatable-route-banner view-header-fixed">
+      <div class="banner-left">
+        <n-tag type="success" size="small" :bordered="false">{{ tr('ui.dataTableDedicatedTag') }}</n-tag>
+        <span>{{ tr('ui.dataTableDedicatedDesc') }}</span>
+      </div>
+      <n-button size="small" type="primary" @click="router.push(matchedTableRoute.path)">
+        <template #icon><n-icon :component="ExternalLink" /></template>
+        {{ tr('ui.gotoPage') }} {{ matchedTableRoute.path }}
+      </n-button>
+    </div>
+
+
 
     <div class="resource-main-pane view-grid-fill">
       <mer-resource-viewer v-if="isMer && !busy" :path="path" class="resource-fill-item" />
@@ -596,12 +597,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.resource-title-row {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.resource-title-row .resource-tabs{flex:1 1 0;min-width:0;margin:0}
+.resource-actions{flex:0 0 auto;margin-left:auto}
+.resource-path-title{margin:0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-title-row {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:nowrap}
 .title-with-back {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 45%;
   min-width: 0;
 }
 .datatable-route-banner {

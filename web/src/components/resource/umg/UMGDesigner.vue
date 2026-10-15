@@ -315,43 +315,6 @@ const selectedLayout = computed(() => {
 
 <template>
   <div class="umg-designer">
-    <!-- Top Banner & Mode Controls -->
-    <div class="umg-topbar">
-      <div class="topbar-left">
-        <n-tag type="warning" size="small" :bordered="false">
-          {{ tr('ui.umgApproxStaticPreview') }}
-        </n-tag>
-        <span v-if="doc" class="meta-text">
-          Nodes: {{ doc.nodes.length }} | Diagnostics: {{ doc.diagnostics?.length || 0 }}
-        </span>
-      </div>
-
-      <div class="topbar-right">
-        <div class="mode-group">
-          <n-button
-            size="small"
-            :type="viewMode === 'appearance' ? 'primary' : 'default'"
-            @click="viewMode = 'appearance'"
-          >
-            {{ tr('ui.umgModeAppearance') }}
-          </n-button>
-          <n-button
-            size="small"
-            :type="viewMode === 'structure' ? 'primary' : 'default'"
-            @click="viewMode = 'structure'"
-          >
-            {{ tr('ui.umgModeWireframe') }}
-          </n-button>
-        </div>
-
-        <n-tag size="small" :bordered="false">{{ tr('ui.umgPortraitTag') }}</n-tag>
-
-        <n-button size="small" secondary @click="emit('fallback-generic')">
-          {{ tr('ui.umgSwitchToGeneric') }}
-        </n-button>
-      </div>
-    </div>
-
     <!-- Loading / Error State -->
     <div v-if="loading" class="center-state">
       <n-spin size="large" />
@@ -392,6 +355,7 @@ const selectedLayout = computed(() => {
             :hidden-ids="stageHiddenIds"
             :viewport="viewport"
             :view-mode="viewMode"
+            @update:view-mode="viewMode = $event"
             @select-node="id => (selectedNodeId = id)"
           />
         </div>
@@ -459,30 +423,6 @@ const selectedLayout = computed(() => {
   overflow: hidden;
   border: 1px solid var(--n-border-color);
   border-radius: 6px;
-}
-.umg-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--n-border-color);
-  background: rgba(128, 128, 128, 0.04);
-  flex-wrap: wrap;
-}
-.topbar-left,
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.mode-group {
-  display: flex;
-  gap: 4px;
-}
-.meta-text {
-  font-size: 12px;
-  color: #888;
 }
 .center-state {
   flex: 1;
