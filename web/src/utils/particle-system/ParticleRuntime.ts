@@ -3,7 +3,7 @@
 
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../material-shader/UMGMaterialBridge'
 import type { ParticleMeshGeometry } from './ParticleMeshGeometry'
-import { drawParticleMeshWireframe } from './ParticleMeshWireframe'
+import { drawParticleMeshPreview } from './ParticleMeshPreview'
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
 import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
@@ -653,7 +653,7 @@ export class ParticleSimulationEngine {
     for (const { p, proj } of projected) {
       if (p.isMesh && options.meshGeometry) {
         const mesh = options.meshGeometry.get(p.emitterIdx)
-        if (mesh) drawParticleMeshWireframe(ctx, mesh, p, project3D)
+        if (mesh) drawParticleMeshPreview(ctx, mesh, p, project3D) // APPROXIMATION: neutral lit geometry, not native material.
         continue // Never substitute a billboard for missing mesh geometry in this mode.
       }
       const lifeRatio = p.age / p.lifetime
