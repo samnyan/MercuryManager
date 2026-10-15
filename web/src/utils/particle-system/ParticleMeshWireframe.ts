@@ -3,6 +3,16 @@ import type { SimParticle } from './ParticleRuntime'
 
 /** Diagnostic XYZ Euler transform only; not a verified UE mesh-factory transform. */
 export function transformMeshVertex(x: number, y: number, z: number, p: SimParticle): [number, number, number] {
+  // APPROXIMATION: apply TypeData mesh-local orientation before particle scale/rotation.
+  // Keep matrix composition separate: Euler angles cannot simply be added.
+  if (p.meshPreRotation) {
+    const [rx, ry, rz] = p.meshPreRotation
+    const y1 = y * Math.cos(rx) - z * Math.sin(rx), z1 = y * Math.sin(rx) + z * Math.cos(rx)
+    const x2 = x * Math.cos(ry) + z1 * Math.sin(ry), z2 = -x * Math.sin(ry) + z1 * Math.cos(ry)
+    x = x2 * Math.cos(rz) - y1 * Math.sin(rz)
+    y = x2 * Math.sin(rz) + y1 * Math.cos(rz)
+    z = z2
+  }
   x *= p.sizeX; y *= p.sizeY; z *= p.sizeZ
   const cx = Math.cos(p.rotX), sx = Math.sin(p.rotX)
   const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY)

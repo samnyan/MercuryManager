@@ -120,6 +120,7 @@ export interface SimParticle {
   rotX: number
   rotY: number
   rotZ: number
+  meshPreRotation?: [number, number, number]
   vRotX: number
   vRotY: number
   vRotZ: number
@@ -160,6 +161,11 @@ export function sampleVecDist(
   if (!dist) return fallback
   const vals = dist.TableValues
   const stride = dist.EntryStride || 3
+  // Cooked constant lookup values are runtime data; Min/Max are summary bounds.
+  if (dist.TableOp === 1 && dist.EntryCount === 1 && stride === 3 &&
+      Array.isArray(vals) && vals.length === 3 && vals.every(Number.isFinite)) {
+    return [vals[0], vals[1], vals[2]]
+  }
   if (typeof ratio === 'number' && Array.isArray(vals) && vals.length >= stride * 2) {
     const entryCount = Math.floor(vals.length / stride)
     const idx = Math.min(entryCount - 1, Math.max(0, Math.floor(ratio * (entryCount - 1))))
@@ -444,6 +450,9 @@ export class ParticleSimulationEngine {
       a: Math.min(1, Math.max(0.05, alpha)),
       age: 0,
       lifetime,
+      // APPROXIMATION: mesh-local pre-rotation in degrees, separate from particle turns.
+      meshPreRotation: sampleVecDist(lod.TypeDataModule?.Distributions?.RollPitchYawRange)
+        .map(degrees => degrees * Math.PI / 180) as [number, number, number],
       rotX: rot[0] * Math.PI * 2,
       rotY: rot[1] * Math.PI * 2,
       rotZ: rot[2] * Math.PI * 2,
