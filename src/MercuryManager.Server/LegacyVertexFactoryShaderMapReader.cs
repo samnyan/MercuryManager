@@ -3,7 +3,11 @@ using UAssetAPI;
 
 namespace MercuryManager.Server;
 
-public sealed record LegacyVertexFactoryShaderMap(string VertexFactory, IReadOnlyList<LegacyShaderEntry> Shaders);
+public sealed record LegacyShaderPipeline(string Name, IReadOnlyList<LegacyShaderEntry> Shaders);
+public sealed record LegacyVertexFactoryShaderMap(string VertexFactory, IReadOnlyList<LegacyShaderEntry> Shaders)
+{
+    public IReadOnlyList<LegacyShaderPipeline> Pipelines { get; init; } = [];
+}
 
 /// <summary>UE4.19 vertex-factory maps following the global material shader directory.
 /// Does not consume the trailing material metadata or enable a rendering profile.</summary>
@@ -31,8 +35,27 @@ public sealed class LegacyVertexFactoryShaderMapReader(UAsset asset, byte[] data
                 entries[j] = new(type, Position, (int)end);
                 Position = (int)end;
             }
-            if (Int() != 0) throw new NotSupportedException("Legacy vertex factory shader pipelines are not supported yet.");
-            maps[i] = new(factory, entries);
+            var pipelines = new LegacyShaderPipeline[Count(256)];
+            var pipelineNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int p = 0; p < pipelines.Length; p++)
+            {
+                var name = Name();
+                if (!pipelineNames.Add(name)) throw new InvalidDataException("Duplicate shader pipeline.");
+                var stages = new LegacyShaderEntry[Count(6)];
+                if (stages.Length == 0) throw new InvalidDataException("Empty shader pipeline.");
+                for (int s = 0; s < stages.Length; s++)
+                {
+                    var type = Name();
+                    long end = (long)Int() - extrasFileOffset;
+                    if (end <= Position || end > data.Length)
+                        throw new InvalidDataException("Shader pipeline stage boundary out of range.");
+                    stages[s] = new(type, Position, (int)end);
+                    Position = (int)end;
+                }
+                pipelines[p] = new(name, stages);
+            }
+            // Pipeline shaders retain their identity; never merge into standalone candidates.
+            maps[i] = new(factory, entries) { Pipelines = pipelines };
         }
         return maps;
     }
