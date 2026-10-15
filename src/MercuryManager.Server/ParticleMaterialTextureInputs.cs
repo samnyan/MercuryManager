@@ -35,7 +35,23 @@ public static class ParticleMaterialTextureInputs
             }
             catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
             {
-                limitations.Add($"{pair.UniformName}: {ex.Message}");
+                // APPROXIMATION: preserve a verified Material image when its sampler is
+                // shared by View. Use preview linear-repeat filtering, not a guessed image.
+                var images = table.Textures(material.MaterialBufferIndex)
+                    .Where(t => pair.ImageName == "t" + t.BindIndex).ToArray();
+                var owners = Enumerable.Range(0, 32).SelectMany(table.Samplers)
+                    .Where(t => pair.SamplerName == "s" + t.BindIndex).ToArray();
+                var image = images.Length == 1 ? images[0] : null;
+                var expression = image != null && image.ResourceIndex >= 0 && image.ResourceIndex % 2 == 0 &&
+                    material.TextureCubeCount == 0 && expressions.Count == material.Texture2DCount
+                    ? expressions.SingleOrDefault(e => e.ExpressionIndex == image.ResourceIndex / 2) : null;
+                if (expression != null && owners.Length == 1 && owners[0].BufferIndex == 1)
+                {
+                    slots.Add(new(pair.UniformName, pair.ImageName, pair.SamplerName,
+                        expression.ExpressionIndex, expression.AssetPath, 1, expression.ParameterName));
+                    limitations.Add($"APPROXIMATION: {pair.UniformName} retains Material image {expression.AssetPath}; shared View sampler uses preview linear-repeat filtering.");
+                }
+                else limitations.Add($"{pair.UniformName}: {ex.Message}");
             }
         }
         return new(slots.ToArray(), limitations.ToArray());
