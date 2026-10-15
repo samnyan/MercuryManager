@@ -1,7 +1,7 @@
 // 通用粒子系统运行时与渲染桥接模块 (ParticleRuntime.ts)
 // 供 ParticleSystemViewer (Cascade 面板) 与 UMG / Blueprint 预览器共同复用
 
-import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../material-shader/UMGMaterialBridge'
+import { normalizeMaterialEntry } from '../material-shader/UMGMaterialBridge'
 import type { ParticleMeshGeometry } from './ParticleMeshGeometry'
 import { drawParticleMeshPreview } from './ParticleMeshPreview'
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
@@ -248,14 +248,28 @@ export async function buildParticleMaterialSprites(
       }
     }
 
-    // 2. 回退：通用材质 2D 烘焙模拟 (renderUMGMaterialToCanvas)
-    try {
-      const canvas = await renderUMGMaterialToCanvas(spec, loadImage, 128, 128)
-      if (canvas) {
+    // APPROXIMATION: raw texture reference, NOT execution of the material graph.
+    // Prefer an explicit base/color slot; do not reinterpret arbitrary vectors
+    // (including world-position offsets) as tint or invent a generic UMG effect.
+    const candidates = [...spec.textures].sort((a, b) => {
+      const rank = (name: string) => /^(BaseTexture|RGBTexture|Color_texture)$/i.test(name) ? 0
+        : /mask|normal|noise|object|shape/i.test(name) ? 2 : 1
+      return rank(a.name) - rank(b.name)
+    })
+    for (const candidate of candidates) {
+      try {
+        const image = await loadImage(candidate.path)
+        if (!image?.naturalWidth || !image.naturalHeight) continue
+        const canvas = document.createElement('canvas')
+        const scale = Math.min(1, 512 / Math.max(image.naturalWidth, image.naturalHeight))
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+        canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height)
+        canvas.dataset.previewProfile = 'approximate-raw-texture'
+        canvas.dataset.sourceTexture = candidate.path
         result.set(matPath, canvas)
-      }
-    } catch {
-      // ignore failed material sprite
+        break
+      } catch { /* Try the next real texture; no fabricated fallback image. */ }
     }
   }
   return result
