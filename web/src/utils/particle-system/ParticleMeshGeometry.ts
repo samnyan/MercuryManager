@@ -22,8 +22,13 @@ export function meshOriginRadius(mesh: ParticleMeshGeometry): number {
 
 export async function loadParticleMesh(projectId: string, path: string, signal: AbortSignal): Promise<ParticleMeshGeometry> {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/resource-mesh-geometry?${new URLSearchParams({ path })}`, { signal })
-  if (!response.ok) throw new Error(`Mesh geometry HTTP ${response.status}: ${path}`)
-  const mesh = await response.json() as ParticleMeshGeometry
+  const result = await response.json() as { code: number; message: string; data: ParticleMeshGeometry }
+  if (!result || typeof result.code !== 'number' || typeof result.message !== 'string' || !('data' in result)) {
+    throw new Error(`Invalid mesh API response: ${path}`)
+  }
+  if (!response.ok || result.code !== 0) throw new Error(`${result.message || `HTTP ${response.status}`}: ${path}`)
+  const mesh = result.data
+  if (!mesh) throw new Error(`Missing mesh geometry: ${path}`)
   meshOriginRadius(mesh)
   return mesh
 }
