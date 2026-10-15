@@ -107,6 +107,7 @@ const selectedModuleResources = computed<ResourceItem[]>(() => {
 
 // 材质 Shader 诊断缓存与状态
 const materialDiagnosticsMap = ref<Record<string, NonSlateParticleDiagnostics | null>>({})
+const materialLimitations = ref<Record<string, string[]>>({})
 const activeMaterialPath = computed(() => {
   return selectedModuleResources.value.find(r => r.role === 'Material')?.assetPath || null
 })
@@ -144,6 +145,7 @@ watch(
     try {
       const data = await materialPrograms.load(projId, matPath)
       if (cancelled) return
+      materialLimitations.value[matPath] = data.limitations ?? []
       if (hasNonSlateParticleDiagnostics(data)) {
         materialDiagnosticsMap.value[matPath] = data as NonSlateParticleDiagnostics
       } else {
@@ -402,6 +404,7 @@ watch(
   [() => project.id, () => props.info, () => props.path],
   () => {
     materialDiagnosticsMap.value = {}
+    materialLimitations.value = {}
     rawImageCache.clear()
     initSelection()
     needsCameraFit = true
@@ -691,6 +694,11 @@ onBeforeUnmount(() => {
             class="details-section"
           >
             <ParticleCutoutCanvas :cutout="selectedModule.CutoutConfiguration" />
+          </div>
+
+          <div v-if="activeMaterialPath && materialLimitations[activeMaterialPath]?.length" class="details-section" role="status">
+            <div class="sec-title">{{ tr('ui.particleUnverified') }}</div>
+            <div v-for="reason in materialLimitations[activeMaterialPath]" :key="reason" style="overflow-wrap: anywhere">{{ reason }}</div>
           </div>
 
           <!-- 材质 Shader 顶点工厂与底层诊断 (Low-Level Evidence) -->
