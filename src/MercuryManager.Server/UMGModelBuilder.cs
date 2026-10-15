@@ -8,7 +8,7 @@ namespace MercuryManager.Server;
 
 internal static class UMGModelBuilder
 {
-    private static readonly string[] VisualFields=["Visibility","RenderOpacity","RenderTransform","RenderTransformPivot","Clipping","Brush","Background","BrushColor","ColorAndOpacity","ContentColorAndOpacity","Text","Font","Justification","AutoWrapText","WrapTextAt","MinDesiredWidth","Padding","HorizontalAlignment","VerticalAlignment","WidthOverride","HeightOverride","bOverride_WidthOverride","bOverride_HeightOverride","MinDesiredHeight","MaxDesiredWidth","MaxDesiredHeight","BlendMode","IsVariable","Template","ParticleSystem","EmitterTemplate","Effect"];
+    private static readonly string[] VisualFields=["Visibility","RenderOpacity","RenderTransform","RenderTransformPivot","Clipping","Brush","Background","BrushColor","ColorAndOpacity","ContentColorAndOpacity","Text","TextAngleStart","TextAngleEnd","TextRadius","TextRadiusInterval","CharacterAngle","bCharacterAngleBasedHorizontal","Font","Justification","AutoWrapText","WrapTextAt","MinDesiredWidth","Padding","HorizontalAlignment","VerticalAlignment","WidthOverride","HeightOverride","bOverride_WidthOverride","bOverride_HeightOverride","MinDesiredHeight","MaxDesiredWidth","MaxDesiredHeight","BlendMode","IsVariable","Template","ParticleSystem","EmitterTemplate","Effect"];
     private static readonly string[] SlotFields=["LayoutData","bAutoSize","ZOrder","Padding","HorizontalAlignment","VerticalAlignment","Size","Offset","Anchors","Alignment"];
     private static readonly HashSet<string> Supported=["CanvasPanel","Overlay","Border","SizeBox","HorizontalBox","VerticalBox","Image","TextBlock","Spacer"];
     private static List<UMGAnimation> ReadAnimations(UAsset asset)

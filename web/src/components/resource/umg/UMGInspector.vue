@@ -14,6 +14,7 @@ import {
 } from 'naive-ui'
 import { Save, ExternalLink, RotateCcw } from '@lucide/vue'
 import ResourceCardList from '../ResourceCardList.vue'
+import UMGPropertyFields from './UMGPropertyFields.vue'
 import { tr } from '../../../i18n'
 import type { UMGNode, ComputedLayout } from './types'
 import { api, useProject } from '../../../project'
@@ -38,6 +39,25 @@ const emit = defineEmits<{
 const project = useProject()
 const message = useMessage()
 const materialThumbnails = ref<Record<string, string>>({})
+const originals = new WeakMap<UMGNode, {visual:Record<string,any>;slot:Record<string,any>}>()
+const baseline = computed(() => {
+  const n=props.node
+  if (!n) return {visual:{},slot:{}}
+  if (!originals.has(n)) originals.set(n, JSON.parse(JSON.stringify({visual:n.visual,slot:n.slot?.values??{}})))
+  return originals.get(n)!
+})
+watch(()=>props.node,()=>{ void baseline.value },{immediate:true})
+const propertyGroups = computed(() => {
+  if (!props.node) return []
+  const visual=props.node.visual
+  const transform=['RenderTransform','RenderTransformPivot']
+  const style=['Brush','ColorAndOpacity','ContentColorAndOpacity','BrushColor','Color','Text','Font']
+  return [{title:'变换与锚点',keys:transform},{title:'Brush / Style',keys:style},
+    {title:'其他组件属性',keys:Object.keys(visual).filter(k=>![...transform,...style,'Visibility','RenderOpacity'].includes(k))}]
+    .map(g=>({title:g.title,value:Object.defineProperties({},Object.fromEntries(g.keys.filter(k=>k in visual).map(k=>[k,{enumerable:true,get:()=>visual[k],set:(v:any)=>visual[k]=v}])) )}))
+    .filter(g=>Object.keys(g.value).length)
+})
+
 
 // 可编辑的控件属性状态 (Visibility & RenderOpacity)
 const editVisibility = ref<string>('Visible')
@@ -311,9 +331,10 @@ const extraVisualEntries = computed(() => {
       </div>
 
       <!-- 1. 可见性与不透明度（支持实时预览与保存写回工程草稿） -->
-      <div class="inspector-section highlight-edit-section">
+      <n-collapse class="inspector-section">
+        <n-collapse-item title="基础属性" name="visibility">
         <div class="section-header-row">
-          <span class="section-title">显示状态与透明度 (可编辑)</span>
+
           <n-tag
             v-if="node.sources?.['visual.Visibility'] === 'serialized'"
             size="tiny"
@@ -331,18 +352,18 @@ const extraVisualEntries = computed(() => {
             v-model:value="editVisibility"
             :options="visibilityOptions"
             size="tiny"
-            style="flex: 1"
+            style="flex: 1; min-width: 0"
           />
         </div>
 
         <div class="edit-row">
-          <span class="edit-label">Opacity</span>
+          <span class="edit-label">RenderOpacity</span>
           <n-slider
             v-model:value="editOpacity"
             :min="0"
             :max="1"
             :step="0.01"
-            style="flex: 1"
+            style="flex: 1; min-width: 0"
           />
           <n-input-number
             v-model:value="editOpacity"
@@ -370,140 +391,20 @@ const extraVisualEntries = computed(() => {
             {{ tr('ui.umgSaveProps') }}
           </n-button>
         </div>
-      </div>
+        </n-collapse-item>
+      </n-collapse>
 
-      <!-- 2. 计算布局与 Slot 详情 -->
       <div class="inspector-section">
-        <div class="section-title">
-          {{ tr('ui.umgPropSlot') }} ({{ node.slot?.className || 'Root' }})
-        </div>
+        <div class="section-title">布局参数 · {{ node.slot?.className || 'Root' }}</div>
         <div v-if="layout" class="kv-grid">
-          <span class="k">屏幕位置 (X, Y)</span>
-          <span class="v">{{ Math.round(layout.rect.x) }}, {{ Math.round(layout.rect.y) }}</span>
-          <span class="k">屏幕尺寸 (W × H)</span>
-          <span class="v">{{ Math.round(layout.rect.width) }} × {{ Math.round(layout.rect.height) }}</span>
+          <span class="k">屏幕位置（计算结果）</span><span>{{ Math.round(layout.rect.x) }}, {{ Math.round(layout.rect.y) }}</span>
+          <span class="k">屏幕尺寸（计算结果）</span><span>{{ Math.round(layout.rect.width) }} × {{ Math.round(layout.rect.height) }}</span>
         </div>
-
-        <div v-if="parsedSlotInfo" class="structured-box">
-          <template v-if="parsedSlotInfo.anchors">
-            <div class="struct-row">
-              <span class="sk">Anchors Min/Max:</span>
-              <code class="sv">
-                ({{ parsedSlotInfo.anchors.Minimum?.X ?? 0 }}, {{ parsedSlotInfo.anchors.Minimum?.Y ?? 0 }})
-                →
-                ({{ parsedSlotInfo.anchors.Maximum?.X ?? 0 }}, {{ parsedSlotInfo.anchors.Maximum?.Y ?? 0 }})
-              </code>
-            </div>
-          </template>
-          <template v-if="parsedSlotInfo.offsets">
-            <div class="struct-row">
-              <span class="sk">Offsets (L/T/R/B):</span>
-              <code class="sv">
-                {{ parsedSlotInfo.offsets.Left ?? 0 }},
-                {{ parsedSlotInfo.offsets.Top ?? 0 }},
-                {{ parsedSlotInfo.offsets.Right ?? 0 }},
-                {{ parsedSlotInfo.offsets.Bottom ?? 0 }}
-              </code>
-            </div>
-          </template>
-          <template v-if="parsedSlotInfo.alignment">
-            <div class="struct-row">
-              <span class="sk">Alignment (Pivot):</span>
-              <code class="sv">
-                X: {{ parsedSlotInfo.alignment.X ?? 0 }}, Y: {{ parsedSlotInfo.alignment.Y ?? 0 }}
-              </code>
-            </div>
-          </template>
-          <template v-if="parsedSlotInfo.zOrder !== undefined">
-            <div class="struct-row">
-              <span class="sk">ZOrder:</span>
-              <code class="sv">{{ parsedSlotInfo.zOrder }}</code>
-            </div>
-          </template>
-          <template v-if="parsedSlotInfo.autoSize !== undefined">
-            <div class="struct-row">
-              <span class="sk">AutoSize:</span>
-              <code class="sv">{{ parsedSlotInfo.autoSize }}</code>
-            </div>
-          </template>
-          <template v-if="parsedSlotInfo.hAlign || parsedSlotInfo.vAlign">
-            <div class="struct-row">
-              <span class="sk">Align (H / V):</span>
-              <code class="sv">{{ parsedSlotInfo.hAlign || '-' }} / {{ parsedSlotInfo.vAlign || '-' }}</code>
-            </div>
-          </template>
-        </div>
+        <UMGPropertyFields v-if="node.slot" :value="node.slot.values" :baseline="baseline.slot" path="slot" />
       </div>
-
-      <!-- 3. 变换与枢轴 (RenderTransform) -->
-      <div v-if="parsedTransform" class="inspector-section">
-        <div class="section-title">{{ tr('ui.umgPropTransform') }}</div>
-        <div class="kv-grid">
-          <span class="k">Translation</span>
-          <span class="v">
-            X: {{ parsedTransform.translation.X ?? 0 }}, Y: {{ parsedTransform.translation.Y ?? 0 }}
-          </span>
-          <span class="k">Scale</span>
-          <span class="v">
-            X: {{ parsedTransform.scale.X ?? 1 }}, Y: {{ parsedTransform.scale.Y ?? 1 }}
-          </span>
-          <span class="k">Shear / Angle</span>
-          <span class="v">
-            ({{ parsedTransform.shear.X ?? 0 }}, {{ parsedTransform.shear.Y ?? 0 }}) | {{ parsedTransform.angle }}°
-          </span>
-          <span class="k">Pivot</span>
-          <span class="v">
-            X: {{ parsedTransform.pivot.X ?? 0.5 }}, Y: {{ parsedTransform.pivot.Y ?? 0.5 }}
-          </span>
-        </div>
-      </div>
-
-      <!-- 4. 颜色、笔刷与文本样式 -->
-      <div
-        v-if="parsedColors.length || node.visual?.Brush || node.visual?.Text || node.visual?.Font"
-        class="inspector-section"
-      >
-        <div class="section-title">{{ tr('ui.umgPropBrush') }}</div>
-
-        <!-- 颜色色块展示 -->
-        <div v-for="col in parsedColors" :key="col.key" class="color-swatch-row">
-          <span class="k">{{ col.key }}</span>
-          <div class="swatch-val">
-            <span class="color-box" :style="{ backgroundColor: col.css }" />
-            <code class="sv">{{ col.label }}</code>
-          </div>
-        </div>
-
-        <!-- Brush 详情 -->
-        <div v-if="node.visual?.Brush" class="structured-box">
-          <div v-if="node.visual.Brush.ImageSize" class="struct-row">
-            <span class="sk">Brush ImageSize:</span>
-            <code class="sv">
-              {{ node.visual.Brush.ImageSize.X ?? 32 }} × {{ node.visual.Brush.ImageSize.Y ?? 32 }}
-            </code>
-          </div>
-          <div v-if="node.visual.Brush.DrawAs" class="struct-row">
-            <span class="sk">DrawAs / Tiling:</span>
-            <code class="sv">
-              {{ node.visual.Brush.DrawAs }} / {{ node.visual.Brush.Tiling || 'NoTile' }}
-            </code>
-          </div>
-        </div>
-
-        <!-- Text 与 Font 详情 -->
-        <div v-if="node.visual?.Text !== undefined || node.visual?.Font" class="structured-box">
-          <div v-if="node.visual?.Text !== undefined" class="struct-row">
-            <span class="sk">Text Content:</span>
-            <code class="sv">{{ node.visual.Text || '(Empty)' }}</code>
-          </div>
-          <div v-if="node.visual?.Font" class="struct-row">
-            <span class="sk">Font Info:</span>
-            <code class="sv">
-              Size: {{ node.visual.Font.Size ?? '-' }}
-              {{ (node.visual.Font as any).TypefaceFontName ? `| ${(node.visual.Font as any).TypefaceFontName}` : '' }}
-            </code>
-          </div>
-        </div>
+      <div v-for="group in propertyGroups" :key="group.title" class="inspector-section">
+        <div class="section-title">{{ group.title }}</div>
+        <UMGPropertyFields :value="group.value" :baseline="baseline.visual" path="visual" />
       </div>
 
       <!-- 5. 关联外部资源（点击弹窗打开详情） -->
@@ -662,7 +563,7 @@ const extraVisualEntries = computed(() => {
   font-size: 12px;
 }
 .edit-label {
-  width: 68px;
+  width: 96px;
   color: #666;
   font-size: 12px;
   flex-shrink: 0;

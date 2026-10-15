@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { circleText } from './circleText'
 import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
 import { hasNonSlateParticleDiagnostics } from '../../../utils/material-runtime/ParticleProgramDiagnostics'
 import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface'
@@ -654,7 +655,9 @@ async function rebuildScene() {
       const outline = node.visual.Font?.OutlineSettings
       const outlineColor = extractColor(outline?.OutlineColor)
       const shadowColor = extractColor(node.visual.ShadowColorAndOpacity)
-      fabricObj = new TextClass(node.visual.Text, {
+      fabricObj = node.className === 'CircleText'
+        ? new FabricImage(circleText(node.visual, fontFamily, fontSize, color ? `rgb(${color.r},${color.g},${color.b})` : '#fff'), { opacity })
+        : new TextClass(node.visual.Text, {
         ...(wrapWidth > 0 ? { width: wrapWidth, splitByGrapheme: true } : {}),
         charSpacing: finite(node.visual.Font?.LetterSpacing, 0),
         lineHeight: finite(node.visual.LineHeightPercentage, 1),
@@ -734,6 +737,7 @@ async function rebuildScene() {
     const isText = fabricObj instanceof FabricText
     const local: Matrix = [isText ? 1 : w/intrinsicWidth,0,0,isText ? 1 : h/intrinsicHeight,
       rect.x+(isText ? intrinsicWidth : w)/2 + (isText ? textShift(node, w, intrinsicWidth) : 0),rect.y+(isText ? intrinsicHeight : h)/2]
+    if (node.className === 'CircleText') { local[0]=local[3]=1;local[4]=rect.x;local[5]=rect.y }
     util.applyTransformToObject(fabricObj, multiply(world,local))
     fabricObj.setCoords()
     // GPU appearance is not present in Fabric's hit-test canvas.
@@ -961,11 +965,26 @@ onMounted(async () => {
 })
 
 // Changes to animated transform/opacity are applied to retained objects.
-// Only mounted trees contribute pixels to the current stage.
+// Unmounted trees cannot contribute pixels. Keep source nodes available for
+// binding/inspection, but do not fingerprint every generated/archetype branch.
 const mountedNodes = computed(() => props.nodes.filter(node => props.layouts.has(node.id)))
 const sceneContentKey = computed(() => JSON.stringify(mountedNodes.value.map(node => {
-  const { RenderTransform, RenderOpacity, ...visual } = node.visual
-  return { ...node, visual }
+  const { RenderTransform, RenderTransformPivot, RenderOpacity, ColorAndOpacity, ContentColorAndOpacity, ...visual } = node.visual
+  const withoutAlpha = (color: any) => {
+    if (!color) return color
+    if (color.SpecifiedColor) { const { A, ...rgb } = color.SpecifiedColor; return { ...color, SpecifiedColor: rgb } }
+    const { A, ...rgb } = color
+    return rgb
+  }
+  visual.ColorAndOpacity = withoutAlpha(ColorAndOpacity)
+  visual.ContentColorAndOpacity = withoutAlpha(ContentColorAndOpacity)
+  // Position/anchors/alignment only move retained objects. Re-rasterize when
+  // the resulting dimensions change, and rebuild for ordering/other slot data.
+  const { slot, ...identity } = node
+  const { LayoutData, ...slotValues } = slot?.values ?? {}
+  const rect = props.layouts.get(node.id)?.rect
+  return { ...identity, visual, slot: slot ? { ...slot, values: slotValues } : slot,
+    size: rect ? [rect.width, rect.height] : null }
 })))
 function updateSceneFrame() {
   if (!fabricCanvas || props.viewMode !== 'appearance') return
@@ -979,6 +998,7 @@ function updateSceneFrame() {
     const text = obj instanceof FabricText
     const local: Matrix = [text ? 1 : w / iw, 0, 0, text ? 1 : h / ih,
       rect.x + (text ? iw : w) / 2 + (text ? textShift(node, w, iw) : 0), rect.y + (text ? ih : h) / 2]
+    if (node.className === 'CircleText') { local[0]=local[3]=1;local[4]=rect.x;local[5]=rect.y }
     util.applyTransformToObject(obj, multiply(transforms.get(id) ?? [1,0,0,1,0,0], local))
     obj.set({ opacity: effectiveOpacity(node), visible: layout.visible && !isManuallyHidden(node) })
     const clip = widgetClip(node, nodeById.value, props.layouts, transforms, props.viewport)
