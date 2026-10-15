@@ -96,6 +96,43 @@ const zoomPercent = ref(50)
 
 let fabricCanvas: Canvas | null = null
 let gpuStage: GpuStage | null = null
+const selectionCanvas = ref<HTMLCanvasElement | null>(null)
+// Editor-only overlay: never sampled as material content or involved in picking.
+function renderSelectionOutline() {
+  const overlay = selectionCanvas.value
+  if (!overlay || !fabricCanvas) return
+  const ratio = fabricCanvas.getRetinaScaling()
+  const width = Math.round(fabricCanvas.width * ratio), height = Math.round(fabricCanvas.height * ratio)
+  if (overlay.width !== width) overlay.width = width
+  if (overlay.height !== height) overlay.height = height
+  const ctx = overlay.getContext('2d')!
+  ctx.clearRect(0, 0, width, height)
+  if (!gpuStage || props.viewMode !== 'appearance' || !props.selectedId) return
+  const obj = objectByNodeId.get(props.selectedId)
+  if (!obj || !obj.visible) return
+  const matrix = obj.calcTransformMatrix()
+  const viewport = fabricCanvas.viewportTransform
+  const corners = [[-obj.width/2,-obj.height/2],[obj.width/2,-obj.height/2],
+    [obj.width/2,obj.height/2],[-obj.width/2,obj.height/2]]
+  ctx.save()
+  ctx.scale(ratio, ratio)
+  ctx.beginPath()
+  corners.forEach(([x,y], index) => {
+    const sx = matrix[0]*x + matrix[2]*y + matrix[4]
+    const sy = matrix[1]*x + matrix[3]*y + matrix[5]
+    const px = viewport[0]*sx + viewport[2]*sy + viewport[4]
+    const py = viewport[1]*sx + viewport[3]*sy + viewport[5]
+    if (index === 0) ctx.moveTo(px,py); else ctx.lineTo(px,py)
+  })
+  ctx.closePath()
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)'
+  ctx.stroke()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#18a058'
+  ctx.stroke()
+  ctx.restore()
+}
 const gpuItems = new Map<FabricObject, GpuItem>()
 function renderGpuStage() {
   if (!gpuStage || !fabricCanvas) return
@@ -868,6 +905,7 @@ onMounted(async () => {
 
   configureRenderer()
   fabricCanvas.on('before:render', renderGpuStage)
+  fabricCanvas.on('after:render', renderSelectionOutline)
   // 启动常驻 Stage 渲染帧循环 (驱动时间 Shader 动画以及统计 FPS)
   function stageFrameLoop(now: number) {
     const dt = Math.min(0.1, (now - lastRafTime) / 1000)
@@ -1039,6 +1077,7 @@ onBeforeUnmount(() => {
 
     <div ref="stageViewport" class="stage-viewport">
       <canvas ref="canvasEl" />
+      <canvas ref="selectionCanvas" class="selection-overlay" aria-hidden="true" />
     </div>
   </div>
 </template>
@@ -1091,6 +1130,14 @@ onBeforeUnmount(() => {
   min-width: 44px;
   text-align: center;
   font-family: monospace;
+}
+.selection-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
 }
 .stage-viewport {
   flex: 1;
