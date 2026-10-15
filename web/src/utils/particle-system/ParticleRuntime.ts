@@ -141,13 +141,38 @@ function randRange(min: number, max: number): number {
   return min + Math.random() * (max - min)
 }
 
+// Native scalar lookup: Mercury 0x1415935F0 (op1/op3), 0x141593020 (op2).
+// Vector op1 shares the lookup layout; random vector lock flags remain APPROXIMATION.
+function sampleCookedTable(dist: any, dimensions: number, time = 0): number[] | null {
+  const values = dist.TableValues
+  const count = dist.EntryCount
+  const stride = dist.EntryStride
+  const op = dist.TableOp
+  if (![1, 2, 3].includes(op) || (dimensions !== 1 && op !== 1) ||
+      !Number.isInteger(count) || count < 1 ||
+      stride !== dimensions * (op === 1 ? 1 : 2) ||
+      !Array.isArray(values) || values.length !== count * stride ||
+      !values.every(Number.isFinite)) return null
+  // Do not invent a normalized time range for old/incomplete DTOs.
+  if (count > 1 && (!Number.isFinite(dist.TimeScale) || !Number.isFinite(dist.TimeBias))) return null
+  const position = count === 1 ? 0 : Math.max(0, (time - dist.TimeBias) * dist.TimeScale)
+  if (!Number.isFinite(position)) return null
+  const lower = Math.floor(position)
+  const a = Math.min(count - 1, lower) * stride
+  const b = Math.min(count - 1, lower + 1) * stride
+  const fraction = position - lower
+  const interpolate = (column: number) => values[a + column] +
+    (values[b + column] - values[a + column]) * fraction
+  if (op === 2) return [interpolate(0) + (interpolate(1) - interpolate(0)) * Math.random()]
+  if (op === 3) return [interpolate(Math.random() > 0.5 ? 1 : 0)]
+  return Array.from({ length: dimensions }, (_, i) => interpolate(i))
+}
+
 export function sampleFloatDist(dist: any, fallback = 0, ratio?: number): number {
   if (!dist) return fallback
-  const vals = dist.TableValues
-  if (typeof ratio === 'number' && Array.isArray(vals) && vals.length > 1) {
-    const idx = Math.min(vals.length - 1, Math.max(0, Math.floor(ratio * (vals.length - 1))))
-    return vals[idx]
-  }
+  const cooked = sampleCookedTable(dist, 1, ratio)
+  if (cooked) return cooked[0]
+  // APPROXIMATION: unsupported/incomplete tables use bounds, never flatten random columns into time.
   const mn = typeof dist.MinValue === 'number' ? dist.MinValue : fallback
   const mx = typeof dist.MaxValue === 'number' ? dist.MaxValue : mn
   return randRange(mn, mx)
@@ -159,19 +184,9 @@ export function sampleVecDist(
   ratio?: number
 ): [number, number, number] {
   if (!dist) return fallback
-  const vals = dist.TableValues
-  const stride = dist.EntryStride || 3
-  // Cooked constant lookup values are runtime data; Min/Max are summary bounds.
-  if (dist.TableOp === 1 && dist.EntryCount === 1 && stride === 3 &&
-      Array.isArray(vals) && vals.length === 3 && vals.every(Number.isFinite)) {
-    return [vals[0], vals[1], vals[2]]
-  }
-  if (typeof ratio === 'number' && Array.isArray(vals) && vals.length >= stride * 2) {
-    const entryCount = Math.floor(vals.length / stride)
-    const idx = Math.min(entryCount - 1, Math.max(0, Math.floor(ratio * (entryCount - 1))))
-    const base = idx * stride
-    return [vals[base] ?? fallback[0], vals[base + 1] ?? fallback[1], vals[base + 2] ?? fallback[2]]
-  }
+  const cooked = sampleCookedTable(dist, 3, ratio)
+  if (cooked) return cooked as [number, number, number]
+  // APPROXIMATION: random vector locking/extremes are not yet decoded; use summary bounds.
   const mn = Array.isArray(dist.MinVector) && dist.MinVector.length >= 3 ? dist.MinVector : fallback
   const mx = Array.isArray(dist.MaxVector) && dist.MaxVector.length >= 3 ? dist.MaxVector : mn
   return [

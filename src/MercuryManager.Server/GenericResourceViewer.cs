@@ -797,12 +797,17 @@ public static class GenericResourceViewer
             }
             else if(pn=="Table" && prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData tableStruct)
             {
+                // Tagged serialization omits zero-valued lookup time fields.
+                res["TimeScale"]=0f;
+                res["TimeBias"]=0f;
                 foreach(var tf in tableStruct.Value)
                 {
                     var tfn=tf.Name.ToString();
                     if(tfn=="Op" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bOp)tableOp=bOp.Value;
                     else if(tfn=="EntryCount" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bCnt)entryCount=bCnt.Value;
                     else if(tfn=="EntryStride" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bStr)entryStride=bStr.Value;
+                    else if((tfn=="TimeScale" || tfn=="TimeBias") && tf is UAssetAPI.PropertyTypes.Objects.FloatPropertyData timeField)
+                        res[tfn]=timeField.Value;
                     else if(tfn=="Values" && tf is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData valsArr)
                         tableVals=new JArray(valsArr.Value.OfType<UAssetAPI.PropertyTypes.Objects.FloatPropertyData>().Select(fv=>fv.Value));
                 }
