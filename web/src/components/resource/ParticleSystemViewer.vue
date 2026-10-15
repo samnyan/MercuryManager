@@ -28,6 +28,9 @@ import {
   type ParticleProgramEvidence
 } from '../../utils/material-runtime/ParticleProgramDiagnostics'
 import { tr } from '../../i18n'
+import { particleVertexFactory, selectEmitterProgram } from '../../utils/material-runtime/ParticleEmitterProgram'
+import { loadParticleMesh, meshOriginRadius, type ParticleMeshGeometry } from '../../utils/particle-system/ParticleMeshGeometry'
+import { fitParticleCamera } from '../../utils/particle-system/ParticleCamera'
 import { useProject } from '../../project'
 import {
   type ParticleModuleInfo,
@@ -107,6 +110,9 @@ const materialDiagnosticsMap = ref<Record<string, NonSlateParticleDiagnostics | 
 const activeMaterialPath = computed(() => {
   return selectedModuleResources.value.find(r => r.role === 'Material')?.assetPath || null
 })
+const emitterTypeData = computed(() => props.info.Emitters?.[selectedEmitterIdx.value]?.LODLevels?.[0]?.TypeDataModule?.Class)
+const expectedFactory = computed(() => particleVertexFactory(emitterTypeData.value))
+const emitterProgram = computed(() => selectEmitterProgram(currentMaterialDiagnostics.value?.particlePrograms ?? [], emitterTypeData.value))
 const currentMaterialDiagnostics = computed(() => {
   const p = activeMaterialPath.value
   return p ? materialDiagnosticsMap.value[p] || null : null
@@ -131,17 +137,20 @@ function formatFogBinding(f: NonNullable<ParticleProgramEvidence['fogBindings']>
 // 按需单次异步请求材质诊断（去重且避免模拟每 tick 轮询）
 watch(
   [() => project.id, activeMaterialPath],
-  async ([projId, matPath]) => {
+  async ([projId, matPath], _previous, onCleanup) => {
+    let cancelled = false
+    onCleanup(() => { cancelled = true })
     if (!projId || !matPath || materialDiagnosticsMap.value[matPath] !== undefined) return
     try {
       const data = await materialPrograms.load(projId, matPath)
+      if (cancelled) return
       if (hasNonSlateParticleDiagnostics(data)) {
         materialDiagnosticsMap.value[matPath] = data as NonSlateParticleDiagnostics
       } else {
         materialDiagnosticsMap.value[matPath] = null
       }
     } catch {
-      materialDiagnosticsMap.value[matPath] = null
+      if (!cancelled) materialDiagnosticsMap.value[matPath] = null
     }
   },
   { immediate: true }
@@ -167,6 +176,9 @@ function loadRawImage(texPath: string): Promise<HTMLImageElement | null> {
 
 // 模拟引擎实例
 let simEngine: ParticleSimulationEngine | null = null
+let meshAbort: AbortController | null = null
+const emitterMeshes = new Map<number, ParticleMeshGeometry>()
+const emitterMeshRadii = new Map<number, number>()
 
 function initSelection() {
   const emitters = props.info.Emitters || []
@@ -180,10 +192,35 @@ function initSelection() {
     selectedModule.value = null
   }
 
+  meshAbort?.abort()
+  meshAbort = new AbortController()
+  const signal = meshAbort.signal
+  emitterMeshes.clear()
+  emitterMeshRadii.clear()
+  const requests = new Map<string, Promise<ParticleMeshGeometry>>()
+  if (project.id) emitters.forEach((emitter, index) => {
+    const type = emitter.LODLevels?.[0]?.TypeDataModule
+    const path = type?.References?.Mesh?.ContentFile
+    if (type?.Class !== 'ParticleModuleTypeDataMesh' || !path) return
+    let request = requests.get(path)
+    if (!request) {
+      request = loadParticleMesh(project.id!, path, signal)
+      requests.set(path, request)
+    }
+    request.then(mesh => {
+      if (signal.aborted) return
+      emitterMeshes.set(index, mesh)
+      emitterMeshRadii.set(index, meshOriginRadius(mesh))
+      needsCameraFit = true
+    }).catch(error => {
+      if (!signal.aborted) console.warn('Particle mesh geometry unavailable', path, error)
+    })
+  })
   simEngine = new ParticleSimulationEngine(props.info)
+  const engine = simEngine
   buildParticleMaterialSprites(props.info, loadRawImage, undefined, project.id).then(sprites => {
-    if (simEngine) {
-      simEngine.setMaterialSprites(sprites)
+    if (!signal.aborted && simEngine === engine) {
+      engine.setMaterialSprites(sprites)
     }
   })
 }
@@ -264,6 +301,7 @@ function getModuleColorSwatch(mod: ParticleModuleInfo): string | null {
 function resetSimulation() {
   if (simEngine) {
     simEngine.reset(isEmitterActive)
+    needsCameraFit = true
     simTime.value = 0
     activeParticleCount.value = simEngine.particles.length
   }
@@ -290,6 +328,15 @@ function updateCanvasSize() {
 const camYaw = ref(0.6)
 const camPitch = ref(0.35)
 const camDistance = ref(1800)
+const camTarget = ref<[number, number, number]>([0, 0, 0])
+let needsCameraFit = true
+function fitViewport() {
+  const fit = fitParticleCamera(simEngine?.particles.filter(p => isEmitterActive(p.emitterIdx)) ?? [], p => emitterMeshRadii.get(p.emitterIdx))
+  if (!fit) return
+  camTarget.value = fit.target
+  camDistance.value = fit.distance
+  needsCameraFit = false
+}
 const isDraggingCam = ref(false)
 let dragStartX = 0
 let dragStartY = 0
@@ -305,6 +352,7 @@ function tick(ts: number) {
     activeParticleCount.value = simEngine.particles.length
   }
 
+  if (needsCameraFit && simEngine?.particles.length) fitViewport()
   if (showViewport.value && canvasRef.value && simEngine) {
     const ctx = canvasRef.value.getContext('2d')
     if (ctx) {
@@ -312,6 +360,7 @@ function tick(ts: number) {
         camYaw: camYaw.value,
         camPitch: camPitch.value,
         camDistance: camDistance.value,
+        camTarget: camTarget.value,
         useMaterialSprites: enableMaterialSprites.value,
         selectedEmitterIdx: selectedEmitterIdx.value,
         showGrid: viewportBg.value === 'grid'
@@ -343,13 +392,16 @@ function onCanvasMouseUp() {
 
 function onCanvasWheel(e: WheelEvent) {
   e.preventDefault()
-  camDistance.value = Math.max(300, Math.min(6000, camDistance.value + e.deltaY * 1.2))
+  camDistance.value = Math.max(100, Math.min(1e9, camDistance.value * Math.exp(Math.max(-1, Math.min(1, e.deltaY * 0.001)))))
 }
 
 watch(
-  () => props.info,
+  [() => project.id, () => props.info, () => props.path],
   () => {
+    materialDiagnosticsMap.value = {}
+    rawImageCache.clear()
     initSelection()
+    needsCameraFit = true
   },
   { immediate: true }
 )
@@ -366,6 +418,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  meshAbort?.abort()
+  emitterMeshes.clear()
+  emitterMeshRadii.clear()
   if (animFrameId !== null) cancelAnimationFrame(animFrameId)
   if (resizeObserver) {
     resizeObserver.disconnect()
@@ -641,6 +696,8 @@ onBeforeUnmount(() => {
             <div class="sec-title">{{ tr('ui.particleDiagnosticsTitle') }}</div>
             <div class="diag-container">
               <div class="diag-desc">{{ tr('ui.particleDiagnosticsDesc') }}</div>
+              <div class="diag-factory-name">{{ expectedFactory || emitterTypeData || 'unsupported' }}</div>
+              <div v-if="!emitterProgram" class="diag-desc">{{ tr('ui.particleUnverified') }}</div>
               <div
                 v-for="(prog, pIdx) in currentMaterialDiagnostics.particlePrograms"
                 :key="pIdx"

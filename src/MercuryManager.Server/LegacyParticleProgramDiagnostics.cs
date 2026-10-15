@@ -94,7 +94,7 @@ public static class LegacyParticleProgramDiagnostics
         LegacyCookedMaterial cooked, IReadOnlyList<MaterialShaderCompiler.ShaderCandidate> candidates)
     {
         var result = new List<Evidence>();
-        foreach (var factory in new[] { "FParticleSpriteVertexFactory", "FMeshParticleVertexFactory" })
+        foreach (var factory in new[] { "FParticleSpriteVertexFactory", "FGPUSpriteVertexFactory", "FMeshParticleVertexFactory" })
         {
             var maps = cooked.VertexFactoryMaps ?? [];
             if (!maps.Any(m => m.VertexFactory == factory)) continue;
