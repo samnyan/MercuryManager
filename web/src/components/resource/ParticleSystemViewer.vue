@@ -179,6 +179,7 @@ let simEngine: ParticleSimulationEngine | null = null
 let meshAbort: AbortController | null = null
 const emitterMeshes = new Map<number, ParticleMeshGeometry>()
 const emitterMeshRadii = new Map<number, number>()
+const meshLoadErrors = ref<Record<number, string>>({})
 
 function initSelection() {
   const emitters = props.info.Emitters || []
@@ -197,6 +198,7 @@ function initSelection() {
   const signal = meshAbort.signal
   emitterMeshes.clear()
   emitterMeshRadii.clear()
+  meshLoadErrors.value = {}
   const requests = new Map<string, Promise<ParticleMeshGeometry>>()
   if (project.id) emitters.forEach((emitter, index) => {
     const type = emitter.LODLevels?.[0]?.TypeDataModule
@@ -213,7 +215,7 @@ function initSelection() {
       emitterMeshRadii.set(index, meshOriginRadius(mesh))
       needsCameraFit = true
     }).catch(error => {
-      if (!signal.aborted) console.warn('Particle mesh geometry unavailable', path, error)
+      if (!signal.aborted) meshLoadErrors.value[index] = `${path}: ${error instanceof Error ? error.message : String(error)}`
     })
   })
   simEngine = new ParticleSimulationEngine(props.info)
@@ -501,6 +503,7 @@ onBeforeUnmount(() => {
         <div class="viewport-hud">
           <div>Time: {{ simTime.toFixed(2) }}s</div>
           <div>Particles: {{ activeParticleCount }}</div>
+          <div v-for="(error, index) in meshLoadErrors" :key="index" role="alert" style="color: #f87171; overflow-wrap: anywhere">Mesh {{ index }}: {{ error }}</div>
           <div v-if="info.Emitters.some(em => em.LODLevels?.[0]?.TypeDataModule?.Class === 'ParticleModuleTypeDataMesh')">Mesh: 几何线框预览 · 非原生材质</div>
           <div class="hud-hint">拖拽旋转 3D 视角 · 滚轮缩放</div>
         </div>
