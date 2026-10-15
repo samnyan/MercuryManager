@@ -171,6 +171,13 @@ public static class MaterialShaderCompiler
                 adaptedSprite = true;
             }
             var source = await File.ReadAllTextAsync(glsl,cancellationToken);
+            var preview = diagnosticSamplers
+                ? ParticleCubeArrayPreviewAdapter.Adapt(source, candidate.Stage == "fragment")
+                : new ParticleCubeArrayPreviewAdapter.Result(source, []);
+            var buffers = diagnosticSamplers
+                ? ParticleBufferTextureAdapter.Adapt(preview.Source)
+                : new ParticleCubeArrayPreviewAdapter.Result(preview.Source, []);
+            source = diagnosticSamplers ? ParticleBitfieldAdapter.Adapt(buffers.Source) : buffers.Source;
             var samplers = MaterialCombinedSamplerReader.Read(await File.ReadAllBytesAsync(spirv,cancellationToken), source, diagnosticSamplers);
             foreach (var ubo in reflected["ubos"]!.AsArray())
             {
@@ -181,7 +188,7 @@ public static class MaterialShaderCompiler
                 ubo["name"] = blocks[0].Groups[1].Value;
             }
             return new(candidate.Hash,candidate.Stage,source,reflected.ToJsonString(),
-                ["Translation metadata does not establish native resource-table mapping or game rendering fidelity."])
+                ["Translation metadata does not establish native resource-table mapping or game rendering fidelity.", ..preview.Limitations, ..buffers.Limitations])
                 { CombinedSamplers = samplers, RequiredAdapters = adaptedSprite
                     ? ["Explicit SPIRV_Cross_BaseVertex integer uniform.", "Cutout t0 requires a one-row RG32F sampler2D with exact texel indices; reflection describes the original buffer texture.", "Desktop330 arithmetic lowering is diagnostic; native rounding parity is unverified."] : [] };
         }

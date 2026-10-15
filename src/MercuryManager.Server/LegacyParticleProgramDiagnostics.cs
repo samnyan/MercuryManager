@@ -63,7 +63,8 @@ public static class LegacyParticleProgramDiagnostics
                         ? MaterialRuntimeProgramBuilder.Build(uniforms, binding.MaterialBindings, binding.FrameBindings,
                             context, numeric?.Data?.Length ?? 0) : null;
                     stages.Add(new(stage, candidate.Offset, true, translation,
-                        ["Translated source still requires WebGL validation and native resource/geometry adapters."])
+                        ["Translated source still requires WebGL validation and native resource/geometry adapters.",
+                            ..translation.Diagnostics.Where(d => d.StartsWith("APPROXIMATION:", StringComparison.Ordinal) || d.StartsWith("Buffer texture ", StringComparison.Ordinal))])
                     {
                         SceneResources = ParticleSceneResourceRequirements.Inspect(translation, binding?.Bindings),
                         MaterialTextureInput = binding?.MaterialBindings != null && textureExpressions != null
