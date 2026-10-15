@@ -15,7 +15,7 @@ import { GpuStage, type GpuItem } from './GpuStage'
 import { boxBrush } from './brush'
 import { gameFont } from './fonts'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../../utils/material-shader/UMGMaterialBridge'
-import { renderUMGParticleToCanvas } from '../../../utils/particle-system/ParticleRuntime'
+import { ParticlePreviewSession } from '../../../utils/particle-system/ParticlePreviewSession'
 
 const props = defineProps<{
   nodes: UMGNode[]
@@ -167,7 +167,12 @@ const nodeIdByObject = new WeakMap<FabricObject, string>()
 const rawImageCache = new Map<string, Promise<HTMLImageElement | null>>()
 const tintedSourceCache = new Map<string, HTMLImageElement | HTMLCanvasElement>()
 const materialSurfaces = new Map<string, Promise<MaterialSurface>>()
-const particleCanvasCache = new Map<string, Promise<HTMLCanvasElement | null>>()
+const particleCanvasCache = new Map<string, Promise<ParticlePreviewSession>>()
+const activeParticleSessions = new Map<string, { session: ParticlePreviewSession; width: number; height: number }>()
+function disposeParticles() {
+  for (const task of particleCanvasCache.values()) task.then(s => s.dispose()).catch(() => {})
+  particleCanvasCache.clear(); activeParticleSessions.clear()
+}
 
 const finite = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -285,26 +290,22 @@ async function getParticleCanvasSource(
   targetH: number
 ): Promise<HTMLCanvasElement | null> {
   if (!props.particles || !props.particles[particlePath]) return null
-  const cacheKey = `${particlePath}|${Math.round(targetW)}x${Math.round(targetH)}`
-  const cached = particleCanvasCache.get(cacheKey)
-  if (cached) return cached
-
-  const promise = renderUMGParticleToCanvas(
-    props.particles[particlePath],
-    async (texPath: string) => {
-      if (!project.id || !texPath) return null
-      const url = `/api/projects/${project.id}/resource-image?` + new URLSearchParams({ path: texPath, mip: '0' })
-      return await loadRawImage(url)
-    },
-    targetW,
-    targetH,
-    props.materials,
-    0.6,
-    project.id
-  )
-
-  particleCanvasCache.set(cacheKey, promise)
-  return promise
+  const projectId = project.id
+  const cacheKey = `${projectId}|${particlePath}|${Math.round(targetW)}x${Math.round(targetH)}`
+  let pending = particleCanvasCache.get(cacheKey)
+  if (!pending) {
+    const session = new ParticlePreviewSession(props.particles[particlePath])
+    pending = session.prepare(async path => projectId
+      ? loadRawImage(`/api/projects/${projectId}/resource-image?` + new URLSearchParams({ path, mip: '0' })) : null,
+      props.materials, projectId).then(() => session).catch(error => { session.dispose(); throw error })
+    particleCanvasCache.set(cacheKey, pending)
+  }
+  try {
+    const session = await pending
+    if (particleCanvasCache.get(cacheKey) !== pending) return null
+    activeParticleSessions.set(cacheKey, { session, width: targetW, height: targetH })
+    return session.draw(props.materialTime ?? autoShaderClock, targetW, targetH)
+  } catch { if (particleCanvasCache.get(cacheKey) === pending) particleCanvasCache.delete(cacheKey); return null }
 }
 
 function loadRawImage(url: string): Promise<HTMLImageElement | null> {
@@ -460,6 +461,7 @@ function applySelectionStyle(obj: FabricObject) {
 async function rebuildScene() {
   if (!fabricCanvas) return
   const gen = ++renderGeneration
+  disposeParticles() // Rebuild owns a fresh generation; pending sessions cannot repopulate it.
 
   fabricCanvas.discardActiveObject()
   fabricCanvas.clear()
@@ -467,6 +469,7 @@ async function rebuildScene() {
   gpuStage?.clearSources()
   objectByNodeId.clear()
   activeDynamicMaterials.clear()
+  activeParticleSessions.clear()
 
   const vw = props.viewport.width
   const vh = props.viewport.height
@@ -943,6 +946,12 @@ onMounted(async () => {
       }
     }
 
+    if (activeParticleSessions.size && props.viewMode === 'appearance') {
+      for (const { session, width, height } of activeParticleSessions.values())
+        session.draw(props.materialTime ?? autoShaderClock, width, height)
+      for (const obj of objectByNodeId.values()) obj.dirty = true
+      fabricCanvas?.requestRenderAll()
+    }
     stageRafId = requestAnimationFrame(stageFrameLoop)
   }
   stageRafId = requestAnimationFrame(stageFrameLoop)
@@ -1039,11 +1048,12 @@ const stopMaterialInvalidation = materialPrograms.onInvalidate(changedProject =>
   disposeMaterialSurfaces()
   rawImageCache.clear()
   tintedSourceCache.clear()
-  particleCanvasCache.clear()
+  disposeParticles()
   rebuildScene()
 })
-watch(() => [project.id, props.materials], disposeMaterialSurfaces)
+watch(() => [project.id, props.materials, props.particles], () => { disposeMaterialSurfaces(); disposeParticles(); rebuildScene() })
 onBeforeUnmount(() => {
+  disposeParticles()
   if (stageRafId) cancelAnimationFrame(stageRafId)
   stopMaterialInvalidation()
   ++renderGeneration
@@ -1059,6 +1069,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="umg-stage-container">
     <div class="stage-toolbar">
+      <span v-if="particles && Object.keys(particles).length" title="APPROXIMATION: CPU simulation, baked textures; no Blueprint script execution">粒子近似预览 / Approximate particles</span>
       <div class="stage-info">
         <span>{{ tr('ui.umgCanvas') }}: {{ viewport.width }} × {{ viewport.height }}</span>
         <n-dropdown trigger="click" :options="rendererOptions" @select="selectRenderer">
