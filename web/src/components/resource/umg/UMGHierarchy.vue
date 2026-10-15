@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue'
 import { NInput, NTree, NSelect, NTag, NButton, type TreeOption } from 'naive-ui'
+import { tr } from '../../../i18n'
 import type { UMGNode, UMGTreeRoot } from './types'
 
 const props = defineProps<{
@@ -166,7 +167,7 @@ function handleSelectKeys(keys: Array<string | number>) {
   <div class="umg-hierarchy">
     <div class="hierarchy-header">
       <div class="section-row">
-        <span class="section-title">Widget 层次树</span>
+        <span class="section-title">{{ tr('ui.umgWidgetTree') }}</span>
         <n-button
           v-if="hiddenIds.size > 0"
           size="tiny"
@@ -174,7 +175,7 @@ function handleSelectKeys(keys: Array<string | number>) {
           type="primary"
           @click="showAll"
         >
-          全部显示 ({{ hiddenIds.size }} 已隐藏)
+          {{ tr('ui.umgShowAll') }} ({{ hiddenIds.size }} {{ tr('ui.umgHiddenCount') }})
         </n-button>
       </div>
       <n-select
@@ -188,7 +189,7 @@ function handleSelectKeys(keys: Array<string | number>) {
         v-model:value="search"
         size="small"
         clearable
-        placeholder="搜索控件名称或类型..."
+        :placeholder="tr('ui.umgSearchPlaceholder')"
       />
     </div>
 
@@ -211,7 +212,7 @@ function handleSelectKeys(keys: Array<string | number>) {
     </div>
 
     <div class="hierarchy-footer">
-      <n-tag size="small" :bordered="false">共 {{ allTreeNodeIds.length }} 个节点</n-tag>
+      <n-tag size="small" :bordered="false">{{ tr('ui.umgTotalNodes', { count: allTreeNodeIds.length }) }}</n-tag>
     </div>
   </div>
 </template>

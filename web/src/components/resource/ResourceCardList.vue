@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NTag, NImage } from 'naive-ui'
+import { tr } from '../../i18n'
 import { useProject } from '../../project'
 import { normalizeMaterialEntry, renderUMGMaterialToCanvas } from '../../utils/material-shader/UMGMaterialBridge'
 
@@ -18,10 +19,12 @@ const props = withDefaults(
     materials?: Record<string, any>
   }>(),
   {
-    title: '关联外部资源',
+    title: undefined,
     materials: undefined
   }
 )
+
+const displayTitle = computed(() => props.title ?? tr('ui.umgRelatedResources'))
 
 const emit = defineEmits<{
   'navigate-path': [path: string]
@@ -94,8 +97,8 @@ function isTexture(r: ResourceItem): boolean {
 
 <template>
   <div class="resource-card-section">
-    <div v-if="title" class="section-title">
-      {{ title }} ({{ resources?.length || 0 }})
+    <div class="section-title">
+      {{ displayTitle }} ({{ resources?.length || 0 }})
     </div>
     <div v-if="resources?.length" class="resource-card-list">
       <div
@@ -148,7 +151,7 @@ function isTexture(r: ResourceItem): boolean {
         </div>
       </div>
     </div>
-    <span v-else class="muted-note">无直接绑定的外部资源</span>
+    <span v-else class="muted-note">{{ tr('ui.umgNoRelatedResources') }}</span>
   </div>
 </template>
 
@@ -245,8 +248,12 @@ function isTexture(r: ResourceItem): boolean {
 .card-path {
   font-size: 11px;
   color: #2080f0;
+  overflow-wrap: anywhere;
   word-break: break-all;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .muted-note {

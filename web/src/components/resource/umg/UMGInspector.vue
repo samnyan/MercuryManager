@@ -52,8 +52,8 @@ const propertyGroups = computed(() => {
   const visual=props.node.visual
   const transform=['RenderTransform','RenderTransformPivot']
   const style=['Brush','ColorAndOpacity','ContentColorAndOpacity','BrushColor','Color','Text','Font']
-  return [{title:'变换与锚点',keys:transform},{title:'Brush / Style',keys:style},
-    {title:'其他组件属性',keys:Object.keys(visual).filter(k=>![...transform,...style,'Visibility','RenderOpacity'].includes(k))}]
+  return [{title: tr('ui.umgPropTransformShort'),keys:transform},{title: tr('ui.umgPropBrushShort'),keys:style},
+    {title: tr('ui.umgPropOtherShort'),keys:Object.keys(visual).filter(k=>![...transform,...style,'Visibility','RenderOpacity'].includes(k))}]
     .map(g=>({title:g.title,value:Object.defineProperties({},Object.fromEntries(g.keys.filter(k=>k in visual).map(k=>[k,{enumerable:true,get:()=>visual[k],set:(v:any)=>visual[k]=v}])) )}))
     .filter(g=>Object.keys(g.value).length)
 })
@@ -300,7 +300,7 @@ const extraVisualEntries = computed(() => {
 <template>
   <div class="umg-inspector">
     <div v-if="!node" class="empty-inspector">
-      <span>在左侧树或画面中点击组件查看与编辑详情</span>
+      <span>{{ tr('ui.umgEmptyInspector') }}</span>
     </div>
 
     <div v-else class="inspector-content">
@@ -316,7 +316,7 @@ const extraVisualEntries = computed(() => {
       <!-- 若是嵌套子 Widget (ChildWidget)，提供一键打开该子蓝图按钮 -->
       <div v-if="node.childWidget?.assetPath" class="child-widget-banner">
         <div class="cw-info">
-          <span class="cw-label">子蓝图控件 (Child Widget)</span>
+          <span class="cw-label">{{ tr('ui.umgChildWidgetLabel') }}</span>
           <span class="cw-path">{{ node.childWidget.assetPath }}</span>
         </div>
         <n-button
@@ -326,13 +326,13 @@ const extraVisualEntries = computed(() => {
           @click="emit('navigate-path', node.childWidget.assetPath!)"
         >
           <template #icon><n-icon :component="ExternalLink" /></template>
-          打开子蓝图
+          {{ tr('ui.umgOpenChildWidget') }}
         </n-button>
       </div>
 
       <!-- 1. 可见性与不透明度（支持实时预览与保存写回工程草稿） -->
       <n-collapse class="inspector-section">
-        <n-collapse-item title="基础属性" name="visibility">
+        <n-collapse-item :title="tr('ui.umgBasicProps')" name="visibility">
         <div class="section-header-row">
 
           <n-tag
@@ -379,7 +379,7 @@ const extraVisualEntries = computed(() => {
         <div v-if="isPropsDirty && targetPackagePath" class="save-actions-row">
           <n-button size="tiny" quaternary @click="resetNodeProps">
             <template #icon><n-icon :component="RotateCcw" /></template>
-            重置
+            {{ tr('ui.umgReset') }}
           </n-button>
           <n-button
             size="tiny"
@@ -395,10 +395,10 @@ const extraVisualEntries = computed(() => {
       </n-collapse>
 
       <div class="inspector-section">
-        <div class="section-title">布局参数 · {{ node.slot?.className || 'Root' }}</div>
+        <div class="section-title">{{ tr('ui.umgLayoutSlot') }} · {{ node.slot?.className || 'Root' }}</div>
         <div v-if="layout" class="kv-grid">
-          <span class="k">屏幕位置（计算结果）</span><span>{{ Math.round(layout.rect.x) }}, {{ Math.round(layout.rect.y) }}</span>
-          <span class="k">屏幕尺寸（计算结果）</span><span>{{ Math.round(layout.rect.width) }} × {{ Math.round(layout.rect.height) }}</span>
+          <span class="k">{{ tr('ui.umgScreenPos') }}</span><span>{{ Math.round(layout.rect.x) }}, {{ Math.round(layout.rect.y) }}</span>
+          <span class="k">{{ tr('ui.umgScreenSize') }}</span><span>{{ Math.round(layout.rect.width) }} × {{ Math.round(layout.rect.height) }}</span>
         </div>
         <UMGPropertyFields v-if="node.slot" :value="node.slot.values" :baseline="baseline.slot" path="slot" />
       </div>
@@ -421,7 +421,7 @@ const extraVisualEntries = computed(() => {
       <n-collapse>
         <n-collapse-item
           v-if="extraVisualEntries.length"
-          :title="`更多序列化属性 (${extraVisualEntries.length})`"
+          :title="`${tr('ui.umgMoreSerializedProps')} (${extraVisualEntries.length})`"
           name="extra"
         >
           <div class="raw-slot-box">
@@ -432,13 +432,13 @@ const extraVisualEntries = computed(() => {
           </div>
         </n-collapse-item>
 
-        <n-collapse-item title="预览能力与底层诊断" name="raw">
+        <n-collapse-item :title="tr('ui.umgDiagnostics')" name="raw">
           <div class="cap-tags" style="margin-bottom: 8px">
             <n-tag size="small" :type="node.preview.layout === 'supported' ? 'success' : 'warning'">
-              布局: {{ node.preview.layout }}
+              {{ tr('ui.umgDiagLayout') }}: {{ node.preview.layout }}
             </n-tag>
             <n-tag size="small" :type="node.preview.appearance === 'supported' ? 'success' : 'warning'">
-              外观: {{ node.preview.appearance }}
+              {{ tr('ui.umgDiagAppearance') }}: {{ node.preview.appearance }}
             </n-tag>
           </div>
           <ul v-if="layout?.issues.length" class="issue-list">

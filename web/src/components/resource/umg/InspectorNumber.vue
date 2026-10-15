@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { tr } from '../../../i18n'
 const props = defineProps<{ value:number; label:string; step?:number; dirty?:boolean }>()
 const emit = defineEmits<{ 'update:value':[value:number]; reset:[] }>()
 const text=ref(String(props.value))
@@ -12,9 +13,9 @@ function end(e:PointerEvent){const t=e.currentTarget as HTMLElement;if(t.hasPoin
 </script>
 <template>
   <div class="number" :class="{dirty}">
-    <span class="drag" :title="`${label}: 拖动调整 · Shift 精细 · Alt 加速`" @pointerdown="start" @pointermove="move" @pointerup="end" @pointercancel="end">{{label}}{{dirty?' *':''}}</span>
+    <span class="drag" :title="`${label}: ${tr('ui.umgNumberDragHint')}`" @pointerdown="start" @pointermove="move" @pointerup="end" @pointercancel="end">{{label}}{{dirty?' *':''}}</span>
     <input v-model="text" :aria-label="label" inputmode="decimal" @change="commit" @keydown.enter="commit" @keydown.esc="text=String(value)" />
-    <button v-if="dirty" type="button" :aria-label="`重置 ${label}`" @click="emit('reset')">↶</button>
+    <button v-if="dirty" type="button" :aria-label="`${tr('ui.umgNumberResetAria')} ${label}`" @click="emit('reset')">↶</button>
   </div>
 </template>
 <style scoped>

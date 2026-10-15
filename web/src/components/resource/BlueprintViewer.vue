@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { NTree, NInput, NSpin, NButton, NSelect } from 'naive-ui'
+import { tr } from '../../i18n'
 import GenericResourceViewer from './GenericResourceViewer.vue'
 import TexturePreviewModal from './TexturePreviewModal.vue'
 import { api, useProject } from '../../project'
@@ -13,7 +14,12 @@ const props=defineProps<{path:string;summary:Summary}>()
 const emit=defineEmits<{(e:'navigate-path',path:string):void}>()
 const project=useProject(),query=ref(''),group=ref('widgets'),selected=ref<number[]>([]),detail=ref<Detail>(),error=ref(''),busy=ref(false)
 let generation=0
-const options=[{label:'Widget Tree',value:'widgets'},{label:'动画',value:'animations'},{label:'布局 Slots',value:'slots'},{label:'全部对象',value:'all'}]
+const options=computed(()=>[
+  {label:tr('ui.bpGroupWidgets'),value:'widgets'},
+  {label:tr('ui.bpGroupAnimations'),value:'animations'},
+  {label:tr('ui.bpGroupSlots'),value:'slots'},
+  {label:tr('ui.bpGroupAll'),value:'all'}
+])
 const tree=computed(()=>{
  const nodes=props.summary.nodes.filter(n=>group.value==='all'||n.group===group.value)
  const byIndex=new Map(nodes.map(n=>[n.index,n]))
@@ -33,7 +39,14 @@ const tree=computed(()=>{
 const active=computed(()=>props.summary.nodes.find(n=>n.index===selected.value[0]))
 const resourceQuery=ref(''),resourceType=ref('all'),referenceScope=ref('node'),previewPath=ref('')
 const category=(r:Reference)=>r.Class==='Texture2D'?'texture':r.Class?.includes('Material')?'material':r.Class?.includes('Font')?'font':r.Class?.includes('Blueprint')?'blueprint':'other'
-const resourceOptions=[{label:'全部资源',value:'all'},{label:'贴图',value:'texture'},{label:'材质',value:'material'},{label:'字体',value:'font'},{label:'蓝图',value:'blueprint'},{label:'其他',value:'other'}]
+const resourceOptions=computed(()=>[
+  {label:tr('ui.bpResAll'),value:'all'},
+  {label:tr('ui.bpResTexture'),value:'texture'},
+  {label:tr('ui.bpResMaterial'),value:'material'},
+  {label:tr('ui.bpResFont'),value:'font'},
+  {label:tr('ui.bpResBlueprint'),value:'blueprint'},
+  {label:tr('ui.bpResOther'),value:'other'}
+])
 const refs=computed(()=>{
  const source=referenceScope.value==='asset'||!selected.value.length?props.summary.references:detail.value?.references||[]
  const unique=new Map<string,Reference>();for(const r of source){const prior=unique.get(r.ContentFile);if(!prior||prior.Class==='Package')unique.set(r.ContentFile,r)}
@@ -48,22 +61,22 @@ watch(()=>props.path,()=>{generation++;selected.value=[];detail.value=undefined;
 </script>
 <template>
  <div class="blueprint-viewer">
-  <aside><n-select v-model:value="group" :options="options"/><n-input v-model:value="query" placeholder="搜索组件 / 类型" clearable/><n-tree block-line virtual-scroll :data="tree" :pattern="query" :selected-keys="selected" :on-update:selected-keys="keys=>select(keys as number[])" style="height:58vh" /></aside>
-  <main><p class="note">只读结构与默认属性；不执行运行时绑定、材质或动画。</p>
-   <h3>{{active ? `${active.name} · ${active.type}` : '选择组件查看属性；下方列出资产依赖'}}</h3>
-   <n-button v-if="active?.slotIndex!=null" size="small" @click="select([active.slotIndex])">查看布局 Slot</n-button>
+  <aside><n-select v-model:value="group" :options="options"/><n-input v-model:value="query" :placeholder="tr('ui.bpSearchPlaceholder')" clearable/><n-tree block-line virtual-scroll :data="tree" :pattern="query" :selected-keys="selected" :on-update:selected-keys="keys=>select(keys as number[])" style="height:58vh" /></aside>
+  <main><p class="note">{{ tr('ui.bpReadonlyNote') }}</p>
+   <h3>{{active ? `${active.name} · ${active.type}` : tr('ui.bpSelectHint')}}</h3>
+   <n-button v-if="active?.slotIndex!=null" size="small" @click="select([active.slotIndex])">{{ tr('ui.bpViewSlot') }}</n-button>
    <div class="resource-filters">
-    <n-select v-model:value="referenceScope" :options="[{label:'当前节点引用',value:'node'},{label:'整个蓝图依赖',value:'asset'}]"/>
+    <n-select v-model:value="referenceScope" :options="[{label:tr('ui.bpScopeNode'),value:'node'},{label:tr('ui.bpScopeAsset'),value:'asset'}]"/>
     <n-select v-model:value="resourceType" :options="resourceOptions"/>
-    <n-input v-model:value="resourceQuery" placeholder="筛选资源路径 / 类型" clearable/>
+    <n-input v-model:value="resourceQuery" :placeholder="tr('ui.bpFilterRes')" clearable/>
    </div>
-   <div class="references"><div v-for="r in refs" :key="r.ContentFile" class="reference-row"><n-button text type="primary" @click="emit('navigate-path',r.ContentFile)">{{r.Class}} · {{r.ContentFile}}</n-button><n-button v-if="r.Class==='Texture2D'" size="tiny" @click="previewPath=r.ContentFile">预览贴图</n-button></div><span v-if="!refs.length && !busy" class="note">没有匹配的外部资源引用</span></div>
+   <div class="references"><div v-for="r in refs" :key="r.ContentFile" class="reference-row"><n-button text type="primary" @click="emit('navigate-path',r.ContentFile)">{{r.Class}} · {{r.ContentFile}}</n-button><n-button v-if="r.Class==='Texture2D'" size="tiny" @click="previewPath=r.ContentFile">{{ tr('ui.bpPreviewTexture') }}</n-button></div><span v-if="!refs.length && !busy" class="note">{{ tr('ui.bpNoRefs') }}</span></div>
    <div v-if="detail?.animation" class="animation-summary">
-    <div class="anim-header"><span class="anim-title">动画绑定与轨道 (只读解析)</span><span v-if="detail.animation.duration!=null" class="anim-duration">时长: {{detail.animation.duration.toFixed(2)}}s</span></div>
-    <div v-if="detail.animation.widgetBindings?.length" class="anim-section"><span class="section-label">关联控件:</span><div class="widget-tags"><n-button v-for="wb in detail.animation.widgetBindings" :key="wb.widgetName+wb.slotWidgetName" size="tiny" tertiary @click="query=wb.widgetName;group='widgets'">{{wb.widgetName}}{{wb.slotWidgetName&&wb.slotWidgetName!=='None'?` (${wb.slotWidgetName})`:''}}{{wb.bIsRootWidget?' [Root]':''}}</n-button></div></div>
-    <div v-if="detail.animation.bindings?.length" class="anim-section"><span class="section-label">轨道列表:</span><div class="tracks-list"><div v-for="b in detail.animation.bindings" :key="b.guid" class="track-group"><span class="track-binding-name">{{b.name}}:</span><span v-for="t in b.tracks" :key="t.trackName" class="track-pill">{{t.property || t.trackType}}</span><span v-if="!b.tracks.length" class="note">无独立轨道</span></div></div></div>
+    <div class="anim-header"><span class="anim-title">{{ tr('ui.bpAnimTitle') }}</span><span v-if="detail.animation.duration!=null" class="anim-duration">{{ tr('ui.bpDuration') }}: {{detail.animation.duration.toFixed(2)}}s</span></div>
+    <div v-if="detail.animation.widgetBindings?.length" class="anim-section"><span class="section-label">{{ tr('ui.bpBoundWidgets') }}:</span><div class="widget-tags"><n-button v-for="wb in detail.animation.widgetBindings" :key="wb.widgetName+wb.slotWidgetName" size="tiny" tertiary @click="query=wb.widgetName;group='widgets'">{{wb.widgetName}}{{wb.slotWidgetName&&wb.slotWidgetName!=='None'?` (${wb.slotWidgetName})`:''}}{{wb.bIsRootWidget?' [Root]':''}}</n-button></div></div>
+    <div v-if="detail.animation.bindings?.length" class="anim-section"><span class="section-label">{{ tr('ui.bpTracksList') }}:</span><div class="tracks-list"><div v-for="b in detail.animation.bindings" :key="b.guid" class="track-group"><span class="track-binding-name">{{b.name}}:</span><span v-for="t in b.tracks" :key="t.trackName" class="track-pill">{{t.property || t.trackType}}</span><span v-if="!b.tracks.length" class="note">{{ tr('ui.bpNoTracks') }}</span></div></div></div>
    </div>
-   <div v-if="detail?.internalReferences?.length" class="internal-links"><span class="note">关联内部对象（序列化引用）</span><n-button v-for="r in detail.internalReferences" :key="r.index" size="small" @click="group='all';select([r.index])">{{r.property}} → {{r.name}} · {{r.type}}</n-button></div>
+   <div v-if="detail?.internalReferences?.length" class="internal-links"><span class="note">{{ tr('ui.bpInternalRefs') }}</span><n-button v-for="r in detail.internalReferences" :key="r.index" size="small" @click="group='all';select([r.index])">{{r.property}} → {{r.name}} · {{r.type}}</n-button></div>
    <texture-preview-modal :show="!!previewPath" :title="previewPath" :src="previewUrl" :asset-path="previewPath" @update:show="show=>{if(!show)previewPath=''}" @navigate-path="emit('navigate-path',$event)"/>
    <n-spin v-if="busy"/><p v-if="error" class="error">{{error}}</p>
    <generic-resource-viewer v-if="detail" :key="selected[0]" :data="{Properties:detail.properties,OpaqueBytes:detail.opaqueBytes}" :path="path" :preview-src="''" :preview-error="''" :raw-url="rawUrl" @navigate-path="emit('navigate-path',$event)"/>

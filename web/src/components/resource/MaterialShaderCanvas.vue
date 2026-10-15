@@ -604,7 +604,7 @@ onUnmounted(() => {
               :title="nonSlateDiagnostics.limitations.join('; ')"
               class="clickable-tag"
             >
-              粒子 Shader 证据 (Fallback) <span class="tag-meta">({{ renderScale }}x) ▾</span>
+              {{ tr('ui.particleShaderEvidence') }} <span class="tag-meta">({{ renderScale }}x) ▾</span>
             </n-tag>
             <n-tag
               v-else-if="isToolchainMissing"

@@ -319,7 +319,7 @@ const selectedLayout = computed(() => {
     <div class="umg-topbar">
       <div class="topbar-left">
         <n-tag type="warning" size="small" :bordered="false">
-          近似静态预览（非 UE 游戏实时渲染复现）
+          {{ tr('ui.umgApproxStaticPreview') }}
         </n-tag>
         <span v-if="doc" class="meta-text">
           Nodes: {{ doc.nodes.length }} | Diagnostics: {{ doc.diagnostics?.length || 0 }}
@@ -333,21 +333,21 @@ const selectedLayout = computed(() => {
             :type="viewMode === 'appearance' ? 'primary' : 'default'"
             @click="viewMode = 'appearance'"
           >
-            外观预览
+            {{ tr('ui.umgModeAppearance') }}
           </n-button>
           <n-button
             size="small"
             :type="viewMode === 'structure' ? 'primary' : 'default'"
             @click="viewMode = 'structure'"
           >
-            结构线框
+            {{ tr('ui.umgModeWireframe') }}
           </n-button>
         </div>
 
-        <n-tag size="small" :bordered="false">1080 × 1920 (竖屏)</n-tag>
+        <n-tag size="small" :bordered="false">{{ tr('ui.umgPortraitTag') }}</n-tag>
 
         <n-button size="small" secondary @click="emit('fallback-generic')">
-          切换到旧版树视图
+          {{ tr('ui.umgSwitchToGeneric') }}
         </n-button>
       </div>
     </div>
@@ -358,9 +358,9 @@ const selectedLayout = computed(() => {
     </div>
 
     <div v-else-if="error" class="center-state">
-      <n-alert type="error" title="UMG 视图加载失败" style="max-width: 520px">
+      <n-alert type="error" :title="tr('ui.umgLoadFailed')" style="max-width: 520px">
         <p>{{ error }}</p>
-        <n-button size="small" @click="emit('fallback-generic')">使用旧版结构视图打开</n-button>
+        <n-button size="small" @click="emit('fallback-generic')">{{ tr('ui.umgOpenGeneric') }}</n-button>
       </n-alert>
     </div>
 
