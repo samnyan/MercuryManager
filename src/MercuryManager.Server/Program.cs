@@ -101,6 +101,7 @@ app.MapGet("/api/projects/{id}/resource-umg",(string id,string path,ResourceServ
 });
 app.MapGet("/api/projects/{id}/resource-blueprint",(string id,string path,ResourceService r,BlueprintService b)=>b.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-blueprint-node",(string id,string path,int index,ResourceService r,BlueprintService b)=>b.Node(r.Resolve(id,path),index));
+app.MapGet("/api/projects/{id}/resource-mesh-geometry",(string id,string path,ResourceService r)=>ParticleMeshGeometry.Read(r.Resolve(id,path)));
 app.MapGet("/api/projects/{id}/resource-data",(string id,string path,ResourceService r)=>Results.Ok(GenericResourceViewer.Read(r.Resolve(id,path),p=>r.Resolve(id,p))));
 app.MapGet("/api/projects/{id}/resource-raw",(string id,string path,int exportIndex,ResourceService r)=>Results.File(GenericResourceViewer.ReadRaw(r.Resolve(id,path),exportIndex),"application/octet-stream",$"{Path.GetFileNameWithoutExtension(path)}.export-{exportIndex}.bin"));
 app.MapGet("/api/projects/{id}/audio-banks",(string id,string path,string? source,ResourceService r)=>{var target=r.AudioTarget(id,path,source);return target.Path.EndsWith(".awb",StringComparison.OrdinalIgnoreCase)?new[]{Path.GetFileName(target.Path)}:CriAudio.Banks(target.Path);});
