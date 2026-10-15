@@ -4,6 +4,7 @@
 import { normalizeMaterialEntry } from '../material-shader/UMGMaterialBridge'
 import type { ParticleMeshGeometry } from './ParticleMeshGeometry'
 import { drawParticleMeshPreview } from './ParticleMeshPreview'
+import { createBgnSurface, updateBgnSurface } from './BgnCompatibilitySurface'
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
 import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
@@ -230,6 +231,12 @@ export async function buildParticleMaterialSprites(
   for (const em of info.Emitters || []) {
     const matPath = getEmitterMaterialPath(em)
     if (!matPath || result.has(matPath)) continue
+    if (projectId) {
+      try {
+        const compatible = await createBgnSurface(projectId, matPath, loadImage)
+        if (compatible) { result.set(matPath, compatible); continue }
+      } catch (error) { console.warn('BGN compatibility preview unavailable', error) }
+    }
     const rawMat = matPool[matPath]
     if (!rawMat) continue
     const spec = normalizeMaterialEntry(rawMat, matPath)
@@ -560,8 +567,11 @@ export class ParticleSimulationEngine {
       }
       if (p.sizeByLifeDist) {
         const mul = sampleVecDist(p.sizeByLifeDist, [1, 1, 1], lifeRatio)
-        p.sizeX = Math.max(4, p.baseSizeX * Math.abs(mul[0] || 1))
-        p.sizeY = Math.max(4, p.baseSizeY * Math.abs(mul[1] || mul[0] || 1))
+        // APPROXIMATION: module axis-enable flags are not yet modeled. Preserve
+        // all three sampled components, including zero; never inflate collapsed geometry.
+        p.sizeX = p.baseSizeX * mul[0]
+        p.sizeY = p.baseSizeY * mul[1]
+        p.sizeZ = p.baseSizeZ * mul[2]
       }
 
       alive.push(p)
@@ -592,6 +602,7 @@ export class ParticleSimulationEngine {
     const camPitch = options.camPitch ?? 0.35
     const camDistance = options.camDistance ?? 1800
     const useMat = options.useMaterialSprites ?? true
+    if (useMat) for (const surface of this.materialSprites.values()) updateBgnSurface(surface, this.simTime)
 
     ctx.clearRect(0, 0, w, h)
 

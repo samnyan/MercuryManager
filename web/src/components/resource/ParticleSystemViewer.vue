@@ -105,6 +105,22 @@ const selectedModuleResources = computed<ResourceItem[]>(() => {
   return list
 })
 
+// 过滤掉已在关联资产卡片中展示的 Object 引用，避免在下方模块参数中重复展示
+const displayedModuleProperties = computed(() => {
+  const props = selectedModule.value?.Properties || []
+  if (!selectedModuleResources.value.length) return props
+  const refRoles = new Set(selectedModuleResources.value.map(r => r.role?.toLowerCase()))
+  const refPaths = new Set(selectedModuleResources.value.map(r => r.assetPath))
+  return props.filter(p => {
+    if (p.Kind === 'Object' && p.ContentFile) {
+      if (refRoles.has(p.Name.toLowerCase()) || refPaths.has(p.ContentFile)) {
+        return false
+      }
+    }
+    return true
+  })
+})
+
 // 材质 Shader 诊断缓存与状态
 const materialDiagnosticsMap = ref<Record<string, NonSlateParticleDiagnostics | null>>({})
 const materialLimitations = ref<Record<string, string[]>>({})
@@ -507,7 +523,7 @@ onBeforeUnmount(() => {
           <div>Time: {{ simTime.toFixed(2) }}s</div>
           <div>Particles: {{ activeParticleCount }}</div>
           <div v-for="(error, index) in meshLoadErrors" :key="index" role="alert" style="color: #f87171; overflow-wrap: anywhere">Mesh {{ index }}: {{ error }}</div>
-          <div v-if="info.Emitters.some(em => em.LODLevels?.[0]?.TypeDataModule?.Class === 'ParticleModuleTypeDataMesh')">Mesh: 几何线框预览 · 非原生材质</div>
+          <div v-if="info.Emitters.some(em => em.LODLevels?.[0]?.TypeDataModule?.Class === 'ParticleModuleTypeDataMesh')">{{ tr('ui.particleCompatibilityPreview') }}</div>
           <div class="hud-hint">拖拽旋转 3D 视角 · 滚轮缩放</div>
         </div>
       </div>
@@ -693,7 +709,19 @@ onBeforeUnmount(() => {
             v-if="selectedModule.Class === 'ParticleModuleRequired' && selectedModule.CutoutConfiguration"
             class="details-section"
           >
-            <ParticleCutoutCanvas :cutout="selectedModule.CutoutConfiguration" />
+            <n-collapse :default-expanded-names="selectedModule.CutoutConfiguration.CookedGeometry?.VertexCount ? ['cutout'] : []">
+              <n-collapse-item name="cutout">
+                <template #header>
+                  <div class="collapse-header-row">
+                    <span>{{ tr('ui.particleCutoutTitle') }}</span>
+                    <n-tag size="tiny" :type="selectedModule.CutoutConfiguration.CookedGeometry?.VertexCount ? 'success' : 'default'" :bordered="false">
+                      顶点: {{ selectedModule.CutoutConfiguration.CookedGeometry?.VertexCount || 0 }}
+                    </n-tag>
+                  </div>
+                </template>
+                <ParticleCutoutCanvas :cutout="selectedModule.CutoutConfiguration" />
+              </n-collapse-item>
+            </n-collapse>
           </div>
 
           <div v-if="activeMaterialPath && materialLimitations[activeMaterialPath]?.length" class="details-section" role="status">
@@ -760,72 +788,80 @@ onBeforeUnmount(() => {
           <!-- 结构化属性与分布 (Properties & Distributions) -->
           <div class="details-section">
             <div class="sec-title">
-              模块参数 (Module Properties · {{ selectedModule.Properties?.length || 0 }})
+              模块参数 (Module Properties · {{ displayedModuleProperties.length }})
             </div>
 
-            <div v-if="selectedModule.Properties?.length" class="prop-list">
+            <div v-if="displayedModuleProperties.length" class="cascade-props-grid">
               <div
-                v-for="prop in selectedModule.Properties"
+                v-for="prop in displayedModuleProperties"
                 :key="prop.Name"
-                class="prop-item"
+                class="cascade-prop-row"
+                :class="{ 'is-complex-row': prop.Kind === 'BurstList' || (!!prop.Distribution?.TableValues && prop.Distribution.TableValues.length > 1) }"
               >
-                <div class="prop-header-row">
-                  <span class="prop-name">{{ prop.Name }}</span>
-                  <n-tag size="tiny" :bordered="false">{{ prop.Kind }}</n-tag>
+                <div class="prop-label-col">
+                  <span class="prop-name-text" :title="prop.Name">{{ prop.Name }}</span>
+                  <span class="prop-kind-badge">{{ prop.Kind }}</span>
                 </div>
 
-                <!-- 若是对象引用 -->
-                <div v-if="prop.Kind === 'Object'" class="prop-val-box">
-                  <code class="prop-code">{{ prop.Value }}</code>
-                  <a
-                    v-if="prop.ContentFile"
-                    class="prop-path-link"
-                    href="javascript:void(0)"
-                    @click="emit('navigate-path', prop.ContentFile)"
-                  >
-                    {{ prop.ContentFile }}
-                  </a>
-                </div>
+                <div class="prop-value-col">
+                  <!-- 若是对象引用 (未归入关联卡片的其它对象引用) -->
+                  <div v-if="prop.Kind === 'Object'" class="prop-val-obj">
+                    <span class="prop-code-val" :title="prop.Value">{{ prop.Value }}</span>
+                    <a
+                      v-if="prop.ContentFile"
+                      class="prop-path-link"
+                      href="javascript:void(0)"
+                      :title="prop.ContentFile"
+                      @click="emit('navigate-path', prop.ContentFile)"
+                    >
+                      {{ prop.ContentFile }}
+                    </a>
+                  </div>
 
-                <!-- 若是 BurstList -->
-                <div v-else-if="prop.Kind === 'BurstList' && prop.Bursts?.length" class="burst-table">
-                  <div v-for="(b, bIdx) in prop.Bursts" :key="bIdx" class="burst-row">
-                    <span class="burst-tag">Burst #{{ bIdx }}</span>
-                    <span class="burst-meta">
-                      Count: <b>{{ b.Count }}</b>{{ b.CountLow >= 0 ? ` ~ ${b.CountLow}` : '' }} @ <b>{{ b.Time }}s</b>
+                  <!-- 若是 BurstList -->
+                  <div v-else-if="prop.Kind === 'BurstList' && prop.Bursts?.length" class="burst-table">
+                    <div v-for="(b, bIdx) in prop.Bursts" :key="bIdx" class="burst-row">
+                      <span class="burst-tag">Burst #{{ bIdx }}</span>
+                      <span class="burst-meta">
+                        Count: <b>{{ b.Count }}</b>{{ b.CountLow >= 0 ? ` ~ ${b.CountLow}` : '' }} @ <b>{{ b.Time }}s</b>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- 若是分布曲线/范围 (Distribution) -->
+                  <div v-else-if="prop.Distribution" class="dist-block">
+                    <span class="dist-val-text" :title="prop.Distribution.Summary">{{ prop.Distribution.Summary }}</span>
+                    <div
+                      v-if="
+                        prop.Distribution.TableValues &&
+                        prop.Distribution.TableValues.length > 1
+                      "
+                      class="dist-table-box"
+                    >
+                      <span class="dist-table-label">
+                        LookupTable ({{ prop.Distribution.TableValues.length }}):
+                      </span>
+                      <code class="dist-table-code">
+                        [{{
+                          prop.Distribution.TableValues.slice(0, 6)
+                            .map((v: number) => Number(v.toFixed(3)))
+                            .join(', ')
+                        }}{{ prop.Distribution.TableValues.length > 6 ? ', ...' : '' }}]
+                      </code>
+                    </div>
+                  </div>
+
+                  <!-- 布尔类型 -->
+                  <div v-else-if="prop.Kind === 'Bool'" class="prop-val-inline">
+                    <span :class="['bool-badge', prop.Bool ? 'is-true' : 'is-false']">
+                      {{ prop.Value }}
                     </span>
                   </div>
-                </div>
 
-                <!-- 若是分布曲线/范围 (Distribution) -->
-                <div v-else-if="prop.Distribution" class="dist-box">
-                  <div class="dist-row">
-                    <span class="dist-label">取值范围:</span>
-                    <code class="dist-val">{{ prop.Distribution.Summary }}</code>
+                  <!-- 普通标量/枚举/向量 -->
+                  <div v-else class="prop-val-inline">
+                    <span class="prop-code-val" :title="prop.Value">{{ prop.Value }}</span>
                   </div>
-                  <div
-                    v-if="
-                      prop.Distribution.TableValues &&
-                      prop.Distribution.TableValues.length > 1
-                    "
-                    class="dist-table-box"
-                  >
-                    <span class="dist-label">
-                      LookupTable ({{ prop.Distribution.TableValues.length }}):
-                    </span>
-                    <code class="dist-table-code">
-                      [{{
-                        prop.Distribution.TableValues.slice(0, 8)
-                          .map((v: number) => Number(v.toFixed(3)))
-                          .join(', ')
-                      }}{{ prop.Distribution.TableValues.length > 8 ? ', ...' : '' }}]
-                    </code>
-                  </div>
-                </div>
-
-                <!-- 普通标量/枚举/布尔/向量 -->
-                <div v-else class="prop-val-box">
-                  <code class="prop-code">{{ prop.Value }}</code>
                 </div>
               </div>
             </div>
@@ -1146,6 +1182,17 @@ onBeforeUnmount(() => {
   font-family: monospace;
 }
 
+.collapse-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+}
+
 .details-section {
   border-top: 1px solid rgba(128, 128, 128, 0.16);
   padding-top: 10px;
@@ -1237,57 +1284,108 @@ onBeforeUnmount(() => {
   line-height: 1.3;
 }
 
-.prop-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.prop-item {
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(128, 128, 128, 0.06);
-  border: 1px solid rgba(128, 128, 128, 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.prop-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.prop-name {
-  font-size: 12px;
-  font-weight: 600;
-  word-break: break-all;
-}
-
-.prop-val-box {
+.cascade-props-grid {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.prop-code {
+.cascade-prop-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.05);
+  font-size: 11px;
+}
+
+.cascade-prop-row.is-complex-row {
+  align-items: flex-start;
+  padding: 6px;
+}
+
+.prop-label-col {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prop-name-text {
+  font-weight: 600;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prop-kind-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.prop-value-col {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.prop-val-inline {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.prop-code-val {
   font-family: monospace;
   font-size: 11px;
-  word-break: break-word;
-  white-space: pre-wrap;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 3px 6px;
-  border-radius: 4px;
+  color: #10b981;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.bool-badge {
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.bool-badge.is-true {
+  background: rgba(16, 185, 129, 0.15);
   color: #10b981;
 }
 
+.bool-badge.is-false {
+  background: rgba(128, 128, 128, 0.15);
+  color: #888;
+}
+
+.prop-val-obj {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+
 .prop-path-link {
-  font-size: 11px;
+  font-size: 10px;
   color: #2080f0;
-  word-break: break-all;
-  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-decoration: none;
 }
 
@@ -1295,44 +1393,45 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
-.dist-box {
+.dist-block {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-size: 11px;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
 }
 
-.dist-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.dist-label {
-  color: #888;
-  flex-shrink: 0;
-}
-
-.dist-val {
+.dist-val-text {
   font-family: monospace;
+  font-size: 11px;
   font-weight: 600;
   color: #10b981;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dist-table-box {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dist-table-label {
+  font-size: 10px;
+  color: #888;
 }
 
 .dist-table-code {
   font-family: monospace;
-  font-size: 10px;
-  word-break: break-all;
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: rgba(0, 0, 0, 0.2);
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 2px 4px;
+  border-radius: 3px;
   color: #94a3b8;
 }
 

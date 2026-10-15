@@ -349,7 +349,7 @@ public static class GenericResourceViewer
         {
             try
             {
-                var psInfo=ReadParticleSystemData(path,resolve);
+                var psInfo=ReadParticleSystemData(path,resolve,asset);
                 if(psInfo is not null)data["ParticleSystemInfo"]=psInfo;
             }
             catch(Exception ex) when(ex is not OutOfMemoryException)
@@ -996,12 +996,12 @@ public static class GenericResourceViewer
         };
     }
 
-    public static JObject? ReadParticleSystemData(string path,Func<string,string>? resolve=null)
+    public static JObject? ReadParticleSystemData(string path,Func<string,string>? resolve=null,UAsset? loadedAsset=null)
     {
-        if(!File.Exists(path))return null;
         try
         {
-            var asset=new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+            var asset=loadedAsset??(File.Exists(path)?new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19):null);
+            if(asset==null)return null;
             var info=ExtractParticleSystemInfo(asset);
             if(info!=null&&resolve!=null)
             {

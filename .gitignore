@@ -28,3 +28,4 @@ Thumbs.db
 *.swo
 .playwright-cli/
 /src/MercuryManager.Server/wwwroot/
+.dev_server.pid
