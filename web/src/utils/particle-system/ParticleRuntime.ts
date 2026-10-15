@@ -653,7 +653,8 @@ export class ParticleSimulationEngine {
     for (const { p, proj } of projected) {
       if (p.isMesh && options.meshGeometry) {
         const mesh = options.meshGeometry.get(p.emitterIdx)
-        if (mesh) drawParticleMeshPreview(ctx, mesh, p, project3D) // APPROXIMATION: neutral lit geometry, not native material.
+        if (mesh) drawParticleMeshPreview(ctx, mesh, p, project3D,
+          useMat && p.materialPath ? this.materialSprites.get(p.materialPath) : null) // APPROXIMATION: frozen bake on UV0, not native material.
         continue // Never substitute a billboard for missing mesh geometry in this mode.
       }
       const lifeRatio = p.age / p.lifetime
