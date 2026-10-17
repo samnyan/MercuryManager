@@ -37,7 +37,7 @@ public static class CriAudio
     }
     private static (DefaultFileProvider Provider,AcbReader Acb) OpenAcb(string path)
     {
-        var provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(EGame.GAME_UE4_19),StringComparer.OrdinalIgnoreCase);
+        var provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(AssetEngineVersion.ForAsset(path)),StringComparer.OrdinalIgnoreCase);
         try{provider.Initialize();var file=provider.Files.Values.Single(f=>f.Path.EndsWith(Path.GetFileName(path),StringComparison.OrdinalIgnoreCase));
             var sheet=provider.LoadPackage(file.Path).GetExports().OfType<USoundAtomCueSheet>().Single();
             return (provider,sheet.AcbReader??throw new InvalidDataException("Missing ACB."));}
@@ -46,7 +46,7 @@ public static class CriAudio
     public static (string Path,string? CueName) Target(string path,Func<string,string> resolve)
     {
         if(path.EndsWith(".awb",StringComparison.Ordinal))return (path,null);
-        var asset=new UAssetAPI.UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+        var asset=new UAssetAPI.UAsset(path,AssetEngineVersion.ForUAsset(path));
         var cue=asset.Exports.OfType<UAssetAPI.ExportTypes.NormalExport>().SingleOrDefault(e=>e.GetExportClassType().ToString()=="SoundAtomCue");
         if(cue is null)return (path,null);
         var reference=cue.Data.OfType<UAssetAPI.PropertyTypes.Objects.ObjectPropertyData>().Single(p=>p.Name.ToString()=="CueSheet").Value;

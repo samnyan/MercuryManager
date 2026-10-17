@@ -62,11 +62,27 @@ public sealed class MusicWorkspaceStore
         catch { Directory.Delete(directory, true); throw; }
     }
 
-    public Workspace Get(string id) => JsonSerializer.Deserialize<Workspace>(
-        File.ReadAllText(Path.Combine(DirectoryFor(id), "manifest.json"))) ?? throw new InvalidDataException("Invalid manifest.");
+    public Workspace Get(string id)
+    {
+        var directory = DirectoryFor(id);
+        var manifest = Path.Combine(directory, "manifest.json");
+        // Compatibility for resource-only projects imported before manifests were unconditional.
+        // Do not conceal missing metadata for music workspaces or unimported projects.
+        var metadata = Path.Combine(root, id, "project-info.json");
+        if (!File.Exists(manifest) && !File.Exists(Path.Combine(directory, "MusicParameterTable.uasset")) && File.Exists(metadata))
+        {
+            var project = JsonSerializer.Deserialize<ProjectManager.Project>(File.ReadAllText(metadata));
+            if (project?.ContentRoot is { Length: > 0 } contentRoot)
+                return new Workspace(id, "ue"+(project.EngineVersion ?? "4.19"), "", "", 0, contentRoot);
+        }
+        return JsonSerializer.Deserialize<Workspace>(File.ReadAllText(manifest))
+            ?? throw new InvalidDataException("Invalid manifest.");
+    }
 
     public MusicRow[] ReadRows(string id)
     {
+        // Resource-only projects do not have the optional WACCA music workspace.
+        if (!File.Exists(Path.Combine(DirectoryFor(id), "MusicParameterTable.uasset"))) return [];
         var asset = Load(id);
         if (asset.Exports.Any(e => e is RawExport)) throw new InvalidDataException("Unsupported raw export.");
         var tables = asset.Exports.OfType<DataTableExport>().ToArray();

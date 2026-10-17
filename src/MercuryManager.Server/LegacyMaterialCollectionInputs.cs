@@ -73,7 +73,8 @@ public static class LegacyMaterialCollectionInputs
                 ?? throw new InvalidDataException("Missing collection reference.");
             string path = GenericResourceViewer.ResolveReference(reference.Value.Index, asset)["ContentFile"]?.ToString()
                 ?? throw new NotSupportedException("Collection asset path cannot be resolved.");
-            var dependency = new UAsset(resolve(path), EngineVersion.VER_UE4_19);
+            var resolved = resolve(path);
+            var dependency = new UAsset(resolved, AssetEngineVersion.ForUAsset(resolved));
             var collection = dependency.Exports.OfType<NormalExport>().SingleOrDefault(e => e.GetExportClassType().ToString() == "MaterialParameterCollection")
                 ?? throw new InvalidDataException("Referenced asset is not a material parameter collection.");
             if (State(collection.Data) != set.Collections[i])

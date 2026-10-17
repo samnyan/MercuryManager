@@ -229,19 +229,25 @@ watch(
     try {
       if(path.value.endsWith('.mer')){isMer.value=true;mode.value='mer';busy.value=false;return}
       if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';busy.value=false;return}
-      if(/(^|\/)BP_[^/]+\.uasset$/i.test(path.value)){
-        try{
-          umgDoc.value=await api<any>(`/projects/${project.id}/resource-umg?`+new URLSearchParams({path:path.value}));
-        }catch(err){console.warn('UMG parse failed, fallback to legacy blueprint',err)}
-        const summary=await api<any>(`/projects/${project.id}/resource-blueprint?`+new URLSearchParams({path:path.value}));
-        if(request!==generation)return;
-        blueprint.value=summary;isBlueprint.value=true;mode.value='blueprint';return;
-      }
       const result = await api<{ isTexture: boolean; data: any }>(
         `/projects/${project.id}/resource-data?` + new URLSearchParams({ path: path.value })
       )
       if (request !== generation) return
       data.value = result.data
+      // Cooked widget blueprints need not follow BP_ (or even WBP_) naming.
+      if (result.data?.Exports?.some((e: any) => e.Class === 'WidgetBlueprintGeneratedClass' || e.Class === 'WidgetTree')) {
+        let document: any
+        try {
+          document = await api<any>(`/projects/${project.id}/resource-umg?` + new URLSearchParams({ path: path.value }))
+        } catch (err) { console.warn('UMG parse failed, fallback to legacy blueprint', err) }
+        const summary = await api<any>(`/projects/${project.id}/resource-blueprint?` + new URLSearchParams({ path: path.value }))
+        if (request !== generation) return
+        umgDoc.value = document
+        blueprint.value = summary
+        isBlueprint.value = true
+        mode.value = 'blueprint'
+        return
+      }
       isParticleSystem.value = !!result.data?.ParticleSystemInfo
       isAudio.value = (result.data as any)?.Exports?.some((e:any)=>['SoundAtomCueSheet','SoundAtomCue'].includes(e.Class)) ?? false
       if(isAudio.value)mode.value='awb'

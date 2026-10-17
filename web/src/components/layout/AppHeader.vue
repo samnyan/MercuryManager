@@ -31,6 +31,9 @@ const message = useMessage()
 const busy = ref(false)
 const dialog = ref('')
 const path = ref('')
+const engineVersion = ref('4.19')
+const detectedEngine = ref(false)
+const engineOptions = ref<{label:string;value:string}[]>([])
 const label = ref('')
 const selected = ref('')
 const projects = ref<{ id: string; name: string; saved: boolean }[]>([])
@@ -75,9 +78,16 @@ async function accept() {
   await run(async () => {
     if (dialog.value === 'new') await project.create(label.value)
     else if (dialog.value === 'open') await project.resume(selected.value)
-    else {
+    else if (dialog.value === 'engine') {
+      await project.importTables(path.value, engineVersion.value)
+    } else {
       if (project.contentRoot && !confirm(tr('ui.reimportConfirm'))) return
-      await project.importTables(path.value)
+      const result = await api<{detection:{version:string;detected:boolean};versions:string[]}>('/projects/detect-engine','POST',{serverPath:path.value})
+      engineVersion.value = result.detection.version
+      detectedEngine.value = result.detection.detected
+      engineOptions.value = result.versions.map(value=>({label:`UE ${value}`,value}))
+      dialog.value = 'engine'
+      return
     }
     dialog.value = ''
   })
@@ -299,7 +309,7 @@ function onMobileMenuSelect(key: string) {
     >
       <n-card
         class="project-modal-card"
-        :title="tr('ui.' + ({ new: 'newProject', open: 'openProject', import: 'importGameTables', export: 'exportGameTables' }[dialog] ?? 'openProject'))"
+        :title="tr('ui.' + ({ new: 'newProject', open: 'openProject', import: 'importGameTables', engine: 'confirmEngineVersion', export: 'exportGameTables' }[dialog] ?? 'openProject'))"
         :closable="!busy"
         @close="dialog = ''"
       >
@@ -324,6 +334,12 @@ function onMobileMenuSelect(key: string) {
               :disabled="busy"
             />
             <div class="modal-tip">{{ tr('ui.importHint') }}</div>
+          </template>
+
+          <template v-if="dialog === 'engine'">
+            <div>{{ tr(detectedEngine ? 'ui.engineDetected' : 'ui.engineNotDetected') }}</div>
+            <n-select v-model:value="engineVersion" :options="engineOptions" filterable :disabled="busy" />
+            <div class="modal-tip">{{ tr('ui.engineVersionHint') }}</div>
           </template>
 
           <template v-if="dialog === 'export'">

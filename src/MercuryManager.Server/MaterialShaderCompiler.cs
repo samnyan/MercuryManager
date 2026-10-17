@@ -59,7 +59,7 @@ public static class MaterialShaderCompiler
     // Discovery only: offsets are NOT shader-map identities or proof of a Slate permutation.
     public static IReadOnlyList<ShaderCandidate> Discover(string path)
     {
-        var asset=new UAsset(path,EngineVersion.VER_UE4_19);
+        var asset=new UAsset(path,AssetEngineVersion.ForUAsset(path));
         var export=asset.Exports.OfType<NormalExport>().SingleOrDefault(e=>e.GetExportClassType().ToString()=="Material")
             ??throw new InvalidDataException("Compiled shaders must be read from a master Material asset.");
         return Discover(export.Extras??[]);

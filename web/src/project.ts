@@ -26,12 +26,14 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
 }
 export const useProject = defineStore('project', () => {
   const id = ref(''), name=ref(''), dirty=ref(false), pending=ref(false), saved=ref(false), revision=ref(0), loading=ref(false)
-  async function status(){const p=await api<{name:string;contentRoot:string;dirty:boolean;saved:boolean}>(`/projects/${id.value}`);name.value=p.name;contentRoot.value=p.contentRoot??'';dirty.value=p.dirty;saved.value=p.saved}
+  async function status(){const p=await api<{name:string;contentRoot:string;canvasWidth:number|null;canvasHeight:number|null;dirty:boolean;saved:boolean}>(`/projects/${id.value}`);name.value=p.name;canvasWidth.value=p.canvasWidth;canvasHeight.value=p.canvasHeight;contentRoot.value=p.contentRoot??'';dirty.value=p.dirty;saved.value=p.saved}
   async function create(label:string){loading.value=true; try{const p=await api<{id:string}>('/projects','POST',{name:label});id.value=p.id;rows.value=[];await status();revision.value++} finally {loading.value=false}}
-  async function importTables(path:string){loading.value=true; try{await api(`/projects/${id.value}/import`,'POST',{serverPath:path});await status();await refresh();revision.value++} finally {loading.value=false}}
+  async function importTables(path:string,engineVersion?:string){loading.value=true; try{await api(`/projects/${id.value}/import`,'POST',{serverPath:path,engineVersion});await status();await refresh();revision.value++} finally {loading.value=false}}
   async function save(){loading.value=true; try{await api(`/projects/${id.value}/save`,'POST');await status()} finally {loading.value=false}}
   const rows = ref<Row[]>([])
   const contentRoot = ref('')
+  const canvasWidth = ref<number | null>(null), canvasHeight = ref<number | null>(null)
+  async function setCanvas(width:number,height:number){await api(`/projects/${id.value}/canvas`,'PATCH',{width,height});await status()}
   function close() { pending.value=false; id.value = ''; rows.value = []; contentRoot.value = ''; localStorage.removeItem('mercury-workspace') }
   async function open(path: string) {
     loading.value = true
@@ -57,5 +59,5 @@ export const useProject = defineStore('project', () => {
     }
   }
   async function refresh() { rows.value = await api<Row[]>(`/workspaces/${id.value}/music`) }
-  return { id, name, dirty, pending, saved, revision, loading, rows, contentRoot, close, open, resume, refresh, status, create, importTables, save }
+  return { canvasWidth, canvasHeight, setCanvas, id, name, dirty, pending, saved, revision, loading, rows, contentRoot, close, open, resume, refresh, status, create, importTables, save }
 })

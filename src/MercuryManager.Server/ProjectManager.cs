@@ -4,15 +4,20 @@ namespace MercuryManager.Server;
 
 public sealed class ProjectManager(MusicWorkspaceStore assets,GameContent content)
 {
-    public sealed record Project(string Id, string Name, string? ContentRoot, string? SavedHash = null);
+    public sealed record Project(string Id, string Name, string? ContentRoot, string? SavedHash = null, string? EngineVersion = null, int? CanvasWidth = null, int? CanvasHeight = null);
     private string Root => assets.ProjectRoot;
     private string DirectoryFor(string id) { if (!Guid.TryParseExact(id,"N",out _)) throw new ArgumentException("Invalid project ID."); return Path.Combine(Root,id); }
     private string Metadata(string id) => Path.Combine(DirectoryFor(id),"project-info.json");
     private Project Read(string id) => JsonSerializer.Deserialize<Project>(File.ReadAllText(Metadata(id)))!;
     private void Store(Project project) { var path=Metadata(project.Id); File.WriteAllText(path+".tmp",JsonSerializer.Serialize(project)); File.Move(path+".tmp",path,true); }
-    public object Status(string id) { var p=Read(id); return new {p.Id,p.Name,p.ContentRoot,dirty=p.SavedHash!=Hash(id),saved=p.SavedHash!=null}; }
+    public object Status(string id) { var p=Read(id); return new {p.Id,p.Name,p.ContentRoot,p.EngineVersion,p.CanvasWidth,p.CanvasHeight,dirty=p.SavedHash!=Hash(id),saved=p.SavedHash!=null}; }
     // The picker needs metadata, not a full content digest of every project's AWBs.
     public object[] List() => Directory.GetDirectories(Root).Where(d=>File.Exists(Path.Combine(d,"project-info.json"))).Select(d=>{var p=Read(Path.GetFileName(d));return (object)new {p.Id,p.Name,p.ContentRoot,saved=p.SavedHash!=null};}).ToArray();
+    public object SetCanvas(string id,int width,int height)
+    {
+        if(width<1||height<1||width>8192||height>8192)throw new ArgumentException("Canvas dimensions must be between 1 and 8192.");
+        lock(assets){Store(Read(id) with {CanvasWidth=width,CanvasHeight=height});return Status(id);}
+    }
     public object Create(string name)
     {
         if(string.IsNullOrWhiteSpace(name)||name.Length>100)throw new ArgumentException("Project name required (maximum 100 characters).");
@@ -21,7 +26,7 @@ public sealed class ProjectManager(MusicWorkspaceStore assets,GameContent conten
     private string Hash(string id)
     {
         using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var p=Read(id);hash.AppendData(System.Text.Encoding.UTF8.GetBytes(p.Name+"\n"+p.ContentRoot));
+        var p=Read(id);hash.AppendData(System.Text.Encoding.UTF8.GetBytes(p.Name+"\n"+p.ContentRoot+(p.EngineVersion is null?"":"\n"+p.EngineVersion)));
         var working=Path.Combine(DirectoryFor(id),"working");
         if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Resources"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
         {
@@ -58,26 +63,31 @@ public sealed class ProjectManager(MusicWorkspaceStore assets,GameContent conten
         return written.ToArray();
     }
     public void RequireSaved(string id) {var p=Read(id);if(p.SavedHash==null||p.SavedHash!=Hash(id))throw new InvalidOperationException("Save the project before exporting.");if(p.ContentRoot==null)throw new InvalidOperationException("Import game tables first.");}
-    public object Import(string id,string path)
+    public object Import(string id,string path,string? engineVersion=null)
     {
         lock(assets)
         {
-            var p=Read(id);path=Path.GetFullPath(path);if(!content.Exists(path,"Table/MusicParameterTable.uasset"))throw new ArgumentException("Select the game Content directory.");
+            var p=Read(id);path=Path.GetFullPath(path);engineVersion ??= AssetEngineVersion.Inspect(path).Version;AssetEngineVersion.Parse(engineVersion);if(!Directory.Exists(path)||!content.Files(path,"").Any(f=>f.EndsWith(".uasset",StringComparison.OrdinalIgnoreCase)))throw new ArgumentException("Select a Content directory containing Unreal assets.");
             var dir=DirectoryFor(id);var staging=Path.Combine(dir,"import-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(staging);
             try
             {
+                Directory.CreateDirectory(Path.Combine(staging,"Imported"));
                 foreach(var folder in new[]{"Table","Message"})
                 {
                     foreach(var relative in content.Files(path,folder).Where(f=>Path.GetExtension(f) is ".uasset" or ".uexp" or ".ubulk"))
                         content.Copy(path,relative,Path.Combine(staging,"Imported",relative));
                 }
                 var music=Path.Combine(staging,"Imported","Table","MusicParameterTable.uasset");
+                var workspace=new Workspace(id,"ue"+engineVersion,"","",0,path);
+                if(File.Exists(music)) {
                 var asset=new UAssetAPI.UAsset(music,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
                 var rows=asset.Exports.OfType<UAssetAPI.ExportTypes.DataTableExport>().Single().Table.Data.Count;
                 foreach(var ext in new[]{".uasset",".uexp"})File.Copy(Path.ChangeExtension(music,ext),Path.Combine(staging,"MusicParameterTable"+ext));
                 string Digest(string f)=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f)));
-                File.WriteAllText(Path.Combine(staging,"manifest.json"),JsonSerializer.Serialize(new Workspace(id,"ue4.19",Digest(music),Digest(Path.ChangeExtension(music,".uexp")),rows,path)));
-                var working=Path.Combine(dir,"working");if(Directory.Exists(working))Directory.Delete(working,true);Directory.Move(staging,working);Store(p with {ContentRoot=path});return Status(id);
+                workspace=workspace with {UassetHash=Digest(music),UexpHash=Digest(Path.ChangeExtension(music,".uexp")),RowCount=rows};
+                }
+                File.WriteAllText(Path.Combine(staging,"manifest.json"),JsonSerializer.Serialize(workspace));
+                var working=Path.Combine(dir,"working");if(Directory.Exists(working))Directory.Delete(working,true);Directory.Move(staging,working);Store(p with {ContentRoot=path,EngineVersion=engineVersion});return Status(id);
             }
             finally{if(Directory.Exists(staging))Directory.Delete(staging,true);}
         }

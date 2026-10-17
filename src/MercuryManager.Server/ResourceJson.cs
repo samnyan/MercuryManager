@@ -11,7 +11,7 @@ public static class ResourceJson
         if(!path.EndsWith(".uasset",StringComparison.Ordinal))throw new ArgumentException("JSON requires a uasset.");
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset too large.");
         var companion=Path.ChangeExtension(path,".uexp");if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export too large.");
-        return new UAsset(path,EngineVersion.VER_UE4_19);
+        return new UAsset(path,AssetEngineVersion.ForUAsset(path));
     }
     public static void Import(string source,string json,string output)
     {

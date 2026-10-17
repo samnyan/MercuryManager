@@ -34,12 +34,13 @@ public sealed class TexturePreviewService(ResourceService resources) : IDisposab
             var file=Path.ChangeExtension(path,ext);MusicWorkspaceStore.RejectLinks(file);
             if(File.Exists(file)){var info=new FileInfo(file);stamps.Add($"{ext}:{info.Length}:{info.LastWriteTimeUtc.Ticks}");}
         }
-        var key=path+string.Join('|',stamps);
+        var engineVersion=AssetEngineVersion.ForAsset(path);
+        var key=path+"|engine:"+engineVersion+"|"+string.Join('|',stamps);
         lock(gate)
         {
             if(cache.TryGetValue<byte[]>(key,out var found))return found!;
             // A narrow provider avoids indexing the entire game and follows no other directories.
-            using var provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(EGame.GAME_UE4_19),StringComparer.OrdinalIgnoreCase);
+            using var provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(engineVersion),StringComparer.OrdinalIgnoreCase);
             provider.Initialize();
             var file=provider.Files.Values.SingleOrDefault(f=>f.Path.EndsWith('/'+Path.GetFileName(path),StringComparison.OrdinalIgnoreCase)||f.Path.Equals(Path.GetFileName(path),StringComparison.OrdinalIgnoreCase)) ?? throw new FileNotFoundException("Texture package not found.");
             var texture=provider.LoadPackage(file.Path).GetExports().OfType<UTexture2D>().FirstOrDefault() ?? throw new InvalidDataException("Asset is not a Texture2D.");

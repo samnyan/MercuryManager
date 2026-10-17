@@ -184,7 +184,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
                 var references = cooked.ReferencedTextures;
                 if (references.Count == 0)
                     references = LegacyMaterialTextureTable.Read(asset, matExport,
-                        dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
+                        dependency => {var resolved=r.ResolveMaterialDependency(id, dependency);return new UAssetAPI.UAsset(resolved,AssetEngineVersion.ForUAsset(resolved));});
                 particleTextures = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, references, preview.TextureOverrides);
             }
             catch (Exception ex) when (ex is NotSupportedException or InvalidDataException)
@@ -224,7 +224,7 @@ app.MapGet("/api/projects/{id}/resource-material-shader", async (string id, stri
     try
     {
         if (textureTable.Count == 0) textureTable = LegacyMaterialTextureTable.Read(asset, matExport,
-            dependency => new UAssetAPI.UAsset(r.ResolveMaterialDependency(id, dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19));
+            dependency => {var resolved=r.ResolveMaterialDependency(id, dependency);return new UAssetAPI.UAsset(resolved,AssetEngineVersion.ForUAsset(resolved));});
         textureExpressions = LegacyMaterialTextureResolver.Resolve2D(cooked.Uniforms, textureTable, preview.TextureOverrides);
         samplerSlots = LegacyMaterialSamplerMapping.Resolve(LegacyShaderResourceTable.Read(psCandidate.ResourceTablePrefix),
             bindings.Material, textureExpressions, translation.CombinedSamplers);
@@ -309,7 +309,9 @@ app.MapGet("/api/projects", (ProjectManager p)=>p.List());
 app.MapPost("/api/projects", (CreateProject request, ProjectManager p)=>p.Create(request.Name));
 app.MapGet("/api/projects/{id}/export-files", (string id,ProjectManager p)=>p.ExportFiles(id));
 app.MapGet("/api/projects/{id}", (string id,ProjectManager p)=>p.Status(id));
-app.MapPost("/api/projects/{id}/import", (string id,OpenWorkspace request,ProjectManager p)=>p.Import(id,request.ServerPath));
+app.MapPost("/api/projects/detect-engine", (OpenWorkspace request)=>new { detection=AssetEngineVersion.Inspect(request.ServerPath), versions=AssetEngineVersion.Supported });
+app.MapPost("/api/projects/{id}/import", (string id,ImportProject request,ProjectManager p)=>p.Import(id,request.ServerPath,request.EngineVersion));
+app.MapPatch("/api/projects/{id}/canvas", (string id,CanvasSettings request,ProjectManager p)=>p.SetCanvas(id,request.Width,request.Height));
 app.MapPost("/api/projects/{id}/save", (string id,ProjectManager p)=>p.Save(id));
 app.MapPost("/api/workspaces", (OpenWorkspace request, MusicWorkspaceStore store) => store.Open(request.ServerPath));
 app.MapGet("/api/workspaces/{id}", (string id, MusicWorkspaceStore store) => store.Get(id));
@@ -388,7 +390,9 @@ if (startup.LaunchBrowser)
 }
 app.Run();
 
+public sealed record CanvasSettings(int Width,int Height);
 public sealed record CreateProject(string Name);
 public sealed record OpenWorkspace(string ServerPath);
+public sealed record ImportProject(string ServerPath,string EngineVersion);
 public sealed record MessageEdit(string RowName, Dictionary<string,System.Text.Json.JsonElement> Fields);
 public sealed record WriteRequest(string Mode, string? OutputDirectory, bool Backup = true);

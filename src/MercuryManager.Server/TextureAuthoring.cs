@@ -47,8 +47,18 @@ public static class TextureAuthoring
 
     public static UTexture2D Read(string path,out DefaultFileProvider provider)
     {
-        provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(EGame.GAME_UE4_19),StringComparer.OrdinalIgnoreCase);
-        try{provider.Initialize();var file=provider.Files.Values.Single(f=>f.Path.EndsWith('/'+Path.GetFileName(path),StringComparison.OrdinalIgnoreCase)||f.Path.Equals(Path.GetFileName(path),StringComparison.OrdinalIgnoreCase));return provider.LoadPackage(file.Path).GetExports().OfType<UTexture2D>().Single();}catch{provider.Dispose();throw;}
+        provider=new DefaultFileProvider(Path.GetDirectoryName(path)!,SearchOption.TopDirectoryOnly,new VersionContainer(AssetEngineVersion.ForAsset(path)),StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            provider.Initialize();
+            var file=provider.Files.Values.SingleOrDefault(f=>f.Path.EndsWith('/'+Path.GetFileName(path),StringComparison.OrdinalIgnoreCase)||f.Path.Equals(Path.GetFileName(path),StringComparison.OrdinalIgnoreCase))
+                ??throw new FileNotFoundException("Texture package was not found in the provider index.",path);
+            var textures=provider.LoadPackage(file.Path).GetExports().OfType<UTexture2D>().ToArray();
+            if(textures.Length==0)throw new InvalidDataException("Asset does not contain a Texture2D export.");
+            if(textures.Length>1)throw new InvalidDataException("Asset contains multiple Texture2D exports; selecting an export is required.");
+            return textures[0];
+        }
+        catch{provider.Dispose();throw;}
     }
 
     public static byte[] Preview(string path,int? mip=null)
@@ -56,6 +66,7 @@ public static class TextureAuthoring
         var t=Read(path,out var provider);using(provider)
         {
             if(t.PlatformData.SizeX>4096||t.PlatformData.SizeY>4096)throw new InvalidDataException("Texture too large.");
+            if(t.PlatformData.Mips.Length==0)throw new InvalidDataException("Texture has no readable mips; check the engine version and cooked texture format.");
             if(mip is {} m && (m<0||m>=t.PlatformData.Mips.Length))throw new ArgumentOutOfRangeException(nameof(mip),"Invalid mip index.");
             var ctex=mip is {} idx ? t.DecodeMip(idx) : t.Decode(1024);
             using var bmp=ctex?.ToSkBitmap()??throw new InvalidDataException("No readable image.");

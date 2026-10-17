@@ -27,7 +27,7 @@ public static class LegacyMaterialInstanceResolver
             if (chain.Count >= 32 || !active.Add(System.IO.Path.GetFullPath(path)))
                 throw new InvalidDataException("Cyclic or excessively deep Material parent chain.");
             chain.Add(path);
-            asset = new UAsset(path, UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+            asset = new UAsset(path, AssetEngineVersion.ForUAsset(path));
             var masters = asset.Exports.OfType<NormalExport>().Where(e => e.GetExportClassType().ToString() == "Material").ToArray();
             if (masters.Length == 1) { material = masters[0]; break; }
             var instance = asset.Exports.OfType<NormalExport>().SingleOrDefault(e => e.GetExportClassType().ToString() == "MaterialInstanceConstant")
@@ -58,7 +58,8 @@ public static class LegacyMaterialInstanceResolver
                 var target = GenericResourceViewer.ResolveReference(reference.Value.Index, instanceAsset);
                 string dependency = target["ContentFile"]?.ToString()
                     ?? throw new NotSupportedException("Instance texture cannot be resolved through the project overlay.");
-                var textureAsset = new UAsset(resolveDependency(dependency), UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+                var texturePath = resolveDependency(dependency);
+                var textureAsset = new UAsset(texturePath, AssetEngineVersion.ForUAsset(texturePath));
                 if (!textureAsset.Exports.OfType<NormalExport>().Any(e => e.GetExportClassType().ToString() == "Texture2D"))
                     throw new NotSupportedException("Only Texture2D instance overrides are supported.");
                 textures[name] = dependency;

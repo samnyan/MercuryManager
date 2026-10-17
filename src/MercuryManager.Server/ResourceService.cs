@@ -35,7 +35,7 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         if(source is not (null or "project" or "game"))throw new ArgumentException("Invalid resource source.");
         Validate(path);var draft=Path.Combine(DraftRoot(id),path);MusicWorkspaceStore.RejectLinks(draft);
         if(source!="game"&&File.Exists(draft)){foreach(var ext in new[]{".uexp",".ubulk"})MusicWorkspaceStore.RejectLinks(Path.ChangeExtension(draft,ext));return draft;}
-        return content.Resolve(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path,Path.Combine(assets.WorkspaceDirectory(id),"SourceCache"));
+        return content.Resolve(assets.Get(id).ContentRoot??throw new InvalidOperationException("Import game first."),path,Path.Combine(assets.WorkspaceDirectory(id),"SourceCache"),projectScoped:File.Exists(Path.Combine(assets.ProjectRoot,id,"project-info.json")) && System.Text.Json.JsonSerializer.Deserialize<ProjectManager.Project>(File.ReadAllText(Path.Combine(assets.ProjectRoot,id,"project-info.json")))?.EngineVersion is not null);
     }
     public byte[] FontFaceData(string id, string path)
     {
@@ -121,11 +121,23 @@ public sealed class ResourceService(MusicWorkspaceStore assets,GameContent conte
         FileTransaction.Copy(Directory.GetFiles(result).Select(f=>(Source:f,Destination:Path.Combine(DraftRoot(id),Path.GetDirectoryName(sheetPath)??"",Path.GetFileName(f)))).ToArray(),false);return new{verified=true};}
         finally{Directory.Delete(stage,true);}}
     }
-    public object Info(string id,string path)
+    // Readable describes metadata only; pixel decoding remains a separate operation.
+    public sealed record TextureResourceInfo(int Width,int Height,int Mips,bool Supported,bool Readable,string? Format,string? Diagnostic);
+    public TextureResourceInfo Info(string id,string path)
     {
-        if(!path.EndsWith(".uasset",StringComparison.Ordinal))return new{width=0,height=0,mips=0,supported=false};
-        var source=Resolve(id,path);var a=new UAssetAPI.UAsset(source,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
-        try{var n=a.Exports.Single() as UAssetAPI.ExportTypes.NormalExport??throw new InvalidDataException();var layout=TextureAuthoring.Inspect(n.Extras);return new{width=layout.Width,height=layout.Height,mips=layout.Mips.Count,supported=true};}catch{return new{width=0,height=0,mips=0,supported=false};}
+        Validate(path);
+        if(!path.EndsWith(".uasset",StringComparison.OrdinalIgnoreCase))return new(0,0,0,false,false,null,"Not an Unreal asset package.");
+        var source=Resolve(id,path);
+        try{var a=new UAssetAPI.UAsset(source,AssetEngineVersion.ForUAsset(source));var n=a.Exports.Single() as UAssetAPI.ExportTypes.NormalExport??throw new InvalidDataException();var layout=TextureAuthoring.Inspect(n.Extras);return new(layout.Width,layout.Height,layout.Mips.Count,true,true,"PF_B8G8R8A8",null);}catch
+        {
+            // Read capability is independent of the deliberately narrow authoring layout.
+            try
+            {
+                var texture=TextureAuthoring.Read(source,out var provider);
+                using(provider)return new(texture.PlatformData.SizeX,texture.PlatformData.SizeY,texture.PlatformData.Mips.Length,false,true,texture.PlatformData.PixelFormat.ToString(),null);
+            }
+            catch(Exception error){return new(0,0,0,false,false,null,error.Message);}
+        }
     }
     public object ReadText(string id,string path,string? source=null)
     {

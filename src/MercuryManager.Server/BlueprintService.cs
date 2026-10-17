@@ -19,8 +19,8 @@ public sealed class BlueprintService
     private UAsset Load(string path)
     {
         var files=new[]{path,Path.ChangeExtension(path,".uexp"),Path.ChangeExtension(path,".ubulk")};
-        var signature=string.Join("|",files.Select(p=>File.Exists(p)?$"{new FileInfo(p).Length}:{File.GetLastWriteTimeUtc(p).Ticks}":"missing"));
-        if(cachedPath!=path||stamp!=signature){cached=null;cachedModel=null;cachedPath=null;var asset=new UAsset(path,EngineVersion.VER_UE4_19);cached=asset;cachedPath=path;stamp=signature;}
+        var signature=AssetEngineVersion.ForAsset(path)+"|"+string.Join("|",files.Select(p=>File.Exists(p)?$"{new FileInfo(p).Length}:{File.GetLastWriteTimeUtc(p).Ticks}":"missing"));
+        if(cachedPath!=path||stamp!=signature){cached=null;cachedModel=null;cachedPath=null;var asset=new UAsset(path,AssetEngineVersion.ForUAsset(path));cached=asset;cachedPath=path;stamp=signature;}
         return cached!;
     }
     private static int ObjectIndex(NormalExport e,string name)=>e.Data.OfType<ObjectPropertyData>().FirstOrDefault(p=>p.Name.ToString()==name)?.Value.Index??0;
