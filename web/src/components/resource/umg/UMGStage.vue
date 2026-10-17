@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { previewText } from './textPreview'
 import { circleText } from './circleText'
 import { materialPrograms } from '../../../utils/material-runtime/MaterialProgramCache'
 import { hasNonSlateParticleDiagnostics } from '../../../utils/material-runtime/ParticleProgramDiagnostics'
@@ -6,7 +7,7 @@ import { MaterialSurface } from '../../../utils/material-runtime/MaterialSurface
 import { multiplySlateColors, linearToSrgbByte } from '../../../utils/material-shader/SlateColor'
 import { tr } from '../../../i18n'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { NButton, NDropdown, NCheckbox } from 'naive-ui'
+import { NButton, NDropdown, NCheckbox, NModal, NCard, NInputNumber } from 'naive-ui'
 import { Canvas, Rect, Polygon, Circle, FabricImage, FabricText, Textbox, Shadow, Point, util, type FabricObject } from 'fabric'
 import type { UMGNode, ComputedLayout } from './types'
 import { useProject, api } from '../../../project'
@@ -80,6 +81,23 @@ function selectRenderer(key: string) {
   }
   localStorage.setItem(rendererStorageKey, renderer.value)
 }
+const customViewport = ref(false)
+const customWidth = ref<number | null>(1920)
+const customHeight = ref<number | null>(1080)
+const viewportOptions = computed(() => [
+  ...[[1080,1920],[1920,1080],[1280,720],[720,1280],[2560,1440],[3840,2160]].map(([width,height])=>({label:`${props.viewport.width===width&&props.viewport.height===height?'✓ ':''}${width} × ${height}`,key:`${width}x${height}`})),
+  {label:tr('ui.umgCustomResolution'),key:'custom'}
+])
+function selectViewport(key: string) {
+  if(key==='custom') {customWidth.value=props.viewport.width;customHeight.value=props.viewport.height;customViewport.value=true;return}
+  const [width,height]=key.split('x').map(Number)
+  if(width&&height) emit('update:viewport',{width,height})
+}
+function applyCustomViewport() {
+  if(![customWidth.value,customHeight.value].every(v=>v!==null&&Number.isInteger(v)&&v>=1&&v<=8192))return
+  emit('update:viewport',{width:customWidth.value!,height:customHeight.value!})
+  customViewport.value=false
+}
 const fpsSpanRef = ref<HTMLSpanElement | null>(null)
 let fpsFrameCount = 0
 let fpsLastTime = performance.now()
@@ -88,6 +106,7 @@ let autoShaderClock = 0
 let lastRafTime = performance.now()
 
 const emit = defineEmits<{
+  'update:viewport': [value: {width:number;height:number}]
   'select-node': [id: string]
   'update:view-mode': [mode: 'appearance' | 'structure']
 }>()
@@ -669,7 +688,7 @@ async function rebuildScene() {
       const shadowColor = extractColor(node.visual.ShadowColorAndOpacity)
       fabricObj = node.className === 'CircleText'
         ? new FabricImage(circleText(node.visual, fontFamily, fontSize, color ? `rgb(${color.r},${color.g},${color.b})` : '#fff'), { opacity })
-        : new TextClass(node.visual.Text, {
+        : new TextClass(previewText(node.className, node.visual.Text), {
         ...(wrapWidth > 0 ? { width: wrapWidth, splitByGrapheme: true } : {}),
         charSpacing: finite(node.visual.Font?.LetterSpacing, 0),
         lineHeight: finite(node.visual.LineHeightPercentage, 1),
@@ -1116,7 +1135,19 @@ onBeforeUnmount(() => {
     <div class="stage-toolbar">
       <span v-if="particles && Object.keys(particles).length" title="APPROXIMATION: CPU simulation, baked textures; no Blueprint script execution">粒子近似预览 / Approximate particles</span>
       <div class="stage-info">
-        <span>[{{ viewport.width }} × {{ viewport.height }}]</span>
+        <n-dropdown trigger="click" :options="viewportOptions" @select="selectViewport">
+          <n-button size="tiny" style="color:#e4e7eb">[{{ viewport.width }} × {{ viewport.height }}] ▾</n-button>
+        </n-dropdown>
+        <n-modal v-model:show="customViewport">
+          <n-card :title="tr('ui.umgCustomResolution')" style="width:360px" closable @close="customViewport=false">
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <n-input-number v-model:value="customWidth" :min="1" :max="8192" :precision="0" aria-label="Width" />
+              <span>×</span>
+              <n-input-number v-model:value="customHeight" :min="1" :max="8192" :precision="0" aria-label="Height" />
+            </div>
+            <n-button @click="applyCustomViewport">{{ tr('ui.confirm') }}</n-button>
+          </n-card>
+        </n-modal>
         <n-checkbox size="small" :theme-overrides="{ textColor: '#e4e7eb', fontSizeSmall: '12px' }" :checked="viewMode === 'structure'" @update:checked="emit('update:view-mode', $event ? 'structure' : 'appearance')">Wireframe</n-checkbox>
         <n-dropdown trigger="click" :options="rendererOptions" @select="selectRenderer">
           <button type="button" class="fps-badge" aria-label="Renderer" aria-haspopup="menu">

@@ -1,3 +1,4 @@
+import { previewText } from './textPreview'
 import type { UMGNode, ComputedLayout, Rect } from './types'
 
 export function computeTreeLayout(
@@ -11,6 +12,8 @@ export function computeTreeLayout(
   const number = (v: unknown, fallback = 0) =>
     typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
+  const isFill = (n: UMGNode) => String(n.slot?.values.Size?.SizeRule ?? '').split('::').pop() === 'Fill'
+
   function desired(n: UMGNode, seen = new Set<string>()): { width: number; height: number; known: boolean } {
     if (seen.has(n.id)) return { width: 0, height: 0, known: false }
     seen = new Set(seen).add(n.id)
@@ -18,19 +21,15 @@ export function computeTreeLayout(
     const vis = String(n.visual.Visibility ?? 'Visible').split('::').pop()
     if (vis === 'Collapsed') return { width: 0, height: 0, known: true }
 
-    // 显式宽高覆盖
-    if (n.visual.bOverride_WidthOverride || n.visual.bOverride_HeightOverride) {
-      return {
-        width: n.visual.bOverride_WidthOverride ? number(n.visual.WidthOverride) : 0,
-        height: n.visual.bOverride_HeightOverride ? number(n.visual.HeightOverride) : 0,
-        known: true
-      }
+    if (n.className === 'Spacer') {
+      return { width: Math.max(0, number(n.visual.Size?.X)), height: Math.max(0, number(n.visual.Size?.Y)), known: true }
     }
+
 
     const childNodes = n.children.map(id => byId.get(id)).filter((v): v is UMGNode => !!v)
 
     // 笔刷固有图片尺寸 (非容器控件如 Image，或无子元素的控件；对于 Border/SizeBox 等容器，有子元素时优先度低于子元素布局测量)
-    const isContainer = ['Border', 'SizeBox', 'CanvasPanel', 'Overlay', 'HorizontalBox', 'VerticalBox'].includes(n.className)
+    const isContainer = ['RetainerBox', 'ScaleBox', 'WidgetSwitcher', 'Border', 'SizeBox', 'CanvasPanel', 'Overlay', 'HorizontalBox', 'VerticalBox'].includes(n.className)
     if (!isContainer || childNodes.length === 0) {
       const image = n.visual.Brush?.ImageSize || (!isContainer ? n.visual.Background?.ImageSize : undefined)
       if (image && (number(image.X) > 0 || number(image.Y) > 0)) {
@@ -44,7 +43,7 @@ export function computeTreeLayout(
       if (context) {
         const size = number(n.visual.Font?.Size, 12) * (96 / 72)
         context.font = `${size}px sans-serif`
-        const lines = n.visual.Text.split(/\r?\n/)
+        const lines = previewText(n.className, n.visual.Text).split(/\r?\n/)
         const textWidth = Math.max(
           number(n.visual.MinDesiredWidth),
           ...lines.map(line => context.measureText(line).width)
@@ -65,8 +64,8 @@ export function computeTreeLayout(
         const minX = number(anchors.Minimum?.X), maxX = number(anchors.Maximum?.X)
         const minY = number(anchors.Minimum?.Y), maxY = number(anchors.Maximum?.Y)
         // 当点锚点且非 bAutoSize 时，槽位 Right/Bottom 就是尺寸
-        const cw = (minX === maxX && !slot.bAutoSize && number(off.Right) > 0) ? number(off.Right) : cd.width
-        const ch = (minY === maxY && !slot.bAutoSize && number(off.Bottom) > 0) ? number(off.Bottom) : cd.height
+        const cw = minX === maxX && !slot.bAutoSize ? number(off.Right) : cd.width
+        const ch = minY === maxY && !slot.bAutoSize ? number(off.Bottom) : cd.height
         if (cw > 0 || ch > 0) anyKnown = true
         maxW = Math.max(maxW, cw)
         maxH = Math.max(maxH, ch)
@@ -74,7 +73,13 @@ export function computeTreeLayout(
       return { width: maxW, height: maxH, known: anyKnown }
     }
 
-    const children = childNodes.map(c => desired(c, seen))
+    const measuredChildren = n.className === 'WidgetSwitcher' ? childNodes.filter((_,i)=>i===number(n.visual.ActiveWidgetIndex)) : childNodes
+    const children = measuredChildren.map(c => {
+      const d = desired(c, seen)
+      if (String(c.visual.Visibility ?? '').split('::').pop() === 'Collapsed') return d
+      const p = c.slot?.values.Padding ?? {}
+      return { ...d, width: d.width + number(p.Left) + number(p.Right), height: d.height + number(p.Top) + number(p.Bottom) }
+    })
     const width = n.className === 'HorizontalBox'
       ? children.reduce((s, c) => s + c.width, 0)
       : Math.max(0, ...children.map(c => c.width))
@@ -82,6 +87,25 @@ export function computeTreeLayout(
       ? children.reduce((s, c) => s + c.height, 0)
       : Math.max(0, ...children.map(c => c.height))
 
+    if (n.className === 'SizeBox') {
+      const overrideWidth = !!n.visual.bOverride_WidthOverride
+      const overrideHeight = !!n.visual.bOverride_HeightOverride
+      const minWidth = !!n.visual.bOverride_MinDesiredWidth
+      const minHeight = !!n.visual.bOverride_MinDesiredHeight
+      const maxWidth = !!n.visual.bOverride_MaxDesiredWidth
+      const maxHeight = !!n.visual.bOverride_MaxDesiredHeight
+      const constrained = (value: number, min: boolean, minValue: unknown, max: boolean, maxValue: unknown) => {
+        // SBox measures minimum first, then maximum; explicit overrides bypass both.
+        if (min) value = Math.max(value, number(minValue))
+        if (max) value = Math.min(value, number(maxValue))
+        return value
+      }
+      return {
+        width: overrideWidth ? number(n.visual.WidthOverride) : constrained(width, minWidth, n.visual.MinDesiredWidth, maxWidth, n.visual.MaxDesiredWidth),
+        height: overrideHeight ? number(n.visual.HeightOverride) : constrained(height, minHeight, n.visual.MinDesiredHeight, maxHeight, n.visual.MaxDesiredHeight),
+        known: overrideWidth || overrideHeight || minWidth || minHeight || maxWidth || maxHeight || children.some(c => c.known)
+      }
+    }
     return {
       width,
       height,
@@ -126,7 +150,7 @@ export function computeTreeLayout(
         width: Math.max(0, w),
         height: Math.max(0, h)
       }
-    } else if (!root && n.slot && ['OverlaySlot', 'BorderSlot', 'SizeBoxSlot', 'HorizontalBoxSlot', 'VerticalBoxSlot'].includes(n.slot.className)) {
+    } else if (!root && n.slot && ['RetainerBoxSlot', 'WidgetSwitcherSlot', 'OverlaySlot', 'BorderSlot', 'SizeBoxSlot', 'HorizontalBoxSlot', 'VerticalBoxSlot'].includes(n.slot.className)) {
       const p = slot.Padding ?? {}, d = desired(n)
       rect = {
         x: allocated.x + number(p.Left),
@@ -141,9 +165,9 @@ export function computeTreeLayout(
 
         const horizontal = axis === 'H'
         const available = horizontal ? rect.width : rect.height
-        // 若子元素无固有尺寸（如未限定大小的容器），默认占满可用空间，防止坍缩为 0
-        const size = d.known && (horizontal ? d.width : d.height) > 0
-          ? Math.min(available, horizontal ? d.width : d.height)
+        // A measured zero is meaningful (Spacer/SizeBox); only unknown sizes fall back to allocation.
+        const size = d.known
+          ? Math.max(0, Math.min(available, horizontal ? d.width : d.height))
           : available
 
         const shift = alignment.endsWith('Center')
@@ -162,22 +186,21 @@ export function computeTreeLayout(
       }
     }
 
+    if (n.className === 'RetainerBox') issues.push('RetainerBox displays children directly; effect material, offscreen compositing and render phases are not simulated.')
     if (n.visual.Text != null) issues.push('Text metrics use a browser fallback font, not the game font.')
     if (n.preview.layout === 'unsupported') issues.push('Unsupported layout; outline is allocated space, not a reconstructed widget.')
 
     result.set(n.id, { rect, visible, collapsed, issues })
     if (collapsed) return
 
-    const supportedContainers = ['CanvasPanel', 'Overlay', 'Border', 'SizeBox', 'HorizontalBox', 'VerticalBox']
+    const supportedContainers = ['RetainerBox', 'ScaleBox', 'WidgetSwitcher', 'CanvasPanel', 'Overlay', 'Border', 'SizeBox', 'HorizontalBox', 'VerticalBox']
     if (n.children.length && !supportedContainers.includes(n.className) && !n.childWidget?.localTreeId) {
       issues.push('Child arrangement is unsupported; children are omitted from the stage.')
       return
     }
 
-    if (n.className === 'SizeBox') {
-      if (n.visual.bOverride_WidthOverride) rect = { ...rect, width: number(n.visual.WidthOverride) }
-      if (n.visual.bOverride_HeightOverride) rect = { ...rect, height: number(n.visual.HeightOverride) }
-    }
+    // SizeBox overrides participate in desired-size measurement above.
+    // Children arrange inside the geometry actually allotted by the parent.
 
     let children = n.children.map(id => byId.get(id)).filter((v): v is UMGNode => !!v)
     if (n.className === 'CanvasPanel') {
@@ -191,26 +214,72 @@ export function computeTreeLayout(
     const horizontal = n.className === 'HorizontalBox'
     const active = children.filter(c => String(c.visual.Visibility).split('::').pop() !== 'Collapsed')
     const extent = horizontal ? rect.width : rect.height
+    const paddingExtent = (c: UMGNode) => {
+      const p = c.slot?.values.Padding ?? {}
+      return horizontal ? number(p.Left) + number(p.Right) : number(p.Top) + number(p.Bottom)
+    }
+    const reservedPadding = active.reduce((sum,c) => sum + paddingExtent(c), 0)
     const auto = active.reduce(
-      (sum, c) => c.slot?.values.Size?.SizeRule === 'Fill' ? sum : sum + (horizontal ? desired(c).width : desired(c).height),
+      (sum, c) => isFill(c) ? sum : sum + (horizontal ? desired(c).width : desired(c).height),
       0
     )
     const weight = active.reduce(
-      (sum, c) => sum + (c.slot?.values.Size?.SizeRule === 'Fill' ? number(c.slot?.values.Size?.Value, 1) : 0),
+      (sum, c) => sum + (isFill(c) ? number(c.slot?.values.Size?.Value, 1) : 0),
       0
     )
+
+    if (n.className === 'ScaleBox') {
+      const child = children[0]
+      if (!child) return
+      const d = desired(child), mode = String(n.visual.Stretch ?? 'ScaleToFit').split('::').pop()
+      if (!(d.width > 0 && d.height > 0)) {
+        issues.push('ScaleBox desired size is unknown; using allocated space without scaling.')
+        visit(child, rect, visible, path)
+        return
+      }
+      let sx = 1, sy = 1
+      const x = rect.width / d.width, y = rect.height / d.height
+      switch (mode) {
+        case 'Fill': sx=x; sy=y; break
+        case 'ScaleToFit': sx=sy=Math.min(x,y); break
+        case 'ScaleToFitX': sx=sy=x; break
+        case 'ScaleToFitY': sx=sy=y; break
+        case 'ScaleToFill': sx=sy=Math.max(x,y); break
+        case 'UserSpecified': sx=sy=Math.max(0,number(n.visual.UserSpecifiedScale,1)); break
+        case 'None': break
+        default: issues.push(`Unsupported ScaleBox stretch mode: ${mode}`)
+      }
+      const direction=String(n.visual.StretchDirection ?? 'Both').split('::').pop()
+      if (direction==='DownOnly') { sx=Math.min(1,sx); sy=Math.min(1,sy) }
+      if (direction==='UpOnly') { sx=Math.max(1,sx); sy=Math.max(1,sy) }
+      const align = (axis: 'HorizontalAlignment'|'VerticalAlignment', remaining: number) => {
+        const value=String(child.slot?.values[axis] ?? 'Center')
+        return value.endsWith('Left')||value.endsWith('Top') ? 0 : value.endsWith('Right')||value.endsWith('Bottom') ? remaining : remaining/2
+      }
+      const ox=rect.x+align('HorizontalAlignment',rect.width-d.width*sx)
+      const oy=rect.y+align('VerticalAlignment',rect.height-d.height*sy)
+      // Arrange at natural size first, then transform every newly arranged descendant.
+      const before=new Set(result.keys())
+      visit(child,{x:0,y:0,width:d.width,height:d.height},visible,path)
+      for (const [id,layout] of result) if (!before.has(id)) {
+        const r=layout.rect
+        layout.rect={x:ox+r.x*sx,y:oy+r.y*sy,width:r.width*sx,height:r.height*sy}
+      }
+      issues.push('ScaleBox geometry is reconstructed; font metrics, render transforms and inherited-scale cancellation remain approximate.')
+      return
+    }
 
     let cursor = 0
     for (const child of children) {
       let area = { ...rect }
       if (box) {
         const d = desired(child)
-        const fill = child.slot?.values.Size?.SizeRule === 'Fill'
+        const fill = isFill(child)
         const size = String(child.visual.Visibility).split('::').pop() === 'Collapsed'
           ? 0
           : fill
-            ? Math.max(0, extent - auto) * number(child.slot?.values.Size?.Value, 1) / (weight || 1)
-            : horizontal ? d.width : d.height
+            ? Math.max(0, extent - auto - reservedPadding) * number(child.slot?.values.Size?.Value, 1) / (weight || 1) + paddingExtent(child)
+            : (horizontal ? d.width : d.height) + paddingExtent(child)
 
         if (horizontal) {
           area.x += cursor
@@ -221,7 +290,7 @@ export function computeTreeLayout(
         }
         cursor += size
       }
-      visit(child, area, visible, path)
+      visit(child, area, visible && (n.className !== 'WidgetSwitcher' || children.indexOf(child) === number(n.visual.ActiveWidgetIndex)), path)
     }
   }
 

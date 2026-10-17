@@ -86,7 +86,7 @@ export type UMGAnimation = {
   tickRate: number
   displayRate: number
   bindings: { nodeId?: string | null; resolutionIssue?: string; label?: string; guid: string; widgetName: string; slotWidgetName: string | null; isRoot: boolean }[]
-  tracks: { name: string; type: string; property: string | null; targetGuid: string; materialParameters?: { name: string; index: number; channel: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] } }[]; channels: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: { frame: number; value: number; interpolation: string; arriveTangent: number; leaveTangent: number }[] }[] }[]
+  tracks: { name: string; type: string; property: string | null; targetGuid: string; materialParameters?: { name: string; index: number; channel: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: import('./animationSampling').AnimationKey[] } }[]; channels: { property: string; channelType: string; defaultValue: number; hasDefault: boolean; keys: import('./animationSampling').AnimationKey[] }[] }[]
 }
 
 export type Rect = {

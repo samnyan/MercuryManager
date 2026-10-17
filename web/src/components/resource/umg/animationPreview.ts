@@ -13,14 +13,28 @@ export function resolveAnimation(a: UMGAnimation, doc: UMGDocument): UMGAnimatio
   const owner = doc.nodes.find(n => n.id === a.ownerId)
   const tree = owner?.childWidget?.localTreeId ?? a.ownerTreeId
   return { ...a, bindings: a.bindings.map(b => {
-    const matches = doc.nodes.filter(n => n.treeId === tree && n.name === b.widgetName)
-    const nodeId = b.isRoot && owner ? owner.id : matches.length === 1 ? matches[0].id : null
-    const elsewhere = doc.nodes.some(n => n.name === b.widgetName)
-    const resolutionIssue = nodeId ? undefined : matches.length > 1
+    const isSlot = !!b.slotWidgetName && b.slotWidgetName !== 'None'
+    const targetName = isSlot ? b.slotWidgetName : b.widgetName
+    const matches = doc.nodes.filter(n => n.treeId === tree && n.name === targetName)
+    const missingSlot = isSlot && matches.length === 1 && !matches[0].slot
+    const nodeId = missingSlot ? null : b.isRoot ? owner?.id ?? null : matches.length === 1 ? matches[0].id : null
+    const elsewhere = doc.nodes.some(n => n.name === targetName)
+    const resolutionIssue = nodeId ? undefined : missingSlot
+      ? 'Slot target widget exists but its panel slot is absent from cooked widget document'
+      : b.isRoot
+      ? 'Root widget owner absent from visual document; not rebound to a tree child'
+      : matches.length > 1
       ? 'Ambiguous within owner tree'
       : elsewhere ? 'Name exists only outside owner tree; not rebound' : 'Target absent from cooked widget document'
     return { ...b, nodeId, resolutionIssue }
   }) }
+}
+
+// Phase shortcuts are naming conveniences, not runtime-state reconstruction.
+// Match tokens rather than substrings: Shine/Spin/Outline are not IN/OUT clips.
+export function matchesAnimationPhase(name: string, phase: string): boolean {
+  if (!['in', 'loop', 'out'].includes(phase)) return false
+  return name.toLowerCase().split(/[^a-z0-9]+/).includes(phase)
 }
 
 export function entranceSelection(animations: UMGAnimation[], reachable: Set<string>): string[] {

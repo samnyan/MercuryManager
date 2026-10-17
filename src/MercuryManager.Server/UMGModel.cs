@@ -16,7 +16,8 @@ public sealed record UMGNode(string Id,int ExportIndex,string TreeId,string Name
     string? ParentId,List<string> Children,UMGSlot? Slot,Dictionary<string,object?> Visual,
     Dictionary<string,string> Sources,List<UMGResource> Resources,UMGChildWidget? ChildWidget,UMGPreview Preview);
 public sealed record UMGRoot(string Id,string TreeId,string? RootNodeId,string OwnerName,string Kind);
-public sealed record UMGAnimationKey(double Frame,double Value,string Interpolation,double ArriveTangent,double LeaveTangent);
+public sealed record UMGAnimationKey(double Frame,double Value,string Interpolation,double ArriveTangent,double LeaveTangent,
+    string TangentWeightMode="RCTWM_WeightedNone",double ArriveTangentWeight=0,double LeaveTangentWeight=0,double TangentWeightTimeScale=1);
 public sealed record UMGAnimationChannel(string Property,string ChannelType,double DefaultValue,bool HasDefault,List<UMGAnimationKey> Keys);
 public sealed record UMGAnimationMaterialParameter(string Name,int Index,UMGAnimationChannel Channel);
 public sealed record UMGAnimationTrack(string Name,string Type,string? Property,string TargetGuid,List<UMGAnimationChannel> Channels,List<UMGAnimationMaterialParameter>? MaterialParameters=null);

@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { NSelect, NButton, NCheckbox, NConfigProvider, darkTheme } from 'naive-ui'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGNode, UMGTreeRoot } from './types'
+import { animationTrackIssue } from './animationCapabilities'
+import { matchesAnimationPhase } from './animationPreview'
 import UMGTimelineCanvas from './UMGTimelineCanvas.vue'
 const props = defineProps<{ animations: UMGAnimation[]; activeAnimationId: string | null; previewAnimation: UMGAnimation | null; selectedAnimationIds: string[]; isolate: boolean; repeat: boolean; time: number; playing: boolean; roots: UMGTreeRoot[]; nodes: UMGNode[] }>()
 const emit = defineEmits<{ 'update:selectedAnimationIds': [ids: string[]]; 'play-entrances': []; 'update:isolate': [value: boolean]; 'update:repeat': [value: boolean]; 'update:activeAnimationId': [id: string | null]; 'update:time': [time: number]; 'update:playing': [playing: boolean] }>()
@@ -23,9 +25,20 @@ const animationOptions = computed(() => {
 const unresolvedBindings = computed(() => animation.value?.bindings.filter(b => !b.nodeId) ?? [])
 const unresolvedCount = computed(() => unresolvedBindings.value.length)
 const unresolvedTitle = computed(() => unresolvedBindings.value.map(b => `${b.label || b.widgetName}: ${b.resolutionIssue ?? 'Unresolved'}`).join('\n'))
+const trackLimitations = computed(() => {
+  const a = animation.value
+  if (!a) return []
+  const bindings = new Map(a.bindings.map(b => [b.guid, b]))
+  return a.tracks.flatMap(t => {
+    const binding = bindings.get(t.targetGuid)
+    if (!binding?.nodeId) return [] // Reported separately as unresolved bindings.
+    const issue = animationTrackIssue(t, binding, props.nodes.find(n => n.id === binding.nodeId))
+    return issue ? [`${binding.label || binding.widgetName} / ${t.property || t.type}: ${issue}`] : []
+  })
+})
 const channelCount = computed(() => animation.value?.tracks.reduce((n,t) => n+t.channels.length+(t.materialParameters?.length??0),0) ?? 0)
 function togglePlay() { emit('update:playing', !props.playing) }
-function selectPhase(phase: string) { emit('update:playing', false); emit('update:time', 0); emit('update:selectedAnimationIds', props.animations.filter(a => a.name.toLowerCase().includes(phase)).map(a => a.id)) }
+function selectPhase(phase: string) { emit('update:playing', false); emit('update:time', 0); emit('update:selectedAnimationIds', props.animations.filter(a => matchesAnimationPhase(a.name, phase)).map(a => a.id)) }
 function clearAnimation() { emit('update:selectedAnimationIds', []); emit('update:activeAnimationId', null); emit('update:time', 0); emit('update:playing', false) }
 </script>
 <template>
@@ -42,6 +55,7 @@ function clearAnimation() { emit('update:selectedAnimationIds', []); emit('updat
       <n-checkbox size="small" :checked="isolate" @update:checked="emit('update:isolate',$event)">Isolate</n-checkbox>
       <n-checkbox size="small" :checked="repeat" @update:checked="emit('update:repeat',$event)">Repeat</n-checkbox>
       <span class="track-count">{{ channelCount }} channels</span>
+      <span v-if="trackLimitations.length" class="preview-note" :title="trackLimitations.join('\n')">Preview limits: {{ trackLimitations.length }} tracks</span>
       <span v-if="unresolvedCount" class="preview-note" :title="unresolvedTitle">Unresolved: {{ unresolvedCount }}</span>
     </header>
     <UMGTimelineCanvas :animation="animation" :time="time" :playing="playing" @seek="emit('update:time',$event)" />

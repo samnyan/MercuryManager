@@ -5,6 +5,8 @@ import { useProject } from '../../../project'
 import { tr } from '../../../i18n'
 import type { UMGAnimation, UMGDocument, UMGNode } from './types'
 import { computeTreeLayout } from './layout'
+import { sampleChannel } from './animationSampling'
+import { applyAnimation } from './animationApply'
 import { resolveAnimation, reachableNodes, entranceSelection, combineAnimations, isolationHidden } from './animationPreview'
 import UMGHierarchy from './UMGHierarchy.vue'
 import UMGStage from './UMGStage.vue'
@@ -31,8 +33,14 @@ const doc = ref<UMGDocument | null>(null)
 const activeRootId = ref<string | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const hiddenIds = ref<Set<string>>(new Set())
-// WACCA 机台固定 1080 × 1920 竖屏
-const viewport = ref({ width: 1080, height: 1920 })
+// Canvas settings are persisted with project metadata.
+const viewport = computed(() => {
+  const portrait = /(?:^|[/\\])Mercury[/\\]Content[/\\]?$/i.test(project.contentRoot)
+  return {width:project.canvasWidth ?? (portrait?1080:1920),height:project.canvasHeight ?? (portrait?1920:1080)}
+})
+async function setViewport(value: {width:number;height:number}) {
+  try {await project.setCanvas(value.width,value.height)} catch(e) {error.value=String(e)}
+}
 const viewMode = ref<'appearance' | 'structure'>('appearance')
 const timelineHeight = ref(220)
 const timelineCollapsed = ref(false)
@@ -124,28 +132,16 @@ function selectAnimations(ids: string[]) {
   const owners = new Set(resolvedAnimations.value.filter(a => added.includes(a.id)).map(a => a.ownerId))
   selectedAnimationIds.value = ids.filter(id => added.includes(id) || !owners.has(resolvedAnimations.value.find(a => a.id === id)?.ownerId))
 }
-function sampleChannel(channel: {defaultValue:number;hasDefault:boolean;keys:{frame:number;value:number;interpolation:string;arriveTangent:number;leaveTangent:number}[]}, time:number): number | null {
-  const keys=channel.keys
-  if(!keys.length) return channel.hasDefault?channel.defaultValue:null
-  const right=keys.findIndex(key=>key.frame>=time)
-  if(right<0) return keys[keys.length-1].value
-  if(right===0 || keys[right].frame===time) return keys[right].value
-  const left=keys[right-1],next=keys[right],duration=next.frame-left.frame
-  if(duration<=0) return next.value
-  if(left.interpolation.toLowerCase().includes('constant')) return left.value
-  const t=(time-left.frame)/duration
-  if(left.interpolation.toLowerCase().includes('cubic')){const t2=t*t,t3=t2*t;return (2*t3-3*t2+1)*left.value+(t3-2*t2+t)*(left.leaveTangent||0)*duration+(-2*t3+3*t2)*next.value+(t3-t2)*(next.arriveTangent||0)*duration}
-  return left.value+(next.value-left.value)*t
-}
 // Binding resolution is invariant during playback; do not search all nodes per track.
 const sourceNodesById = computed(() => new Map((doc.value?.nodes ?? []).map(n => [n.id, n])))
 const boundTracks = computed(() => {
   const animation = activeAnimation.value
-  const bindings = new Map(animation?.bindings.map(b => [b.guid, b.nodeId]) ?? [])
+  const bindings = new Map(animation?.bindings.map(b => [b.guid, b]) ?? [])
   return (animation?.tracks ?? []).flatMap(track => {
-    const id = bindings.get(track.targetGuid)
-    const node = id ? sourceNodesById.value.get(id) : undefined
-    return node ? [{ track, node }] : []
+    const binding = bindings.get(track.targetGuid)
+    const node = binding?.nodeId ? sourceNodesById.value.get(binding.nodeId) : undefined
+    const slotBinding = !!binding?.slotWidgetName && binding.slotWidgetName !== 'None'
+    return node ? [{ track, node, slotBinding }] : []
   })
 })
 const animationMaterialParameters = computed(() => {
@@ -162,55 +158,7 @@ const animationMaterialParameters = computed(() => {
 const previewNodes = computed(() => {
   if (!doc.value) return []
   if (!activeAnimation.value) return doc.value.nodes
-  // Preserve every nested tree and the original layout/draw order. Visibility is a separate mask.
-  const clones = new Map<string, UMGNode>()
-  for (const { node } of boundTracks.value) {
-    if (clones.has(node.id)) continue
-    clones.set(node.id, {
-    ...node,
-    slot: node.slot ? { ...node.slot, values: { ...node.slot.values, LayoutData: { ...node.slot.values.LayoutData, Offsets: { ...node.slot.values.LayoutData?.Offsets } } } } : node.slot,
-    visual: {
-      ...node.visual,
-      RenderTransform: node.visual.RenderTransform ? {
-        ...node.visual.RenderTransform,
-        Translation: { ...node.visual.RenderTransform.Translation },
-        Scale: { ...node.visual.RenderTransform.Scale },
-        Shear: { ...node.visual.RenderTransform.Shear }
-      } : undefined
-    }
-    })
-  }
-  for(const {track, node: source} of boundTracks.value){
-    const node=clones.get(source.id)
-    if(!node) continue
-    const values=new Map(track.channels.map(c=>[c.property,sampleChannel(c,animationFrame.value)]))
-    if(track.type.includes('Transform')){
-      const axis=(name:string,index:number)=>values.get(`${name}.${index}`)??values.get(`${name}${index===0?'X':'Y'}`)??null
-      const translation={X:axis('Translation',0)??node.visual.RenderTransform?.Translation?.X??0,Y:axis('Translation',1)??node.visual.RenderTransform?.Translation?.Y??0}
-      const scale={X:axis('Scale',0)??node.visual.RenderTransform?.Scale?.X??1,Y:axis('Scale',1)??node.visual.RenderTransform?.Scale?.Y??1}
-      const shear={X:axis('Shear',0)??node.visual.RenderTransform?.Shear?.X??0,Y:axis('Shear',1)??node.visual.RenderTransform?.Shear?.Y??0}
-      node.visual.RenderTransform={...(node.visual.RenderTransform||{}),Translation:translation,Scale:scale,Shear:shear,Angle:values.get('Rotation.0')??values.get('Rotation')??node.visual.RenderTransform?.Angle??0}
-    } else if(track.type.includes('Float')&&track.property==='RenderOpacity') node.visual.RenderOpacity=values.get('FloatCurve')??node.visual.RenderOpacity
-    else if(track.type.includes('Margin') && track.property==='Offsets' && node.slot) {
-      const data = node.slot.values.LayoutData ??= {}
-      const offsets = data.Offsets ??= {}
-      for (const side of ['Left','Top','Right','Bottom']) {
-        const value = values.get(`${side}Curve`)
-        if (value != null) offsets[side] = value
-      }
-    } else if(track.type.includes('Color')) {
-      const property = track.property
-      if (!property || !['ColorAndOpacity','ContentColorAndOpacity','BrushColor','Color'].includes(property)) continue
-      const original = node.visual[property] ?? {}
-      const color = { ...(original.SpecifiedColor ?? original) }
-      for (const [channel, component] of [['RedCurve','R'],['GreenCurve','G'],['BlueCurve','B'],['AlphaCurve','A']]) {
-        const value = values.get(channel)
-        if (value != null) color[component] = value
-      }
-      node.visual[property] = original.SpecifiedColor ? { ...original, SpecifiedColor: color } : color
-    }
-  }
-  return doc.value.nodes.map(node => clones.get(node.id) ?? node)
+  return applyAnimation(doc.value.nodes, boundTracks.value, animationFrame.value)
 })
 function setAnimationPlaying(playing: boolean) {
   animationPlaying.value = playing
@@ -354,6 +302,7 @@ const selectedLayout = computed(() => {
             :selected-id="selectedNodeId"
             :hidden-ids="stageHiddenIds"
             :viewport="viewport"
+            @update:viewport="setViewport"
             :view-mode="viewMode"
             @update:view-mode="viewMode = $event"
             @select-node="id => (selectedNodeId = id)"
