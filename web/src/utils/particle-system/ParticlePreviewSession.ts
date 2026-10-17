@@ -1,6 +1,7 @@
 import { ParticleSimulationEngine, buildParticleMaterialSprites, type ParticleSystemData } from './ParticleRuntime'
 import { loadParticleMesh, meshOriginRadius, type ParticleMeshGeometry } from './ParticleMeshGeometry'
 import { fitParticleCamera } from './ParticleCamera'
+import { disposeBgnSurface } from './BgnCompatibilitySurface'
 
 /** APPROXIMATION: persistent CPU simulation, baked materials and neutral mesh preview.
  * Large seeks replay at most 10 seconds; not deterministic UE simulation or Blueprint execution.
@@ -12,31 +13,48 @@ export class ParticlePreviewSession {
   private radii = new Map<number, number>()
   private abort = new AbortController()
   private disposed = false
+  private preparation = 0
   private time = 0
   private camera: ReturnType<typeof fitParticleCamera> = null
   constructor(private info: ParticleSystemData) { this.engine = new ParticleSimulationEngine(info); this.canvas.dataset.particlePreview = 'dynamic' }
   async prepare(loadImage: (path: string) => Promise<HTMLImageElement | null>, materials?: Record<string, any>, projectId?: string) {
+    if (this.disposed) return
+    const generation = ++this.preparation
+    this.abort.abort()
+    this.abort = new AbortController()
+    const signal = this.abort.signal
+    this.meshes.clear(); this.radii.clear(); this.camera = null
+    // Convert rejection immediately so mesh loading cannot leave an unhandled promise.
     const sprites = buildParticleMaterialSprites(this.info, loadImage, materials, projectId)
+      .then(value => ({ value, error: undefined }), error => ({ value: undefined, error }))
     const requests = new Map<string, Promise<ParticleMeshGeometry>>()
     await Promise.all(this.info.Emitters.map(async (emitter, index) => {
       const type = emitter.LODLevels?.[0]?.TypeDataModule
       const path = type?.References?.Mesh?.ContentFile
       if (!projectId || type?.Class !== 'ParticleModuleTypeDataMesh' || !path) return
       let request = requests.get(path)
-      if (!request) { request = loadParticleMesh(projectId, path, this.abort.signal); requests.set(path, request) }
+      if (!request) { request = loadParticleMesh(projectId, path, signal); requests.set(path, request) }
       try {
         const mesh = await request
-        if (!this.disposed) { this.meshes.set(index, mesh); this.radii.set(index, meshOriginRadius(mesh)) }
+        if (!this.disposed && generation === this.preparation) { this.meshes.set(index, mesh); this.radii.set(index, meshOriginRadius(mesh)) }
       } catch { /* APPROXIMATION: missing mesh is omitted, never replaced by a rectangle. */ }
     }))
     const result = await sprites
-    if (!this.disposed) this.engine.setMaterialSprites(result)
+    if (this.disposed || generation !== this.preparation) {
+      result.value?.forEach(disposeBgnSurface)
+      return
+    }
+    if (!result.value) throw result.error
+    this.engine.materialSprites.forEach(disposeBgnSurface)
+    this.engine.setMaterialSprites(result.value)
+    this.camera = null
   }
   draw(time: number, width: number, height: number) {
     if (this.disposed) return null
     time = Number.isFinite(time) ? Math.max(0, time) : 0
     if (time < this.time || time - this.time > 10) {
       const sprites = this.engine.materialSprites
+      this.engine.dispose(true)
       this.engine = new ParticleSimulationEngine(this.info)
       this.engine.setMaterialSprites(sprites)
       this.time = Math.max(0, time - 10)
@@ -56,5 +74,5 @@ export class ParticlePreviewSession {
     })
     return this.canvas
   }
-  dispose() { this.disposed = true; this.abort.abort(); this.meshes.clear(); this.radii.clear(); this.engine.materialSprites.clear(); this.canvas.width = this.canvas.height = 1 }
+  dispose() { this.engine.dispose(); this.disposed = true; this.abort.abort(); this.meshes.clear(); this.radii.clear(); this.engine.materialSprites.clear(); this.canvas.width = this.canvas.height = 1 }
 }

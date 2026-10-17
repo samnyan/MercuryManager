@@ -1,10 +1,13 @@
+import { particleSubImageFrame } from './ParticleSubUV'
 // 通用粒子系统运行时与渲染桥接模块 (ParticleRuntime.ts)
 // 供 ParticleSystemViewer (Cascade 面板) 与 UMG / Blueprint 预览器共同复用
 
 import { normalizeMaterialEntry } from '../material-shader/UMGMaterialBridge'
 import type { ParticleMeshGeometry } from './ParticleMeshGeometry'
 import { drawParticleMeshPreview } from './ParticleMeshPreview'
-import { createBgnSurface, updateBgnSurface } from './BgnCompatibilitySurface'
+import { ParticleWebGlRenderer } from './ParticleWebGlRenderer'
+import { createParticleMaterialCompatibility, particleMaterialCompatibility } from './ParticleMaterialCompatibility'
+import { createBgnSurface, updateBgnSurface, disposeBgnSurface } from './BgnCompatibilitySurface'
 import { MaterialSurface } from '../material-runtime/MaterialSurface'
 import { materialPrograms } from '../material-runtime/MaterialProgramCache'
 
@@ -43,7 +46,15 @@ export interface ParticleModuleProp {
   }
 }
 
+export interface ParticleDynamicParameter {
+  ValueMethod: string
+  SpawnTimeOnly: boolean
+  UseEmitterTime: boolean
+  Distribution: any
+}
+
 export interface ParticleModuleInfo {
+  DynamicParameters?: ParticleDynamicParameter[]
   ExportIndex: number
   Name: string
   Class: string
@@ -97,6 +108,9 @@ export interface SimParticle {
   subImagesH: number
   subImagesV: number
   subImageIndex: number
+  pivotOffset?: [number, number]
+  subImageDist?: any
+  subImageRandom?: number
   x: number
   y: number
   z: number
@@ -121,13 +135,26 @@ export interface SimParticle {
   rotX: number
   rotY: number
   rotZ: number
+  /** APPROXIMATION: stable per-particle random, not native RNG sequence. */
+  opacityMaskClipValue?: number
+  shaderRandom?: number
+  dynamicParameters?: ParticleDynamicParameter[]
+  dynamicValues?: number[]
+  dynamicRandom?: number[]
   meshPreRotation?: [number, number, number]
   vRotX: number
   vRotY: number
   vRotZ: number
+  baseColor?: [number, number, number, number]
+  colorScaleModules?: Array<{ color: any; alpha: any; emitterTime: boolean }>
   colorOverLifeDist?: any
   alphaOverLifeDist?: any
   sizeByLifeDist?: any
+  sizeLifeModules?: Array<{ distribution: any; axes: boolean[]; replace: boolean }>
+  velocityOverLifeDist?: any
+  velocityAbsolute?: boolean
+  baseVelocity?: [number, number, number]
+  accelerationOverLifeDist?: any
 }
 
 interface EmitterRuntimeState {
@@ -143,13 +170,14 @@ function randRange(min: number, max: number): number {
 }
 
 // Native scalar lookup: Mercury 0x1415935F0 (op1/op3), 0x141593020 (op2).
-// Vector op1 shares the lookup layout; random vector lock flags remain APPROXIMATION.
-function sampleCookedTable(dist: any, dimensions: number, time = 0): number[] | null {
+// Random vector sampling preserves authored bounds and axis correlation.
+// APPROXIMATION: RNG stream/order is not UE seeded parity; vector op3 remains unsupported.
+function sampleCookedTable(dist: any, dimensions: number, time = 0, random = Math.random): number[] | null {
   const values = dist.TableValues
   const count = dist.EntryCount
   const stride = dist.EntryStride
   const op = dist.TableOp
-  if (![1, 2, 3].includes(op) || (dimensions !== 1 && op !== 1) ||
+  if (![1, 2, 3].includes(op) || (dimensions !== 1 && op === 3) ||
       !Number.isInteger(count) || count < 1 ||
       stride !== dimensions * (op === 1 ? 1 : 2) ||
       !Array.isArray(values) || values.length !== count * stride ||
@@ -164,19 +192,30 @@ function sampleCookedTable(dist: any, dimensions: number, time = 0): number[] | 
   const fraction = position - lower
   const interpolate = (column: number) => values[a + column] +
     (values[b + column] - values[a + column]) * fraction
-  if (op === 2) return [interpolate(0) + (interpolate(1) - interpolate(0)) * Math.random()]
-  if (op === 3) return [interpolate(Math.random() > 0.5 ? 1 : 0)]
+  if (op === 2) {
+    if (dimensions === 1) return [interpolate(0) + (interpolate(1) - interpolate(0)) * random()]
+    if (dist.SubEntryStride !== 3 || ![0, 1, 2, 3, 4].includes(dist.LockFlag)) return null
+    // Each axis belongs to a random group; locked axes share a fraction, not a value.
+    const groups = [[0, 1, 2], [0, 0, 2], [0, 1, 0], [0, 1, 1], [0, 0, 0]][dist.LockFlag]!
+    const fractions = new Map<number, number>()
+    return groups.map((group, axis) => {
+      if (!fractions.has(group)) fractions.set(group, random())
+      const low = interpolate(axis), high = interpolate(dist.SubEntryStride + axis)
+      return low + (high - low) * fractions.get(group)!
+    })
+  }
+  if (op === 3) return [interpolate(random() > 0.5 ? 1 : 0)]
   return Array.from({ length: dimensions }, (_, i) => interpolate(i))
 }
 
-export function sampleFloatDist(dist: any, fallback = 0, ratio?: number): number {
+export function sampleFloatDist(dist: any, fallback = 0, ratio?: number, random = Math.random): number {
   if (!dist) return fallback
-  const cooked = sampleCookedTable(dist, 1, ratio)
+  const cooked = sampleCookedTable(dist, 1, ratio, random)
   if (cooked) return cooked[0]
   // APPROXIMATION: unsupported/incomplete tables use bounds, never flatten random columns into time.
   const mn = typeof dist.MinValue === 'number' ? dist.MinValue : fallback
   const mx = typeof dist.MaxValue === 'number' ? dist.MaxValue : mn
-  return randRange(mn, mx)
+  return mn === mx ? mn : mn + random() * (mx - mn)
 }
 
 export function sampleVecDist(
@@ -205,6 +244,10 @@ export function getModulePropNumber(
   if (!mod?.Properties) return fallback
   const p = mod.Properties.find(x => x.Name === name)
   return typeof p?.Number === 'number' ? p.Number : fallback
+}
+
+function moduleEnabled(mod: ParticleModuleInfo | null | undefined): boolean {
+  return !!mod && mod.Properties?.find(p => p.Name === 'bEnabled')?.Bool !== false
 }
 
 export function getEmitterMaterialPath(em: ParticleEmitterInfo): string | null {
@@ -239,6 +282,10 @@ export async function buildParticleMaterialSprites(
     }
     const rawMat = matPool[matPath]
     if (!rawMat) continue
+    try {
+      const family = await createParticleMaterialCompatibility(rawMat, matPath, loadImage)
+      if (family) { result.set(matPath, family); continue }
+    } catch (error) { console.warn('Particle family preview unavailable', error) }
     const spec = normalizeMaterialEntry(rawMat, matPath)
     if (!spec) continue
 
@@ -313,6 +360,12 @@ export class ParticleSimulationEngine {
   public emitterStates: EmitterRuntimeState[] = []
   public materialSprites = new Map<string, HTMLCanvasElement>()
   public maxParticles = 400
+  private meshRenderer: ParticleWebGlRenderer | null = null
+  private meshRendererFailed = false
+  public dispose(keepSurfaces = false) {
+    this.meshRenderer?.dispose(); this.meshRenderer = null
+    if (!keepSurfaces) this.materialSprites.forEach(disposeBgnSurface)
+  }
 
   constructor(info: ParticleSystemData) {
     this.info = info
@@ -343,7 +396,7 @@ export class ParticleSimulationEngine {
 
   public spawnParticleForEmitter(em: ParticleEmitterInfo, emIdx: number) {
     const lod = em.LODLevels?.[0]
-    if (!lod) return
+    if (!lod || lod.Enabled === false) return
 
     let lifetime = 5.0
     let size: [number, number, number] = [55, 55, 55]
@@ -356,21 +409,32 @@ export class ParticleSimulationEngine {
     // No rotation-rate module means no angular motion, not a decorative random spin.
     let rotRate: [number, number, number] = [0, 0, 0]
 
+    const colorScaleModules: NonNullable<SimParticle['colorScaleModules']> = []
     let colorOverLifeDist: any = null
     let alphaOverLifeDist: any = null
-    let sizeByLifeDist: any = null
+    const sizeLifeModules: NonNullable<SimParticle['sizeLifeModules']> = []
+    let velocityOverLifeDist: any = null
+    let accelerationOverLifeDist: any = null
+    let velocityAbsolute = false
+    let dynamicParameters: ParticleDynamicParameter[] | undefined
+    let dynamicModuleCount = 0
 
     const matPath = getEmitterMaterialPath(em) || undefined
     const rawMat = matPath ? this.info.Materials?.[matPath] : null
-    const blendMode =
-      rawMat?.MaterialInstanceInfo?.BasePropertyOverrides?.BlendMode ||
-      rawMat?.MaterialInstanceInfo?.ParentMaterialInfo?.BlendMode ||
-      rawMat?.MaterialInfo?.BlendMode ||
-      'BLEND_Opaque'
+    const overrides = rawMat?.MaterialInstanceInfo?.BasePropertyOverrides
+    const master = rawMat?.MaterialInstanceInfo?.ParentMaterialInfo ?? rawMat?.MaterialInfo
+    const blendMode = (overrides?.bOverride_BlendMode === true ? overrides.BlendMode : undefined)
+      ?? master?.BlendMode ?? 'BLEND_Opaque'
+    const clip = overrides?.bOverride_OpacityMaskClipValue === true
+      ? overrides.OpacityMaskClipValue : master?.OpacityMaskClipValue
+    const opacityMaskClipValue = Number.isFinite(clip) ? clip : 1 / 3
 
     const subImagesH = Math.max(1, getModulePropNumber(lod.RequiredModule, 'SubImages_Horizontal', 1))
     const subImagesV = Math.max(1, getModulePropNumber(lod.RequiredModule, 'SubImages_Vertical', 1))
+    const pivotOffset: [number, number] = [0, 0]
     let subImageIndex = 0
+    let subImageDist: any
+    let subImageRandom: number | undefined
 
     const reqOrigin = lod.RequiredModule?.Properties?.find(p => p.Name === 'EmitterOrigin')?.Vector
     if (Array.isArray(reqOrigin) && reqOrigin.length >= 3) {
@@ -378,15 +442,39 @@ export class ParticleSimulationEngine {
     }
 
     for (const mod of lod.Modules || []) {
+      if (!moduleEnabled(mod)) continue
       const cls = mod.Class || ''
-      if (cls.includes('Lifetime')) {
+      if (cls === 'ParticleModulePivotOffset') {
+        const offset = mod.Properties?.find(p => p.Name === 'PivotOffset')?.Vector
+        if (offset?.length === 2 && offset.every(Number.isFinite)) {
+          pivotOffset[0] += offset[0]!; pivotOffset[1] += offset[1]!
+        }
+      }
+      if (cls === 'ParticleModuleParameterDynamic') {
+        // Unknown value methods stay unsupported rather than treated as user-set.
+        const params = mod.DynamicParameters
+        dynamicModuleCount++
+        dynamicParameters = dynamicModuleCount === 1 && params?.length === 4 && params.every(p =>
+          /(^|::)EDPV_UserSet$/.test(p.ValueMethod) &&
+          Number.isFinite(sampleFloatDist(p.Distribution, NaN, 0, () => 0.5))) ? params : undefined
+      }
+      if (cls === 'ParticleModuleVelocityOverLifetime') {
+        velocityOverLifeDist = mod.Distributions?.VelOverLife
+        velocityAbsolute = mod.Properties?.find(p => p.Name === 'Absolute')?.Bool ?? false
+      } else if (cls === 'ParticleModuleAccelerationOverLifetime') {
+        accelerationOverLifeDist = mod.Distributions?.AccelOverLife
+      } else if (cls === 'ParticleModuleSizeScale') {
+        sizeLifeModules.push({ distribution: mod.Distributions?.SizeScale, axes: [true,true,true], replace: true })
+      } else if (cls === 'ParticleModuleLifetime') {
         lifetime = Math.max(0.2, sampleFloatDist(mod.Distributions?.Lifetime, 3.0))
         // Preserve authored lifetime; do not shorten long-lived background effects.
-      } else if (cls.includes('SizeMultiplyLife') || cls.includes('SizeScaleByLife')) {
-        sizeByLifeDist = mod.Distributions?.LifeMultiplier
-      } else if (cls.includes('Size')) {
+      } else if (cls === 'ParticleModuleSizeMultiplyLife') {
+        sizeLifeModules.push({ distribution: mod.Distributions?.LifeMultiplier,
+          axes: ['MultiplyX','MultiplyY','MultiplyZ'].map(name => mod.Properties?.find(p => p.Name === name)?.Bool ?? true),
+          replace: false })
+      } else if (cls === 'ParticleModuleSize') {
         size = sampleVecDist(mod.Distributions?.StartSize, [55, 55, 55])
-      } else if (cls.includes('Velocity')) {
+      } else if (cls === 'ParticleModuleVelocity') {
         vel = sampleVecDist(mod.Distributions?.StartVelocity, [0, 0, 0])
         const rad = sampleFloatDist(mod.Distributions?.StartVelocityRadial, 0)
         if (rad !== 0) {
@@ -394,17 +482,21 @@ export class ParticleSimulationEngine {
           vel[0] += Math.cos(theta) * rad
           vel[1] += Math.sin(theta) * rad
         }
-      } else if (cls.includes('Acceleration')) {
-        accel = sampleVecDist(
-          mod.Distributions?.Acceleration || mod.Distributions?.DragCoefficient,
-          [0, 0, 0]
-        )
-      } else if (cls.includes('ColorOverLife') || cls.includes('ColorScaleOverLife')) {
-        colorOverLifeDist = mod.Distributions?.ColorOverLife || mod.Distributions?.ColorScaleOverLife
-        alphaOverLifeDist = mod.Distributions?.AlphaOverLife || mod.Distributions?.AlphaScaleOverLife
+      } else if (cls === 'ParticleModuleAcceleration') {
+        accel = sampleVecDist(mod.Distributions?.Acceleration, [0, 0, 0])
+      } else if (cls === 'ParticleModuleAccelerationConstant') {
+        const value = mod.Properties?.find(p => p.Name === 'Acceleration')?.Vector
+        if (value?.length === 3 && value.every(Number.isFinite)) accel = [value[0]!, value[1]!, value[2]!]
+      } else if (cls === 'ParticleModuleColorScaleOverLife') {
+        colorScaleModules.push({ color: mod.Distributions?.ColorScaleOverLife,
+          alpha: mod.Distributions?.AlphaScaleOverLife,
+          emitterTime: mod.Properties?.find(p => p.Name === 'bEmitterTime')?.Bool ?? false })
+      } else if (cls === 'ParticleModuleColorOverLife') {
+        colorOverLifeDist = mod.Distributions?.ColorOverLife
+        alphaOverLifeDist = mod.Distributions?.AlphaOverLife
         if (colorOverLifeDist) color = sampleVecDist(colorOverLifeDist, [1, 1, 1], 0)
         if (alphaOverLifeDist) alpha = sampleFloatDist(alphaOverLifeDist, 1.0, 0)
-      } else if (cls.includes('Color')) {
+      } else if (cls === 'ParticleModuleColor') {
         const cDist = mod.Distributions?.StartColor
         if (cDist) color = sampleVecDist(cDist, [1, 1, 1])
         const aDist = mod.Distributions?.StartAlpha
@@ -422,17 +514,20 @@ export class ParticleSimulationEngine {
         pos[0] += locOffset[0]
         pos[1] += locOffset[1]
         pos[2] += locOffset[2]
-      } else if (cls.includes('RotationRate')) {
+      } else if (cls === 'ParticleModuleRotationRate' || cls === 'ParticleModuleMeshRotationRate') {
         const rr = cls.includes('Mesh')
           ? sampleVecDist(mod.Distributions?.StartRotationRate, [0, 0, 0])
           : [0, 0, sampleFloatDist(mod.Distributions?.StartRotationRate, 0)]
         rotRate = [rr[0] * Math.PI * 2, rr[1] * Math.PI * 2, rr[2] * Math.PI * 2]
-      } else if (cls.includes('Rotation')) {
+      } else if (cls === 'ParticleModuleRotation' || cls === 'ParticleModuleMeshRotation') {
         rot = cls.includes('Mesh')
           ? sampleVecDist(mod.Distributions?.StartRotation, [0, 0, 0])
           : [0, 0, sampleFloatDist(mod.Distributions?.StartRotation, 0)]
-      } else if (cls.includes('SubUV')) {
-        subImageIndex = Math.floor(sampleFloatDist(mod.Distributions?.SubImageIndex, 0))
+      } else if (cls === 'ParticleModuleSubUV') {
+        // APPROXIMATION: discrete curve-driven frames; interpolation/random modes pending.
+        subImageDist = mod.Distributions?.SubImageIndex
+        subImageRandom = Math.random()
+        subImageIndex = sampleFloatDist(subImageDist, 0, 0, () => subImageRandom!)
       }
     }
 
@@ -443,14 +538,21 @@ export class ParticleSimulationEngine {
     const sy = Number.isFinite(size[1]) ? Math.abs(size[1]) : 55
     const sz = Number.isFinite(size[2]) ? Math.abs(size[2]) : 55
 
+    // APPROXIMATION: retain one random fraction per dynamic channel across updates.
+    // This prevents flicker; it does not reproduce the native seeded RNG stream.
+    const dynamicRandom = dynamicParameters?.map(() => Math.random())
     this.particles.push({
       emitterIdx: emIdx,
       isMesh: em.EmitterType === 'Mesh',
       materialPath: matPath,
       blendMode,
+      opacityMaskClipValue,
       subImagesH,
       subImagesV,
+      pivotOffset,
       subImageIndex,
+      subImageDist,
+      subImageRandom,
       x: pos[0],
       y: pos[1],
       z: pos[2],
@@ -466,10 +568,15 @@ export class ParticleSimulationEngine {
       baseSizeX: sx,
       baseSizeY: sy,
       baseSizeZ: sz,
-      r: Math.min(1, Math.max(0.05, color[0])),
-      g: Math.min(1, Math.max(0.05, color[1])),
-      b: Math.min(1, Math.max(0.05, color[2])),
-      a: Math.min(1, Math.max(0.05, alpha)),
+      r: Math.max(0, color[0]),
+      g: Math.max(0, color[1]),
+      b: Math.max(0, color[2]),
+      a: alpha,
+      dynamicParameters,
+      dynamicRandom,
+      dynamicValues: dynamicParameters?.map((p, channel) => sampleFloatDist(p.Distribution, NaN,
+        p.UseEmitterTime ? (this.emitterStates[emIdx]?.cycleTime ?? 0) : 0, () => dynamicRandom![channel]!)),
+      shaderRandom: Math.random(),
       age: 0,
       lifetime,
       // APPROXIMATION: mesh-local pre-rotation in degrees, separate from particle turns.
@@ -481,20 +588,27 @@ export class ParticleSimulationEngine {
       vRotX: rotRate[0],
       vRotY: rotRate[1],
       vRotZ: rotRate[2],
+      baseColor: [color[0], color[1], color[2], alpha],
+      colorScaleModules,
       colorOverLifeDist,
       alphaOverLifeDist,
-      sizeByLifeDist
+      sizeLifeModules,
+      velocityOverLifeDist,
+      velocityAbsolute,
+      baseVelocity: [...vel],
+      accelerationOverLifeDist
     })
   }
 
   public step(dt: number, activeFilter?: (emIdx: number) => boolean) {
+    if (!Number.isFinite(dt) || dt <= 0) return
     this.simTime += dt
     const emitters = this.info.Emitters || []
 
     emitters.forEach((em, idx) => {
       if (activeFilter && !activeFilter(idx)) return
       const lod = em.LODLevels?.[0]
-      if (!lod) return
+      if (!lod || lod.Enabled === false) return
       const state = this.emitterStates[idx]
       if (!state) return
 
@@ -503,40 +617,48 @@ export class ParticleSimulationEngine {
 
       state.cycleTime += dt
       if (state.cycleTime >= duration) {
+        state.loopsDone += Math.floor(state.cycleTime / duration)
         state.cycleTime %= duration
-        state.loopsDone++
         state.firedBursts.clear()
       }
       if (loops > 0 && state.loopsDone >= loops) return
 
-      const rateFromSpawn = sampleFloatDist(lod.SpawnModule?.Distributions?.Rate, 0)
-      const rateFromReq = getModulePropNumber(lod.RequiredModule, 'SpawnRate', 0)
-      const effectiveRate = Math.max(rateFromSpawn, rateFromReq)
+      const spawnEnabled = moduleEnabled(lod.SpawnModule)
+      const rate = lod.SpawnModule
+        ? (spawnEnabled ? sampleFloatDist(lod.SpawnModule.Distributions?.Rate, 0, state.cycleTime) : 0)
+        : getModulePropNumber(lod.RequiredModule, 'SpawnRate', 0)
+      const scale = spawnEnabled ? sampleFloatDist(lod.SpawnModule?.Distributions?.RateScale, 1, state.cycleTime) : 1
+      const effectiveRate = Number.isFinite(rate * scale) ? Math.max(0, rate * scale) : 0
 
       if (effectiveRate > 0) {
-        state.accumSpawn += effectiveRate * dt
-        while (state.accumSpawn >= 1 && this.particles.length < this.maxParticles) {
-          state.accumSpawn -= 1
-          this.spawnParticleForEmitter(em, idx)
+        const requested = state.accumSpawn + effectiveRate * dt
+        if (Number.isFinite(requested)) {
+          const whole = Math.floor(requested)
+          // APPROXIMATION: the preview cap drops excess births rather than queueing
+          // a burst for later frames. Keep only the fractional spawn remainder.
+          state.accumSpawn = requested - whole
+          const available = Math.max(0, this.maxParticles - this.particles.length)
+          for (let i = 0; i < Math.min(whole, available); i++) this.spawnParticleForEmitter(em, idx)
+        } else {
+          state.accumSpawn = 0
         }
       }
 
-      const burstProp = lod.SpawnModule?.Properties?.find(p => p.Name === 'BurstList')
+      const burstProp = spawnEnabled ? lod.SpawnModule?.Properties?.find(p => p.Name === 'BurstList') : undefined
       const bursts = burstProp?.Bursts || []
       bursts.forEach((b, bIdx) => {
         if (!state.firedBursts.has(bIdx) && state.cycleTime >= (b.Time || 0)) {
           state.firedBursts.add(bIdx)
-          const cnt = Math.min(30, Math.max(1, b.Count || 1))
+          // APPROXIMATION: inclusive uniform burst range; native RNG sequence unverified.
+          const high = Number.isFinite(b.Count) ? Math.max(0, Math.floor(b.Count)) : 0
+          const low = Number.isFinite(b.CountLow) && b.CountLow >= 0 ? Math.min(high, Math.floor(b.CountLow)) : high
+          const cnt = low + Math.floor(Math.random() * (high - low + 1))
           for (let i = 0; i < cnt && this.particles.length < this.maxParticles; i++) {
             this.spawnParticleForEmitter(em, idx)
           }
         }
       })
 
-      if (effectiveRate === 0 && bursts.length === 0) {
-        const hasAny = this.particles.some(p => p.emitterIdx === idx)
-        if (!hasAny) this.spawnParticleForEmitter(em, idx)
-      }
     })
 
     const alive: SimParticle[] = []
@@ -545,10 +667,25 @@ export class ParticleSimulationEngine {
       p.age += dt
       if (p.age >= p.lifetime) continue
       const lifeRatio = p.age / p.lifetime
+      if (p.subImageDist) p.subImageIndex = sampleFloatDist(p.subImageDist, 0, lifeRatio, () => p.subImageRandom ?? 0.5)
+      p.dynamicParameters?.forEach((param, channel) => {
+        if (!param.SpawnTimeOnly && p.dynamicValues) p.dynamicValues[channel] = sampleFloatDist(
+          param.Distribution, NaN, param.UseEmitterTime ? (this.emitterStates[p.emitterIdx]?.cycleTime ?? 0) : lifeRatio,
+          () => p.dynamicRandom![channel]!)
+      })
 
-      p.vx += p.ax * dt
-      p.vy += p.ay * dt
-      p.vz += p.az * dt
+      // APPROXIMATION: CPU integration in emitter coordinates; no UE seeded parity.
+      const acceleration = p.accelerationOverLifeDist
+        ? sampleVecDist(p.accelerationOverLifeDist, [0, 0, 0], lifeRatio)
+        : [p.ax, p.ay, p.az]
+      const base = p.baseVelocity ?? [p.vx, p.vy, p.vz]
+      for (let axis = 0; axis < 3; axis++) base[axis] += acceleration[axis]! * dt
+      p.baseVelocity = base as [number, number, number]
+      const factor = p.velocityOverLifeDist
+        ? sampleVecDist(p.velocityOverLifeDist, [1, 1, 1], lifeRatio) : [1, 1, 1]
+      p.vx = p.velocityAbsolute ? factor[0]! : base[0]! * factor[0]!
+      p.vy = p.velocityAbsolute ? factor[1]! : base[1]! * factor[1]!
+      p.vz = p.velocityAbsolute ? factor[2]! : base[2]! * factor[2]!
       p.x += p.vx * dt
       p.y += p.vy * dt
       p.z += p.vz * dt
@@ -556,22 +693,38 @@ export class ParticleSimulationEngine {
       p.rotY += p.vRotY * dt
       p.rotZ += p.vRotZ * dt
 
+      // APPROXIMATION: evaluate replacement before scaling; native arbitrary module
+      // ordering is not reproduced. Rebuild from base to avoid cumulative multiplication.
+      if (p.colorScaleModules?.length && p.baseColor) {
+        [p.r, p.g, p.b, p.a] = p.baseColor
+      }
       if (p.colorOverLifeDist) {
         const c = sampleVecDist(p.colorOverLifeDist, [p.r, p.g, p.b], lifeRatio)
-        p.r = Math.min(1, Math.max(0, c[0]))
-        p.g = Math.min(1, Math.max(0, c[1]))
-        p.b = Math.min(1, Math.max(0, c[2]))
+        p.r = Math.max(0, c[0])
+        p.g = Math.max(0, c[1])
+        p.b = Math.max(0, c[2])
       }
       if (p.alphaOverLifeDist) {
-        p.a = Math.min(1, Math.max(0, sampleFloatDist(p.alphaOverLifeDist, p.a, lifeRatio)))
+        p.a = sampleFloatDist(p.alphaOverLifeDist, p.a, lifeRatio)
       }
-      if (p.sizeByLifeDist) {
-        const mul = sampleVecDist(p.sizeByLifeDist, [1, 1, 1], lifeRatio)
-        // APPROXIMATION: module axis-enable flags are not yet modeled. Preserve
-        // all three sampled components, including zero; never inflate collapsed geometry.
-        p.sizeX = p.baseSizeX * mul[0]
-        p.sizeY = p.baseSizeY * mul[1]
-        p.sizeZ = p.baseSizeZ * mul[2]
+      for (const scale of p.colorScaleModules ?? []) {
+        const time = scale.emitterTime ? (this.emitterStates[p.emitterIdx]?.cycleTime ?? 0) : lifeRatio
+        const rgb = sampleVecDist(scale.color, [1, 1, 1], time)
+        p.r *= rgb[0]; p.g *= rgb[1]; p.b *= rgb[2]
+        p.a *= sampleFloatDist(scale.alpha, 1, time)
+      }
+      if (p.sizeLifeModules?.length || p.sizeByLifeDist) {
+        const base = [p.baseSizeX, p.baseSizeY, p.baseSizeZ]
+        const size = [...base]
+        // APPROXIMATION: ordered CPU evaluation; native random curve parity pending.
+        const modules = p.sizeLifeModules ?? [{ distribution: p.sizeByLifeDist, axes: [true,true,true], replace: true }]
+        for (const module of modules) {
+          const multiplier = sampleVecDist(module.distribution, [1,1,1], lifeRatio)
+          for (let axis = 0; axis < 3; axis++) if (module.axes[axis]) {
+            size[axis] = (module.replace ? base[axis]! : size[axis]!) * multiplier[axis]!
+          }
+        }
+        p.sizeX = size[0]!; p.sizeY = size[1]!; p.sizeZ = size[2]!
       }
 
       alive.push(p)
@@ -701,16 +854,35 @@ export class ParticleSimulationEngine {
       .filter((x): x is { p: SimParticle; proj: NonNullable<ReturnType<typeof project3D>> } => x !== null)
       .sort((a, b) => b.proj.depth - a.proj.depth)
 
-    for (const { p, proj } of projected) {
-      if (p.isMesh && options.meshGeometry) {
-        const mesh = options.meshGeometry.get(p.emitterIdx)
-        if (mesh) drawParticleMeshPreview(ctx, mesh, p, project3D,
-          useMat && p.materialPath ? this.materialSprites.get(p.materialPath) : null) // APPROXIMATION: frozen bake on UV0, not native material.
-        continue // Never substitute a billboard for missing mesh geometry in this mode.
+    let gpuMeshes = false
+    const gpuParticles = this.particles.filter(p => p.isMesh || (useMat && !!particleMaterialCompatibility(p.materialPath ? this.materialSprites.get(p.materialPath) : undefined)))
+    if ((options.meshGeometry?.size || gpuParticles.length) && !this.meshRendererFailed) {
+      try {
+        this.meshRenderer ??= new ParticleWebGlRenderer()
+        const image = this.meshRenderer.draw(gpuParticles, options.meshGeometry ?? new Map(),
+          useMat ? this.materialSprites : new Map(), w, h, camYaw, camPitch, camDistance, options.camTarget ?? [0, 0, 0], this.simTime)
+        if (image) { ctx.drawImage(image, 0, 0); gpuMeshes = true }
+      } catch (error) {
+        console.warn('Particle mesh GPU preview unavailable; using Canvas approximation', error)
+        this.dispose(true); this.meshRendererFailed = true
       }
-      const lifeRatio = p.age / p.lifetime
-      const fade = lifeRatio > 0.8 ? (1 - lifeRatio) / 0.2 : 1.0
-      const alpha = Math.max(0.05, p.a * fade)
+    }
+    // APPROXIMATION: Sprite overlays still use Canvas, without shared mesh depth.
+    for (const { p, proj } of projected) {
+      if (gpuMeshes && gpuParticles.includes(p)) continue
+      const sourceSurface = useMat && p.materialPath ? this.materialSprites.get(p.materialPath) : undefined
+      // Family canvases contain shader inputs, NOT baked output (procedural families
+      // even use an empty carrier). Never present those inputs as a reconstructed material.
+      const fallbackSurface = particleMaterialCompatibility(sourceSurface) ? undefined : sourceSurface
+      if (p.isMesh) {
+        const mesh = options.meshGeometry?.get(p.emitterIdx)
+        if (mesh) drawParticleMeshPreview(ctx, mesh, p, project3D, fallbackSurface)
+        continue // Missing mesh geometry is unsupported, never a rectangle substitute.
+      }
+      // Canvas is an approximate fallback, but must not invent lifetime fading or
+      // keep zero-opacity particles visible. Material families interpret raw alpha on GPU.
+      const alpha = Number.isFinite(p.a) ? Math.min(1, Math.max(0, p.a)) : 0
+      if (alpha === 0) continue
       const r = Math.round(p.r * 255)
       const g = Math.round(p.g * 255)
       const b = Math.round(p.b * 255)
@@ -720,6 +892,8 @@ export class ParticleSimulationEngine {
       ctx.save()
       ctx.translate(proj.sx, proj.sy)
       ctx.rotate(p.rotZ)
+      // APPROXIMATION: normalized sprite pivot offset, before local rotation.
+      ctx.translate((p.pivotOffset?.[0] ?? 0) * radius * 2, -(p.pivotOffset?.[1] ?? 0) * halfHeight * 2)
 
       if (p.blendMode.includes('Additive')) {
         ctx.globalCompositeOperation = 'lighter'
@@ -727,13 +901,13 @@ export class ParticleSimulationEngine {
         ctx.globalCompositeOperation = 'source-over'
       }
 
-      const matSprite = useMat && p.materialPath ? this.materialSprites.get(p.materialPath) : null
+      const matSprite = fallbackSurface
 
       if (matSprite) {
         ctx.globalAlpha = alpha
         const totalSub = p.subImagesH * p.subImagesV
         if (totalSub > 1) {
-          const idx = Math.abs(p.subImageIndex) % totalSub
+          const idx = particleSubImageFrame(p.subImageIndex, p.subImagesH, p.subImagesV)
           const col = idx % p.subImagesH
           const row = Math.floor(idx / p.subImagesH)
           const sw = matSprite.width / p.subImagesH
@@ -753,26 +927,6 @@ export class ParticleSimulationEngine {
           ctx.drawImage(matSprite, -radius, -halfHeight, radius * 2, halfHeight * 2)
         }
 
-        // 若是 Mesh 粒子，叠加上色线框与色彩光晕以体现粒子顶点色和立体框
-        if (p.isMesh) {
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(1, alpha * 0.9)})`
-          ctx.lineWidth = p.emitterIdx === options.selectedEmitterIdx ? 2 : 1
-          ctx.strokeRect(-radius, -radius, radius * 2, radius * 2)
-        }
-      } else if (p.isMesh) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.35})`
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(1, alpha + 0.25)})`
-        ctx.lineWidth = p.emitterIdx === options.selectedEmitterIdx ? 2 : 1.2
-        const half = radius * 0.85
-        ctx.beginPath()
-        ctx.rect(-half, -half, half * 2, half * 2)
-        ctx.fill()
-        ctx.stroke()
-
-        ctx.beginPath()
-        ctx.moveTo(-half, -half)
-        ctx.lineTo(half, half)
-        ctx.stroke()
       } else {
         const radGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius)
         radGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`)

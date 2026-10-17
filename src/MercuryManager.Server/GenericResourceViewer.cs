@@ -32,7 +32,7 @@ public static class GenericResourceViewer
     {
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
         var companion=Path.ChangeExtension(path,".uexp");if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export exceeds viewer limits.");
-        var asset=new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+        var asset=new UAsset(path,AssetEngineVersion.ForUAsset(path));
         var described=System.Text.Json.JsonSerializer.SerializeToElement(Describe(asset));
         var data=JObject.Parse(described.GetProperty("data").GetRawText());
         if(described.GetProperty("isTexture").GetBoolean())
@@ -171,7 +171,7 @@ public static class GenericResourceViewer
                         var parentPath=resolve(parentPackage);
                         if(File.Exists(parentPath))
                         {
-                            var parentAsset=new UAsset(parentPath,EngineVersion.VER_UE4_19);
+                            var parentAsset=new UAsset(parentPath,AssetEngineVersion.ForUAsset(parentPath));
                             parentMatInfo=ExtractMaterialInfo(parentAsset);
                             if(!textures.ContainsKey("tex"))
                             {
@@ -364,7 +364,7 @@ public static class GenericResourceViewer
         if(new FileInfo(path).Length>32*1024*1024)throw new InvalidDataException("Asset header exceeds viewer limits.");
         var companion=Path.ChangeExtension(path,".uexp");
         if(File.Exists(companion)&&new FileInfo(companion).Length>128*1024*1024)throw new InvalidDataException("Asset export exceeds viewer limits.");
-        var asset=new UAsset(path,EngineVersion.VER_UE4_19);
+        var asset=new UAsset(path,AssetEngineVersion.ForUAsset(path));
         if(exportIndex<0||exportIndex>=asset.Exports.Count)throw new InvalidDataException("Invalid export index.");
         return asset.Exports[exportIndex].Extras??Array.Empty<byte>();
     }
@@ -448,7 +448,7 @@ public static class GenericResourceViewer
         if(!File.Exists(path))return null;
         try
         {
-            var asset=new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19);
+            var asset=new UAsset(path,AssetEngineVersion.ForUAsset(path));
             var miExport=asset.Exports.OfType<NormalExport>().FirstOrDefault(e=>e.GetExportClassType().ToString() is "MaterialInstanceConstant" or "MaterialInstance");
             if(miExport is not null)
             {
@@ -546,7 +546,7 @@ public static class GenericResourceViewer
                         var parentPath=resolve(parentPackage);
                         if(File.Exists(parentPath))
                         {
-                            var parentAsset=new UAsset(parentPath,EngineVersion.VER_UE4_19);
+                            var parentAsset=new UAsset(parentPath,AssetEngineVersion.ForUAsset(parentPath));
                             parentMatInfo=ExtractMaterialInfo(parentAsset);
                             if(!textures.ContainsKey("tex"))
                             {
@@ -681,6 +681,7 @@ public static class GenericResourceViewer
             ["ShadingModel"]=shadingModel,
             ["TwoSided"]=twoSided,
             ["CanMaskedBeAssumedOpaque"]=maskedOpaque,
+            ["OpacityMaskClipValue"]=(matExport.Data.FirstOrDefault(p=>p.Name.ToString()=="OpacityMaskClipValue") as UAssetAPI.PropertyTypes.Objects.FloatPropertyData)?.Value??0.33333334f,
             ["StateId"]=stateId,
             ["ScalarParameters"]=scalarParams,
             ["VectorParameters"]=vectorParams,
@@ -800,12 +801,16 @@ public static class GenericResourceViewer
                 // Tagged serialization omits zero-valued lookup time fields.
                 res["TimeScale"]=0f;
                 res["TimeBias"]=0f;
+                res["SubEntryStride"]=0;
+                res["LockFlag"]=0;
                 foreach(var tf in tableStruct.Value)
                 {
                     var tfn=tf.Name.ToString();
                     if(tfn=="Op" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bOp)tableOp=bOp.Value;
                     else if(tfn=="EntryCount" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bCnt)entryCount=bCnt.Value;
                     else if(tfn=="EntryStride" && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData bStr)entryStride=bStr.Value;
+                    else if((tfn=="SubEntryStride" || tfn=="LockFlag") && tf is UAssetAPI.PropertyTypes.Objects.BytePropertyData byteField)
+                        res[tfn]=byteField.Value;
                     else if((tfn=="TimeScale" || tfn=="TimeBias") && tf is UAssetAPI.PropertyTypes.Objects.FloatPropertyData timeField)
                         res[tfn]=timeField.Value;
                     else if(tfn=="Values" && tf is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData valsArr)
@@ -896,6 +901,7 @@ public static class GenericResourceViewer
 
         var parsedProps=new JArray();
         var distributions=new JObject();
+        var dynamicParameters=new JArray();
         var references=new JObject();
         var rawProps=new JObject();
         string summary="";
@@ -912,6 +918,26 @@ public static class GenericResourceViewer
             catch{}
 
             if(pn=="LODValidity")continue;
+            if(pn=="DynamicParams" && prop is UAssetAPI.PropertyTypes.Objects.ArrayPropertyData dynamicArray)
+            {
+                foreach(var item in dynamicArray.Value.OfType<UAssetAPI.PropertyTypes.Structs.StructPropertyData>())
+                {
+                    var method=item.Value.FirstOrDefault(f=>f.Name.ToString()=="ValueMethod");
+                    var methodName=method switch
+                    {
+                        UAssetAPI.PropertyTypes.Objects.BytePropertyData b=>b.EnumValue?.ToString()??b.Value.ToString(),
+                        UAssetAPI.PropertyTypes.Objects.EnumPropertyData e=>e.Value?.ToString(),
+                        _=>"EDPV_UserSet"
+                    };
+                    dynamicParameters.Add(new JObject
+                    {
+                        ["ValueMethod"]=methodName,
+                        ["SpawnTimeOnly"]=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="bSpawnTimeOnly") as UAssetAPI.PropertyTypes.Objects.BoolPropertyData)?.Value??false,
+                        ["UseEmitterTime"]=(item.Value.FirstOrDefault(f=>f.Name.ToString()=="bUseEmitterTime") as UAssetAPI.PropertyTypes.Objects.BoolPropertyData)?.Value??false,
+                        ["Distribution"]=ParseDistribution(item.Value.FirstOrDefault(f=>f.Name.ToString()=="ParamValue") as UAssetAPI.PropertyTypes.Structs.StructPropertyData,asset)
+                    });
+                }
+            }
 
             if(prop is UAssetAPI.PropertyTypes.Structs.StructPropertyData sp)
             {
@@ -922,6 +948,10 @@ public static class GenericResourceViewer
                     distributions[pn]=d;
                     parsedProps.Add(new JObject{["Name"]=pn,["Kind"]=d["Kind"],["Value"]=d["Summary"],["Distribution"]=d});
                     if(string.IsNullOrEmpty(summary))summary=$"{pn}: {d["Summary"]}";
+                }
+                else if(st=="Vector2D" && sp.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.Vector2DPropertyData v2)
+                {
+                    parsedProps.Add(new JObject{["Name"]=pn,["Kind"]="Vector2D",["Value"]=$"({v2.Value.X:0.##}, {v2.Value.Y:0.##})",["Vector"]=new JArray(v2.Value.X,v2.Value.Y)});
                 }
                 else if(st=="Vector" && sp.Value.FirstOrDefault() is UAssetAPI.PropertyTypes.Structs.VectorPropertyData vp)
                 {
@@ -988,6 +1018,7 @@ public static class GenericResourceViewer
             ["Category"]=category,
             ["Summary"]=summary,
             ["Properties"]=parsedProps,
+            ["DynamicParameters"]=dynamicParameters,
             ["Distributions"]=distributions,
             ["References"]=references,
             ["RawProperties"]=rawProps,
@@ -1000,7 +1031,7 @@ public static class GenericResourceViewer
     {
         try
         {
-            var asset=loadedAsset??(File.Exists(path)?new UAsset(path,UAssetAPI.UnrealTypes.EngineVersion.VER_UE4_19):null);
+            var asset=loadedAsset??(File.Exists(path)?new UAsset(path,AssetEngineVersion.ForUAsset(path)):null);
             if(asset==null)return null;
             var info=ExtractParticleSystemInfo(asset);
             if(info!=null&&resolve!=null)

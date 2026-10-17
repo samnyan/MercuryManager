@@ -1,12 +1,15 @@
 // APPROXIMATION: bounded BGN material-color slice from cooked Mesh PS, not native
 // lighting/geometry. Preserves actual material math; preview beat/bar are synthetic.
-// Returned canvas uses the existing affine mesh mapping; vertex displacement omitted.
+// Returned canvas uses perspective-correct mesh mapping where available; displacement omitted.
 const updates = new WeakMap<HTMLCanvasElement, (time: number) => void>()
+const disposers = new WeakMap<HTMLCanvasElement, () => void>()
+export function disposeBgnSurface(canvas: HTMLCanvasElement) { disposers.get(canvas)?.(); disposers.delete(canvas); updates.delete(canvas) }
 export function updateBgnSurface(canvas: HTMLCanvasElement, time: number) { updates.get(canvas)?.(time) }
 
 export async function createBgnSurface(project: string, path: string,
   loadImage: (path: string) => Promise<HTMLImageElement | null>): Promise<HTMLCanvasElement | null> {
-  if (!path.endsWith('/vMX_3_BGN_OUS_m_BGN001.uasset')) return null
+  const wall = path.endsWith('/vMX_3_02BGS_002_ODS_m_Wall00.uasset')
+  if (!wall && !path.endsWith('/vMX_3_BGN_OUS_m_BGN001.uasset')) return null
   const response = await fetch(`/api/projects/${encodeURIComponent(project)}/resource-material-shader?includeParticleStages=true&path=${encodeURIComponent(path)}`)
   if (!response.ok) return null
   const payload = await response.json()
@@ -14,8 +17,8 @@ export async function createBgnSurface(project: string, path: string,
   const source: string = stage?.translation?.glsl ?? ''
   // Exact anchors delimit material color/emissive arithmetic before lighting. Unknown
   // permutations are rejected rather than guessing register meanings from parameters.
-  const start = '    highp vec3 _334 = texture(SPIRV_Cross_Combinedt2s1,'
-  const end = '    bvec3 _4118 = isnan(r5.xyz);'
+  const start = wall ? '    highp vec2 _379 = mercury_varying_2.xy' : '    highp vec3 _334 = texture(SPIRV_Cross_Combinedt2s1,'
+  const end = wall ? '    bvec3 _4392 = isnan(r2.xyz);' : '    bvec3 _4118 = isnan(r5.xyz);'
   const a = source.indexOf(start), b = source.indexOf(end)
   if (a < 0 || b <= a || source.indexOf(start, a + 1) >= 0) return null
   const slice = source.slice(a, b)
@@ -24,7 +27,7 @@ export async function createBgnSurface(project: string, path: string,
   const input = stage.materialNumericInput
   if (!input?.uploadValidated || input.bufferIndex !== 6) return null
   const slots = stage.materialTextureInput?.samplerSlots ?? []
-  const names = ['SPIRV_Cross_Combinedt2s1', 'SPIRV_Cross_Combinedt3s2']
+  const names = wall ? ['SPIRV_Cross_Combinedt2s0', 'SPIRV_Cross_Combinedt3s2', 'SPIRV_Cross_Combinedt4s3', 'SPIRV_Cross_Combinedt5s4'] : ['SPIRV_Cross_Combinedt2s1', 'SPIRV_Cross_Combinedt3s2']
   const images = await Promise.all(names.map(async name => {
     const slot = slots.find((s: any) => s.uniformName === name)
     return slot ? loadImage(slot.assetPath) : null
@@ -45,12 +48,12 @@ precision highp float;
 precision highp int;
 in vec4 mercury_varying_2;
 out vec4 outColor;
-uniform sampler2D SPIRV_Cross_Combinedt2s1;
-uniform sampler2D SPIRV_Cross_Combinedt3s2;
+${names.map(name => `uniform sampler2D ${name};`).join('\n')}
 layout(std140) uniform ViewBlock { vec4 _m0[134]; } cb1_0;
 layout(std140) uniform BeatBlock { vec4 _m0[1]; } cb5_0;
-layout(std140) uniform MaterialBlock { vec4 _m0[9]; } cb6_0;
+layout(std140) uniform MaterialBlock { vec4 _m0[${wall ? 15 : 9}]; } cb6_0;
 void main(){vec4 r0=vec4(0),r1=vec4(0),r3=vec4(0),r4=vec4(0),r5=vec4(0);
+${wall ? 'vec4 r2=mercury_varying_2.xyxy+vec4(-0.5,-0.5,-0.1,-0.5),r6=vec4(0);r1.zw=mercury_varying_2.xy;' : ''}
 ${slice}
 // APPROXIMATION: display material contribution without UE scene lighting.
 vec3 color=max(r6.xyz,vec3(0));outColor=vec4(pow(color/(vec3(1)+color),vec3(1.0/2.2)),1);}`
@@ -68,10 +71,11 @@ vec3 color=max(r6.xyz,vec3(0));outColor=vec4(pow(color/(vec3(1)+color),vec3(1.0/
       gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, name), binding); gl.bindBufferBase(gl.UNIFORM_BUFFER, binding, buffer)
       return buffer
     }
-    bind('ViewBlock', 0, new Float32Array(134 * 4)) // only material texture mip bias [133].x is used
+    const viewData = new Float32Array(134 * 4)
+    const view = bind('ViewBlock', 0, viewData) // mip bias is zero; only time is animated
     const beat = bind('BeatBlock', 1, new Float32Array(4))
     const bytes = Uint8Array.from(atob(input.data), c => c.charCodeAt(0))
-    if (bytes.length !== 144) throw new Error('Unexpected BGN material layout')
+    if (bytes.length !== (wall ? 240 : 144)) throw new Error('Unexpected background material layout')
     bind('MaterialBlock', 2, bytes)
     images.forEach((image, i) => {
       const t = gl.createTexture()!; resources.push(t); gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t)
@@ -80,20 +84,24 @@ vec3 color=max(r6.xyz,vec3(0));outColor=vec4(pow(color/(vec3(1)+color),vec3(1.0/
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
       gl.uniform1i(gl.getUniformLocation(program, names[i]!), i)
     })
-    // Pre-render a bounded cycle and release GL ownership immediately. Playback uses
-    // cached GPU results, not a permanently allocated context for each emitter.
-    const frames: HTMLCanvasElement[] = []
-    for (let i = 0; i < 24; i++) {
-      gl.bindBuffer(gl.UNIFORM_BUFFER, beat)
-      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([(i % 6) / 6, (i + 0.5) / 24, 0, 0]))
-      gl.viewport(0, 0, 256, 256); gl.drawArrays(gl.TRIANGLES, 0, 3)
-      const frame = document.createElement('canvas'); frame.width = frame.height = 256
-      frame.getContext('2d')!.drawImage(gpu, 0, 0); frames.push(frame)
-    }
+    // APPROXIMATION: continuous synthetic 120 BPM signal; screen UV is projected
+    // onto the preview surface, not the game's scene viewport. No vertex deformation.
     const result = document.createElement('canvas'); result.width = result.height = 256
     result.dataset.previewProfile = 'approximate-bgn-material-cycle'
-    updates.set(result, time => result.getContext('2d')!.drawImage(frames[Math.floor(Math.max(0, time) * 12) % frames.length]!, 0, 0))
+    let previousTime = NaN
+    updates.set(result, time => {
+      if (time === previousTime || gl.isContextLost()) return
+      previousTime = time
+      gl.useProgram(program)
+      viewData[132 * 4 + 2] = time
+      gl.bindBuffer(gl.UNIFORM_BUFFER, view); gl.bufferSubData(gl.UNIFORM_BUFFER, 0, viewData)
+      gl.bindBuffer(gl.UNIFORM_BUFFER, beat)
+      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, new Float32Array([(time * 2) % 1, (time / 2) % 1, 0, 0]))
+      gl.viewport(0, 0, 256, 256); gl.drawArrays(gl.TRIANGLES, 0, 3)
+      result.getContext('2d')!.drawImage(gpu, 0, 0)
+    })
+    disposers.set(result, cleanup)
     updateBgnSurface(result, 0)
     return result
-  } finally { cleanup() }
+  } catch (error) { cleanup(); throw error }
 }

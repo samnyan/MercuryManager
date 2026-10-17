@@ -13,6 +13,8 @@ export function drawParticleMeshPreview(
   project: (x: number, y: number, z: number) => { sx: number; sy: number; depth: number } | null,
   texture?: HTMLCanvasElement | null
 ): number {
+  const opacity = Number.isFinite(p.a) ? Math.max(0, Math.min(1, p.a)) : 0
+  if (opacity === 0) return 0
   const vertices: [number, number, number][] = []
   for (let i = 0; i < mesh.positions.length; i += 3)
     vertices.push(transformMeshVertex(mesh.positions[i]!, mesh.positions[i + 1]!, mesh.positions[i + 2]!, p))
@@ -38,7 +40,7 @@ export function drawParticleMeshPreview(
   triangles.sort((a, b) => b.depth - a.depth)
   ctx.save()
   ctx.globalCompositeOperation = p.blendMode.includes('Additive') ? 'lighter' : 'source-over'
-  ctx.globalAlpha = Math.max(0, Math.min(1, p.a))
+  ctx.globalAlpha = opacity
   const uv = mesh.texCoords?.[0]
   const pattern = texture && texture.width && texture.height ? ctx.createPattern(texture, 'repeat') : null
   for (const { a, b, c, ia, ib, ic, light } of triangles) {

@@ -236,11 +236,15 @@ function initSelection() {
       if (!signal.aborted) meshLoadErrors.value[index] = `${path}: ${error instanceof Error ? error.message : String(error)}`
     })
   })
+  simEngine?.dispose()
   simEngine = new ParticleSimulationEngine(props.info)
   const engine = simEngine
   buildParticleMaterialSprites(props.info, loadRawImage, undefined, project.id).then(sprites => {
     if (!signal.aborted && simEngine === engine) {
       engine.setMaterialSprites(sprites)
+    } else {
+      const abandoned = new ParticleSimulationEngine({ ...props.info, Emitters: [] })
+      abandoned.setMaterialSprites(sprites); abandoned.dispose()
     }
   })
 }
@@ -440,6 +444,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  simEngine?.dispose()
   meshAbort?.abort()
   emitterMeshes.clear()
   emitterMeshRadii.clear()
