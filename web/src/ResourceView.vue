@@ -12,6 +12,7 @@ import GenericResourceViewer from './components/resource/GenericResourceViewer.v
 import UMGDesigner from './components/resource/umg/UMGDesigner.vue'
 import BlueprintViewer from './components/resource/BlueprintViewer.vue'
 import MerResourceViewer from './components/resource/MerResourceViewer.vue'
+import AssetRegistryViewer from './components/resource/AssetRegistryViewer.vue'
 import MaterialResourceViewer from './components/resource/MaterialResourceViewer.vue'
 import MaterialInstanceViewer from './components/resource/MaterialInstanceViewer.vue'
 import MaterialFunctionViewer from './components/resource/MaterialFunctionViewer.vue'
@@ -58,6 +59,7 @@ const busy = ref(false)
 const isAudio = ref(false)
 const isBlueprint = ref(false)
 const isMer = ref(false)
+const isRegistry = ref(false)
 const blueprint = ref<any>()
 const umgDoc = ref<any>()
 watch(mode,async value=>{if(value==='generic'&&isBlueprint.value&&!data.value){const request=generation;busy.value=true;try{const result=await api<{data:any}>(`/projects/${project.id}/resource-data?`+new URLSearchParams({path:path.value}));if(request===generation)data.value=result.data}catch(e){if(request===generation)error.value=String(e)}finally{if(request===generation)busy.value=false}}})
@@ -210,6 +212,7 @@ watch(
     isAudio.value = false
     isBlueprint.value = false
     isMer.value = false
+    isRegistry.value = false
     blueprint.value = undefined
     isMaterialInstance.value = false
     isMaterial.value = false
@@ -227,6 +230,7 @@ watch(
     controller = current
 
     try {
+      if(path.value === '@AssetRegistry.bin'){isRegistry.value=true;mode.value='registry';busy.value=false;return}
       if(path.value.endsWith('.mer')){isMer.value=true;mode.value='mer';busy.value=false;return}
       if(path.value.endsWith('.awb')){isAudio.value=true;mode.value='awb';busy.value=false;return}
       const result = await api<{ isTexture: boolean; data: any }>(
@@ -421,7 +425,8 @@ onBeforeUnmount(() => {
 
 
     <div class="resource-main-pane view-grid-fill">
-      <mer-resource-viewer v-if="isMer && !busy" :path="path" class="resource-fill-item" />
+      <asset-registry-viewer v-if="isRegistry && !busy" class="resource-fill-item" />
+      <mer-resource-viewer v-else-if="isMer && !busy" :path="path" class="resource-fill-item" />
       <audio-resource-viewer v-else-if="isAudio && !busy && mode === 'awb'" :path="path" class="resource-fill-item" />
       <div v-else-if="busy" class="resource-loading-pane">
         <n-spin size="large" />

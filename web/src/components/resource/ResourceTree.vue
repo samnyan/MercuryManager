@@ -90,6 +90,8 @@ watch(
       loading.value = true
       try {
         nodes.value = await children('')
+        const registry = await api<{exists:boolean}>(`/projects/${project.id}/asset-registry-exists`)
+        if (registry.exists) nodes.value.unshift({ key: '@AssetRegistry.bin', label: 'AssetRegistry.bin', isLeaf: true })
         if (route.query.path) {
           await revealPath(String(route.query.path))
         }

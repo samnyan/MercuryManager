@@ -28,7 +28,7 @@ public sealed class ProjectManager(MusicWorkspaceStore assets,GameContent conten
         using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var p=Read(id);hash.AppendData(System.Text.Encoding.UTF8.GetBytes(p.Name+"\n"+p.ContentRoot+(p.EngineVersion is null?"":"\n"+p.EngineVersion)));
         var working=Path.Combine(DirectoryFor(id),"working");
-        if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Resources"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
+        if(Directory.Exists(working))foreach(var f in Directory.GetFiles(working,"*",SearchOption.AllDirectories).Where(f=>(Path.GetRelativePath(working,f).StartsWith("Resources"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Imported"+Path.DirectorySeparatorChar)||Path.GetRelativePath(working,f).StartsWith("Registry"+Path.DirectorySeparatorChar)||Path.GetFileName(f) is "draft.json" or "additions.json")).Order(StringComparer.Ordinal))
         {
             var rel = Path.GetRelativePath(working, f);
             var info = new FileInfo(f);
